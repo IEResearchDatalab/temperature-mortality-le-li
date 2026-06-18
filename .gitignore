@@ -1,3 +1,9 @@
+# Paper references
+references/
+
+# Temporal files
+scripts/temp/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -142,10 +148,11 @@ __marimo__/
 results/
 !results/.gitkeep
 
-# ─── Large data files (too big for git) ──────────────
+# ─── External data (too big for git; see data/README.md for sources) ─
+data/tmeanproj.gz.parquet
+data/coef_simu.csv
 *.parquet
 *.gz.parquet
-tmeanproj*
 *.gpkg
 *.geojson
 *.xlsx
