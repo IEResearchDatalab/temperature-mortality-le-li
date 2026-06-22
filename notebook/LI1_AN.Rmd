@@ -405,6 +405,7 @@ proj_long[, c("af_day", "an_day") := {
   bvarcen <- scale(bvar, center = cenvec, scale = FALSE)
   coef_vec <- c(b1[1], b2[1], b3[1], b4[1], b5[1])
   af <- 1 - exp(-bvarcen %*% coef_vec)
+  af[af < 0] <- 0  # Gasparrini & Leone (2014): range-parameter approach
   daily_deaths <- annual_deaths[1] / n_days_year[1]
   list(as.vector(af), as.vector(af * daily_deaths))
 }, by = .(age_group, year)]

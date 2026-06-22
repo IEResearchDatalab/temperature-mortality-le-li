@@ -163,6 +163,11 @@ load_eurostat_mortality <- function(country_code, sex = "M",
 
   # Latest historical mx as baseline (most recent year with data)
   lt_last <- lt[year == max(year), .(age, mx_base = mx_hist)]
+  # Extrapolate mx_base for ages beyond available data (forward fill)
+  all_ages <- data.table(age = age_min:age_max)
+  lt_last <- merge(all_ages, lt_last, by = "age", all.x = TRUE)
+  lt_last[, mx_base := nafill(mx_base, type = "locf")]
+  lt_last[mx_base <= 0 | is.na(mx_base), mx_base := 1e-10]
 
   # Build full age-year grid with projected mx = mx_base * mx_ratio
   age_year_grid <- CJ(age = age_min:age_max, year = year_min:year_max)
@@ -172,6 +177,10 @@ load_eurostat_mortality <- function(country_code, sex = "M",
   result[, mx := mx_base * mx_ratio]
   result <- unique(result[, .(age, year, mx, mx_ratio, mx_base)],
     by = c("age", "year"))
+
+  # Forward-fill mx_ratio across ages for missing oldest ages
+  setorder(result, year, age)
+  result[, mx_ratio := nafill(mx_ratio, type = "locf"), by = year]
 
   # Ensure all age-year combinations are covered
   full <- CJ(age = age_min:age_max, year = year_min:year_max)

@@ -80,6 +80,7 @@ compute_daily_an <- function(temps, coefs, mmt, annual_deaths,
   bvarcen <- scale(bvar, center = cenvec, scale = FALSE)
 
   af_day <- 1 - exp(-bvarcen %*% coefs)
+  af_day[af_day < 0] <- 0  # Gasparrini & Leone (2014): range approach
   daily_deaths <- annual_deaths / n_days_year
   an_day <- af_day * daily_deaths
 

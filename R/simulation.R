@@ -31,6 +31,7 @@ simulate_an <- function(temps, coefs, vcov_mat, mmt, annual_deaths,
   # Simulated ANs
   an_sim <- apply(coef_sim, 1, function(cf) {
     af <- 1 - exp(-bvarcen %*% cf)
+    af[af < 0] <- 0
     sum(af * daily_deaths)
   })
 

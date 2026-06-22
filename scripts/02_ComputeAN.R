@@ -20,13 +20,24 @@ cat(as.character(as.POSIXct(Sys.time())), "\n", file = "temp/log_an.txt", append
 
 cat("Computing AN for", n_cities, "cities...\n")
 
+#----- Checkpoint directory (per-city CSVs for resumability)
+an_checkpoint <- file.path(path_out, "an_checkpoint")
+dir.create(an_checkpoint, showWarnings = FALSE)
+
 #---------------------------
 # Sequential loop over cities (parquet read is I/O bound)
 #---------------------------
 
-all_results <- list()
-
 for (ic in seq_len(n_cities)) {
+
+  cc <- city_codes[ic]
+  checkpoint_file <- file.path(an_checkpoint, paste0(cc, ".csv"))
+
+  # Skip if this city was already computed
+  if (file.exists(checkpoint_file)) {
+    cat(sprintf("  Skipping %s (checkpoint found)\n", cc))
+    next
+  }
 
   cc <- city_codes[ic]
   cat("\n", "city ", ic, "/", n_cities, ": ", cc, " ", 
@@ -101,6 +112,10 @@ for (ic in seq_len(n_cities)) {
         bvarcen <- scale(bvar, center = cenvec, scale = FALSE)
 
         af_day <- 1 - exp(-bvarcen %*% coef_vec)
+        # Gasparrini & Leone (2014) range approach:
+        # if centering at MMT gives negative AF, the true minimum is elsewhere
+        # and this temperature contributes zero attributable risk
+        af_day[af_day < 0] <- 0
         annual_deaths <- base_death[ag]
         daily_deaths <- annual_deaths / 365
         an_day <- as.vector(af_day * daily_deaths)
@@ -150,12 +165,17 @@ for (ic in seq_len(n_cities)) {
   }
 
   if (length(city_results) > 0) {
-    all_results[[length(all_results) + 1]] <- rbindlist(city_results, fill = TRUE)
-    cat(sprintf("  City %s: %d rows\n", cc, nrow(all_results[[length(all_results)]])))
+    city_dt <- rbindlist(city_results, fill = TRUE)
+    fwrite(city_dt, checkpoint_file)
+    cat(sprintf("  City %s: %d rows -> %s\n", cc, nrow(city_dt),
+      basename(checkpoint_file)))
   }
 }
 
-all_results <- rbindlist(all_results, fill = TRUE)
+#----- Aggregate all checkpoints
+cat("Aggregating checkpoints...\n")
+checkpoint_files <- list.files(an_checkpoint, pattern = "\\.csv$", full.names = TRUE)
+all_results <- rbindlist(lapply(checkpoint_files, fread), fill = TRUE)
 cat("AN complete:", format(nrow(all_results), big.mark = ","), "rows\n")
 fwrite(all_results, file.path(path_out, "ans_annual_all_cities.csv"))
 cat("Written:", file.path(path_out, "ans_annual_all_cities.csv"), "\n")

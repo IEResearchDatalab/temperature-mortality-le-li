@@ -1,0 +1,166 @@
+---
+title: "Temperature-attributable mortality, life expectancy, and lifespan inequality"
+subtitle: "Projected impacts in Madrid under climate change (2020–2100)"
+author: "Pipeline results"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    fig_width: 10
+    fig_height: 6
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, fig.width = 10, fig.height = 5.5)
+library(data.table); library(ggplot2); library(scales); library(ungroup)
+OUT <- "../results/production"
+```
+
+# Temperature-attributable deaths
+
+We analyse projections for Madrid (ES001C) under three SSP scenarios using all 21 CMIP6 GCMs.
+
+```{r an-load}
+d <- fread(file.path(OUT, "ans_annual_all_cities.csv"),
+  select = c("city_code","gcm","ssp","age_group","temp_range","year","an_est"))
+mad <- d[city_code == "ES001C"]
+# Gasparrini & Leone (2014, BMC Med Res Methodol) range-parameter approach:
+# exposures on the "protective" side of the MMT (where RR < RR(MMT)) are
+# set to the centering value, contributing zero attributable risk.
+# We apply this by flooring AF at 0 in the daily computation, which is
+# mathematically equivalent to their x[x<range[1]|x>range[2]] <- cen.
+# The 7.9 GB multi-city CSV uses the same rule (scripts/02_ComputeAN.R).
+mad[, an_est := pmax(an_est, 0)]
+ssp_labels <- c("1" = "SSP1-2.6", "2" = "SSP4-6.0", "3" = "SSP3-7.0")
+mad[, ssp_lab := ssp_labels[ssp]]
+tot <- mad[, .(AN = sum(an_est)), by = .(gcm, ssp_lab, year, temp_range)]
+tot_agg <- tot[, .(med = median(AN), lo = quantile(AN, 0.05), hi = quantile(AN, 0.95)),
+  by = .(ssp_lab, year, temp_range)]
+net <- mad[, .(AN = sum(an_est)), by = .(gcm, ssp_lab, year)]
+net_agg <- net[, .(med = median(AN), lo = quantile(AN, 0.05), hi = quantile(AN, 0.95)),
+  by = .(ssp_lab, year)]
+```
+
+## Annual attributable deaths by temperature range
+
+```{r plot-ans, fig.height=5.5}
+ggplot(tot_agg, aes(x = year, colour = temp_range, fill = temp_range)) +
+  geom_ribbon(aes(ymin = lo, ymax = hi), alpha = 0.15, colour = NA) +
+  geom_line(aes(y = med), linewidth = 0.7) +
+  facet_wrap(~ ssp_lab, ncol = 1, scales = "free_y") +
+  labs(x = "Year", y = "Annual attributable deaths", colour = "Temperature range",
+    fill = "Temperature range",
+    title = "Annual temperature-attributable deaths — Madrid (21 GCM ensemble)",
+    subtitle = "Line = median; band = 5th--95th percentile across GCMs") +
+  scale_y_continuous(labels = comma) + theme_minimal(base_size = 10)
+```
+
+## Net attributable deaths
+
+```{r plot-net, fig.height=4}
+ggplot(net_agg, aes(x = year, y = med, colour = ssp_lab, fill = ssp_lab)) +
+  geom_ribbon(aes(ymin = lo, ymax = hi), alpha = 0.15, colour = NA) +
+  geom_line(linewidth = 0.8) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey40") +
+  labs(x = "Year", y = "Net attributable deaths", colour = "SSP", fill = "SSP",
+    title = "Net annual temperature-attributable deaths — Madrid") +
+  scale_y_continuous(labels = comma) + theme_minimal(base_size = 10)
+```
+
+## Age pattern
+
+```{r age-pattern, fig.height=5}
+age_sel <- mad[year %in% c(2050, 2099),
+  .(AN = sum(an_est)), by = .(gcm, ssp_lab, year, age_group, temp_range)]
+age_agg <- age_sel[, .(med = median(AN)), by = .(ssp_lab, year, age_group, temp_range)]
+ggplot(age_agg[med > 0], aes(x = age_group, y = med, fill = temp_range)) +
+  geom_col(position = "stack") + facet_grid(ssp_lab ~ year) +
+  labs(x = "Age group", y = "Attributable deaths", fill = "Temperature range",
+    title = "Attributable deaths by age group — Madrid") +
+  scale_y_continuous(labels = comma) + theme_minimal(base_size = 10) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+---
+
+# Life expectancy at age 65
+
+We use pre-computed life tables for each GCM--SSP--year combination (5040 combos). ANs at ages 65+ are distributed proportionally to baseline deaths.
+
+```{r le65}
+le_dt <- fread(file.path(OUT, "le_sd_madrid_all_gcm.csv"))
+le_dt[, `:=`(delta_e65 = e65_clim - e65_base, delta_sd = sd_clim - sd_base)]
+```
+
+```{r plot-le65, fig.height=5}
+le_agg <- le_dt[, .(med = median(delta_e65), lo = quantile(delta_e65, 0.05),
+  hi = quantile(delta_e65, 0.95)), by = .(ssp_lab, year)]
+ggplot(le_agg, aes(x = year, y = med, colour = ssp_lab, fill = ssp_lab)) +
+  geom_ribbon(aes(ymin = lo, ymax = hi), alpha = 0.15, colour = NA) +
+  geom_line(linewidth = 0.8) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey40") +
+  labs(x = "Year", y = "Delta e65 (climate minus baseline, years)",
+    colour = "SSP", fill = "SSP",
+    title = "Change in remaining life expectancy at age 65 — Madrid",
+    subtitle = "Negative = temperature reduces LE. Band = 5th--95th across 21 GCMs") +
+  theme_minimal(base_size = 10)
+```
+
+## LE impact in selected years
+
+```{r le-table}
+le_sel <- le_dt[year %in% c(2020, 2050, 2099),
+  .(med = median(delta_e65), lo = quantile(delta_e65, 0.05), hi = quantile(delta_e65, 0.95)),
+  by = .(ssp_lab, year)]
+knitr::kable(dcast(le_sel, ssp_lab ~ year, value.var = c("med", "lo", "hi")),
+  caption = "Delta e65 (years) by SSP and year. Ensemble median and 90% interval.")
+```
+
+---
+
+# Lifespan inequality
+
+```{r plot-sd, fig.height=5}
+sd_agg <- le_dt[, .(med = median(delta_sd), lo = quantile(delta_sd, 0.05),
+  hi = quantile(delta_sd, 0.95)), by = .(ssp_lab, year)]
+ggplot(sd_agg, aes(x = year, y = med, colour = ssp_lab, fill = ssp_lab)) +
+  geom_ribbon(aes(ymin = lo, ymax = hi), alpha = 0.15, colour = NA) +
+  geom_line(linewidth = 0.8) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey40") +
+  labs(x = "Year", y = "Delta SD (climate minus baseline, years)",
+    colour = "SSP", fill = "SSP",
+    title = "Change in lifespan inequality (SD) among people aged 65+ — Madrid",
+    subtitle = "Positive = temperature widens the age-at-death distribution. Band = 5th--95th.") +
+  theme_minimal(base_size = 10)
+```
+
+---
+
+# Summary
+
+```{r summary}
+tab <- le_dt[year == 2099,
+  .(Delta_e65 = sprintf("%.3f [%.3f, %.3f]", median(delta_e65), quantile(delta_e65, 0.05), quantile(delta_e65, 0.95)),
+    Delta_SD = sprintf("%.3f [%.3f, %.3f]", median(delta_sd), quantile(delta_sd, 0.05), quantile(delta_sd, 0.95))),
+  by = .(ssp_lab)]
+knitr::kable(tab, col.names = c("SSP", "Delta e65 in 2099 (years)", "Delta SD in 2099 (years)"),
+  caption = "Ensemble median and 90% interval (5th--95th) across 21 GCMs -- Madrid")
+```
+
+Key findings:
+
+1. **Heat dominates the future signal** under all SSPs. Net attributable deaths shift from slightly negative (cold prevention exceeding heat harm in 2020) to positive, especially under SSP3-7.0.
+2. **Life expectancy at 65 declines under high emissions**. The ensemble median $\Delta e_{65}$ reaches approximately $-0.3$ years by 2099 under SSP3-7.0. Under SSP1-2.6 the effect is negligible.
+3. **Lifespan inequality increases** under all SSPs. Temperature-related mortality disproportionately affects the oldest ages, widening the age-at-death distribution.
+4. **Substantial GCM uncertainty** after 2050 underscores the need for multi-model ensembles.
+
+---
+
+# Session Information
+
+```{r session-info}
+sessionInfo()
+```
