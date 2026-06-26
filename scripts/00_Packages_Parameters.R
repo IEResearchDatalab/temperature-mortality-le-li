@@ -37,15 +37,23 @@ path_out <- "../results/production"
 
 dir.create(path_out, recursive = TRUE, showWarnings = FALSE)
 
+# Set seed for reproducibility
+seed_main <- 12345
+set.seed(seed_main)
+
 # City selection (all 854 European cities)
 # If NULL, all cities in coefs.csv are processed
-city_subset <- NULL  # All 854 cities
+# If a single city code (e.g. "ES001C" for Madrid), only that city is processed
+city_subset <- "ES001C"  # Madrid demo; set to NULL for all 854 cities
 
 # Scenario selection
-ssp_values <- c(1, 2, 3)      # SSP1-2.6, SSP3-7.0, SSP5-8.5
-ssp_labels <- c("1" = "SSP1-2.6", "2" = "SSP4-6.0", "3" = "SSP3-7.0",
-  "4" = "SSP5-8.5")
-ssp_keep <- c("hist", "1", "2", "3", "4")  # All SSPs
+ssp_keep <- c("hist", "1", "2", "3")
+ssp_labels <- c(
+  "hist" = "Historical",
+  "1"  = "SSP1-2.6",
+  "2"  = "SSP3-7.0",
+  "3"  = "SSP5-8.5"
+)
 
 # Time windows
 hist_year_min <- 1990
@@ -77,4 +85,4 @@ varper <- c(10, 75, 90)
 nsim <- 1000
 
 # Number of cores for parallel computation
-ncores <- max(1, detectCores() - 2)
+ncores <- max(1, parallel::detectCores() - 2)
