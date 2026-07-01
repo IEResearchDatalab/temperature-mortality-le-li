@@ -82,7 +82,14 @@ foreach(i = 1:ncities, .packages = c("data.table", "dplyr", "arrow", "dlnm", "sp
       hist_merge <- merge(t_hist_gcm, t_obs_sub, by = "date", suffixes = c("_gcm", "_obs"))
       
       # Apply ISIMIP3 bias correction
-      t_bc <- isimip3(t_raw$tmean, hist_merge$tmean_gcm, hist_merge$tmean_obs)
+      t_bc <- isimip3(
+        obshist = hist_merge$tmean_obs, 
+        simhist = hist_merge$tmean_gcm, 
+        simfut = t_raw$tmean,
+        yearobshist = year(hist_merge$date),
+        yearsimhist = year(hist_merge$date),
+        yearsimfut = year(t_raw$date)
+      )
       
       # Calculate thresholds for disaggregation from BC historical distribution
       t_bc_hist <- t_bc[year(t_raw$date) %in% hist_years]
