@@ -75,11 +75,14 @@ foreach(i = 1:ncities, .packages = c("data.table", "dplyr", "arrow", "dlnm", "sp
       
       # Bias correction
       # Train on historical period (overlapping obs and GCM historical)
-      t_hist_gcm <- t_raw[year(date) %in% hist_years]
+      # Note: Projections parquet has 'hist' ssp for dates before 2015
+      t_hist_gcm <- proj_city[ssp == "hist" & year(date) %in% hist_years, .(date, tmean = get(t_col))]
       t_obs_sub <- obs_city[year(date) %in% hist_years]
       
       # Merge to ensure alignment
       hist_merge <- merge(t_hist_gcm, t_obs_sub, by = "date", suffixes = c("_gcm", "_obs"))
+      
+      if(nrow(hist_merge) == 0) next
       
       # Apply ISIMIP3 bias correction
       t_bc <- isimip3(
