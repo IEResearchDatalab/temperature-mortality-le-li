@@ -63,7 +63,7 @@ madrid_one <- madrid_decomp[gcm == one_gcm & ssp == "2"]
 
 p <- ggplot(madrid_one, aes(x = age, y = delta_e65, fill = cause)) +
   geom_bar(stat = "identity", width = 1) +
-  facet_wrap(~period, ncol = 1, scales = "free_y") +
+  facet_wrap(~period, ncol = 1, scales = "fixed") +
   labs(title = sprintf("Madrid SSP3-7.0: Decomposition of e65 change (%s)", one_gcm),
        subtitle = "Aburto/Horiuchi linear integral decomposition by age and temperature cause.",
        caption = "Bars = contribution of each age-cause combination to the total e65 change.
@@ -89,7 +89,7 @@ cat(sprintf("  08a: e65 decomposition saved\n"))
 
 p <- ggplot(madrid_one, aes(x = age, y = delta_sd, fill = cause)) +
   geom_bar(stat = "identity", width = 1) +
-  facet_wrap(~period, ncol = 1, scales = "free_y") +
+  facet_wrap(~period, ncol = 1, scales = "fixed") +
   labs(title = sprintf("Madrid SSP3-7.0: Decomposition of LI change (%s)", one_gcm),
        subtitle = "LI = SD of age at death above 65. Linear integral decomposition.",
        caption = "Bars = contribution of each age-cause to SD change.

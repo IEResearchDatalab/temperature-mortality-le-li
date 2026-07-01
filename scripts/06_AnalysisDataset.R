@@ -67,6 +67,8 @@ single_an <- merge(single_an, baseline_deaths_single, by = c("city_code", "age")
 single_an[baseline_deaths > 0, AF := AN / baseline_deaths]
 single_an[baseline_deaths <= 0 | is.na(baseline_deaths), AF := 0]
 single_an[is.na(AF), AF := 0]
+# Cap AF at 1 (prevents spikes at ages where baseline deaths ≈ 0)
+single_an[AF > 1, AF := 1]
 
 #---------------------------
 # Step 2 — Apply AF to projected deaths

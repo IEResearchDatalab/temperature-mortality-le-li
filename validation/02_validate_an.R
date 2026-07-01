@@ -62,7 +62,7 @@ if (nrow(ans) > 0) {
 
   p <- ggplot(ans_ts, aes(x = year, y = total_AN, color = temp_range)) +
     geom_line(linewidth = 1) +
-    facet_wrap(~ssp, scales = "free_y",
+    facet_wrap(~ssp, scales = "fixed",
       labeller = labeller(ssp = ssp_labels)) +
     labs(title = "Madrid: Annual temperature-attributable deaths by range",
          subtitle = "Climate-only ANs under fixed baseline deaths (all GCMs averaged)",
