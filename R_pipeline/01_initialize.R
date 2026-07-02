@@ -19,7 +19,7 @@ library(arrow)
 
 # Number of Monte Carlo simulations and cores for parallelization
 nsim <- 500
-n_cores <- 8
+n_cores <- 24
 
 #----- Study periods and scenarios
 

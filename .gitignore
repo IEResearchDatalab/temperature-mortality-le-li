@@ -1,10 +1,6 @@
 # Paper references
 references/
 
-# Temporal files
-scripts/temp/
-temp_results/
-
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -147,6 +143,7 @@ __marimo__/
 
 # ─── Generated output ────────────────────────────────
 results/
+temp_*
 
 # ─── External data (too big for git; see data/README.md for sources) ─
 data/tmeanproj.gz.parquet
