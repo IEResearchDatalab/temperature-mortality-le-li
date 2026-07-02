@@ -44,8 +44,26 @@ The work is organized into a robust 4-part pipeline located in [R_pipeline/](R_p
 
 | File | Size | Source | Description |
 |---|---|---|---|
-| `tmean/` | ~3.2 GB | ISIMIP3b CMIP6 | Hive-partitioned daily mean temperature parquet (SSP and URAU_CODE). |
+| `tmeanproj.gz.parquet` | ~3.2 GB | ISIMIP3b CMIP6 | Daily mean temperature parquet (compressed) for 854 cities. |
 | `coef_simu.csv` | 470 MB | Same Zenodo record | 1000 simulated coefficient vectors per city × age group. |
+
+## Usage
+
+The pipeline should be run sequentially from the root of the repository:
+
+```bash
+# 1. Initialize environment and check requirements
+Rscript R_pipeline/01_initialize.R
+
+# 2. Prepare city data and thresholds
+Rscript R_pipeline/02_prep_data.R
+
+# 3. Run attribution simulations (highly recommended to run in background)
+nohup Rscript R_pipeline/03_attribution.R > simulation.log 2>&1 &
+
+# 4. Aggregate results and perform validation
+Rscript R_pipeline/04_aggregate_results.R
+```
 
 ## References
 

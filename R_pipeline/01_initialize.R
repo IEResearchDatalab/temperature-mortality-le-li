@@ -27,7 +27,7 @@ gcms <- c("GFDL_ESM4", "IPSL_CM6A_LR", "MPI_ESM1_2_HR", "MRI_ESM2_0")
 knots_percentiles <- c(10, 75, 90)
 
 # Paths
-path_tmean <- "data/tmean"  # Hive partitioned parquet
+path_tmean <- "data/tmeanproj.gz.parquet"  # Daily mean temperature parquet
 path_coef_simu <- "data/coef_simu.csv"
 path_coefs <- "data/coefs.csv"
 path_vcov <- "data/vcov.csv"
