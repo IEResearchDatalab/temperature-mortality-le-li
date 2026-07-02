@@ -1,11 +1,9 @@
 ################################################################################
 # 
-# Contrasting future heat and cold-related mortality under climate change, 
-# demographic and adaptation scenarios in 854 European cities
+# TEST VERSION: Process only 50 cities to validate hist_years fix
 #
-# R Code Part 3: Perform health impact projections across cities
-#
-# Adapted from Pierre Masselot & Antonio Gasparrini
+# This script tests whether changing hist_years from 1990:2014 to 2000:2014
+# reduces the validation discrepancy with Masselot et al. (2025)
 #
 ################################################################################
 
@@ -23,7 +21,6 @@ source("R_pipeline/01_initialize.R")
 
 #----- Bias correction function (ISIMIP3)
 
-# Inlining isimip3 function to avoid external dependencies
 isimip3 <- function(obshist, simhist, simfut, 
   yearobshist, yearsimhist, yearsimfut, detrend = T)
 {
@@ -52,16 +49,23 @@ isimip3 <- function(obshist, simhist, simfut,
   calsimfut
 }
 
-message("\n[2/3] Starting attribution simulations...")
+message("\n[TEST] Starting attribution simulations for 50 cities...")
+message("[TEST] Using hist_years = ", min(hist_years), ":", max(hist_years))
 
 #----- Prepare data and directory
 
 load("data/prep_data.RData")
-dir.create("temp_results", showWarnings = FALSE)
+dir.create("temp_results_test50", showWarnings = FALSE)
+
+#----- Select 50 cities for testing (diverse countries)
+
+# Select first 50 cities for quick test
+cities_test <- cities[1:50]
+message("[TEST] Processing cities: ", paste(head(cities_test, 5), collapse=", "), " ... (50 total)")
 
 #----- Prepare parallel loop
 
-cl <- makeCluster(n_cores)
+cl <- makeCluster(min(n_cores, 8))
 registerDoSNOW(cl)
 
 # Export objects to workers
@@ -70,16 +74,16 @@ clusterExport(cl, c("isimip3", "nsim", "scenarios", "gcms", "hist_years",
                    "thresholds", "obs_data"))
 
 # Initialize progress bar
-pb <- txtProgressBar(max = length(cities), style = 3)
+pb <- txtProgressBar(max = length(cities_test), style = 3)
 progress <- function(n) setTxtProgressBar(pb, n)
 opts <- list(progress = progress)
 
 #----- Iterate on cities
 
-results <- foreach(city_id = cities, .packages = c("data.table", "arrow", "dlnm", "splines", "dplyr"), .options.snow = opts) %dopar% {
+results <- foreach(city_id = cities_test, .packages = c("data.table", "arrow", "dlnm", "splines", "dplyr"), .options.snow = opts) %dopar% {
   
   # Check if result already exists to allow resuming
-  out_path <- paste0("temp_results/", city_id, ".rds")
+  out_path <- paste0("temp_results_test50/", city_id, ".rds")
   if(file.exists(out_path)) return(paste0("Skipped: ", city_id))
 
   # Extract city metadata
@@ -181,7 +185,7 @@ results <- foreach(city_id = cities, .packages = c("data.table", "arrow", "dlnm"
   
   if(length(city_results_list) > 0) {
     city_total <- rbindlist(city_results_list)
-    saveRDS(city_total, paste0("temp_results/", city_id, ".rds"))
+    saveRDS(city_total, paste0("temp_results_test50/", city_id, ".rds"))
     return(paste0("Success: ", city_id))
   } else {
     return(paste0("Empty: ", city_id))
@@ -193,7 +197,10 @@ close(pb)
 
 errors <- results[!grepl("^(Success|Skipped)", results)]
 if(length(errors) > 0) {
-  message("\nNotice: ", length(errors), " cities were not processed successfully.")
+  message("\n[TEST] Notice: ", length(errors), " cities were not processed successfully.")
 } else {
-  message("\nSimulations completed for all cities.")
+  message("\n[TEST] Simulations completed for all 50 test cities.")
 }
+
+message("\n[TEST] Results saved to temp_results_test50/")
+message("[TEST] Next step: Run validation script on these 50 cities")
