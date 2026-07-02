@@ -129,7 +129,7 @@ table_s6 <- t1_combined[, .(
 ), by = .(country, decade, ssp, type)]
 
 fwrite(table_s6, "tables/Table_Masselot2023_S6_Country.csv")
-results/tables/Table_Masselot2023_S6_Country.csv")
+fwrite(table_s6, "results/tables/Table_Masselot2023_S6_Country.csv")
 
 table_s1 <- t1_raw[, .(
   an_total = sum(an_total)
