@@ -3,6 +3,7 @@ references/
 
 # Temporal files
 scripts/temp/
+temp_results/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
