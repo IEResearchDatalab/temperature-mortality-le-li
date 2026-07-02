@@ -9,6 +9,8 @@
 #
 ################################################################################
 
+#----- Libraries and environment
+
 library(data.table)
 library(arrow)
 library(doSNOW)
@@ -16,7 +18,10 @@ library(dlnm)
 library(splines)
 library(dplyr)
 
+# Source global parameters
 source("R_pipeline/01_initialize.R")
+
+#----- Bias correction function (ISIMIP3)
 
 # Inlining isimip3 function to avoid external dependencies
 isimip3 <- function(obshist, simhist, simfut, 
@@ -49,19 +54,27 @@ isimip3 <- function(obshist, simhist, simfut,
 
 message("\n[2/3] Starting attribution simulations...")
 
+#----- Prepare data and directory
+
 load("data/prep_data.RData")
 dir.create("temp_results", showWarnings = FALSE)
+
+#----- Prepare parallel loop
 
 cl <- makeCluster(n_cores)
 registerDoSNOW(cl)
 
+# Export objects to workers
 clusterExport(cl, c("isimip3", "nsim", "scenarios", "gcms", "hist_years", 
                    "knots_percentiles", "path_tmean", "path_coef_simu",
                    "thresholds", "obs_data"))
 
+# Initialize progress bar
 pb <- txtProgressBar(max = length(cities), style = 3)
 progress <- function(n) setTxtProgressBar(pb, n)
 opts <- list(progress = progress)
+
+#----- Iterate on cities
 
 results <- foreach(city_id = cities, .packages = c("data.table", "arrow", "dlnm", "splines", "dplyr"), .options.snow = opts) %dopar% {
   
@@ -69,6 +82,7 @@ results <- foreach(city_id = cities, .packages = c("data.table", "arrow", "dlnm"
   out_path <- paste0("temp_results/", city_id, ".rds")
   if(file.exists(out_path)) return(paste0("Skipped: ", city_id))
 
+  # Extract city metadata
   city_thresholds <- thresholds[URAU_CODE == city_id]
   if(nrow(city_thresholds) == 0) return(paste0("No thresholds found for ", city_id))
   
@@ -76,8 +90,12 @@ results <- foreach(city_id = cities, .packages = c("data.table", "arrow", "dlnm"
   p2_5 <- city_thresholds$p2_5[1]
   p97_5 <- city_thresholds$p97_5[1]
   
+  #----- Load projection data
+  
   proj_ds <- open_dataset(path_tmean)
   tmean_proj_all <- proj_ds %>% filter(URAU_CODE == city_id) %>% collect() %>% as.data.table()
+  
+  #----- Load coefficients
   
   city_coefs_raw <- fread(cmd = paste0("grep '", city_id, "' ", path_coef_simu))
   if(nrow(city_coefs_raw) == 0) return(paste0("No coefficients found for ", city_id))
@@ -86,14 +104,19 @@ results <- foreach(city_id = cities, .packages = c("data.table", "arrow", "dlnm"
   
   city_results_list <- list()
   
+  #----- Loop through scenarios and GCMs
+  
   for (sc in scenarios) {
     for (gcm in gcms) {
       col_name <- paste0("tas_", gcm)
       if(!(col_name %in% colnames(tmean_proj_all))) next
       
+      # Select scenario/GCM data
       t_proj_sc_gcm <- tmean_proj_all[ssp %in% c("hist", sc), c("date", "ssp", col_name), with = FALSE]
       setnames(t_proj_sc_gcm, col_name, "tmean")
       t_proj_sc_gcm[, `:=`(year = year(date), month = month(date))]
+      
+      #----- Perform bias correction
       
       t_proj_sc_gcm[, tmean_bc := {
         m <- .BY$month
@@ -112,23 +135,29 @@ results <- foreach(city_id = cities, .packages = c("data.table", "arrow", "dlnm"
         )
       }, by = month]
       
+      #----- Loop through age groups
+      
       for (agegrp in unique(city_thresholds$agegroup)) {
         age_thresh <- city_thresholds[agegroup == agegrp]
         mmt <- age_thresh$mmt
         daily_deaths <- age_thresh$death / 365.25
         
+        # Determine knots/bounds from historical data
         obs_temp_vals <- tmean_obs_city$tmean_obs
         knots <- quantile(obs_temp_vals, knots_percentiles/100, na.rm=TRUE)
         bound <- range(obs_temp_vals, na.rm=TRUE)
         
+        # Calculate basis functions centered at MMT
         b_fut <- onebasis(t_proj_sc_gcm$tmean_bc, fun="ns", knots=knots, Bound=bound, intercept = TRUE)
         b_mmt <- onebasis(mmt, fun="ns", knots=knots, Bound=bound, intercept = TRUE)
         b_fut_centered <- scale(b_fut, center = b_mmt, scale = FALSE)
         
+        # Compute attributable numbers for nsim simulations
         age_coefs <- as.matrix(city_coefs_raw[agegroup == agegrp, .(b1, b2, b3, b4, b5)])
         rr <- exp(b_fut_centered %*% t(age_coefs))
         an <- (1 - 1/rr) * daily_deaths
         
+        # Group by year and temperature range
         range_idx <- case_when(
           t_proj_sc_gcm$tmean_bc < p2_5 ~ "ExtrCold",
           t_proj_sc_gcm$tmean_bc < mmt ~ "ModCold",
@@ -139,6 +168,7 @@ results <- foreach(city_id = cities, .packages = c("data.table", "arrow", "dlnm"
         groups <- paste(t_proj_sc_gcm$year, range_idx, sep = "::")
         an_agg <- rowsum(an, groups)
         
+        # Collect results in long format
         an_agg_dt <- as.data.table(an_agg, keep.rownames = "group")
         an_agg_long <- melt(an_agg_dt, id.vars = "group", variable.name = "sim", value.name = "an")
         an_agg_long[, c("year", "range") := tstrsplit(group, "::")]

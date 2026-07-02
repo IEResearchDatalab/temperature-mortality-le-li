@@ -5,20 +5,26 @@
 #
 # R Code Part 5: Generate Tables (Masselot 2023 & Lloyd 2024 Reproductions)
 #
+# Adapted from Pierre Masselot & Antonio Gasparrini
+#
 ################################################################################
+
+#----- Libraries and environment
 
 library(data.table)
 library(dplyr)
 library(foreach)
 library(doSNOW)
 
+# Source global parameters
 source("R_pipeline/01_initialize.R")
 
 message("\n[5/5] Generating Summary Tables...")
 
+#----- Prepare metadata and weights
+
 # 1. Load City Metadata (Country, baseline population, deaths)
 city_meta <- fread("data/city_results.csv")
-# Keep unique city-age combinations
 city_meta <- city_meta[, .(
   URAU_CODE, 
   cntr_name, 
@@ -28,21 +34,15 @@ city_meta <- city_meta[, .(
 )]
 
 # 2. ESP 2013 Weights for Age-Standardization (Relative to 20+ population)
-# Weights per 100,000 for relevant groups:
-# 20-44: 5*6500 + 4*6000? No, let's use the standard classes:
-# 20-24: 6k, 25-29: 6k, 30-34: 6.5k, 35-39: 6.5k, 40-44: 6.5k -> 31.5k
-# 45-49: 7k, 50-54: 7k, 55-59: 6.5k, 60-64: 6k -> 26.5k
-# 65-69: 5.5k, 70-74: 5k -> 10.5k
-# 75-79: 4k, 80-84: 2.5k -> 6.5k
-# 85+: 2.5k
 esp_weights <- data.table(
   agegroup = c("20-44", "45-64", "65-74", "75-84", "85+"),
   weight = c(31500, 26500, 10500, 6500, 2500)
 )
 esp_weights[, weight := weight / sum(weight)]
 
-# 3. Load Granular Results (from temp_results instead of the aggregated csv)
-# This is slow for all cities, so we aggregate per country iteratively.
+#----- Perform granular country-level aggregation
+
+# Identify all city-specific result files
 rds_files <- list.files("temp_results", pattern = "\\.rds$", full.names = TRUE)
 
 message("Aggregating country-level data from ", length(rds_files), " cities...")
@@ -51,22 +51,21 @@ message("Aggregating country-level data from ", length(rds_files), " cities...")
 cl <- makeCluster(n_cores)
 registerDoSNOW(cl)
 
-# Function to process one city and return country/decade/age/range summary
+# Function to extract and aggregate results per city
 process_city_tables <- function(f, city_meta, esp_weights) {
   city_id <- gsub(".rds", "", basename(f))
   d <- try(readRDS(f), silent = TRUE)
   if(inherits(d, "try-error")) return(NULL)
   
-  # Join with meta for country info
+  # Filter metadata for this city
   meta_sub <- city_meta[URAU_CODE == city_id]
   setkey(meta_sub, agegroup)
   
   # Aggregate by decade/agegroup/range/ssp/gcm/sim
   d[, decade := (year %/% 10) * 10]
-  
   d_agg <- d[, .(an = sum(an)), by = .(decade, range, ssp, gcm, agegroup, sim)]
   
-  # Join Country
+  # Join country-level metadata
   d_agg[, country := meta_sub$cntr_name[1]]
   d_agg[, pop_baseline := meta_sub[agegroup == .BY$agegroup]$pop, by = agegroup]
   d_agg[, deaths_baseline := meta_sub[agegroup == .BY$agegroup]$deaths_baseline, by = agegroup]
@@ -74,24 +73,20 @@ process_city_tables <- function(f, city_meta, esp_weights) {
   return(d_agg)
 }
 
-# Export functions and data to workers
+# Export environment to workers
 clusterExport(cl, c("process_city_tables", "city_meta", "esp_weights"))
 
-# We process in chunks to avoid memory overhead of return list
+# Execute parallel aggregation
 country_results <- foreach(f = rds_files, .combine = function(a,b) rbindlist(list(a,b)), .packages = c("data.table")) %dopar% {
   process_city_tables(f, city_meta, esp_weights)
 }
 stopCluster(cl)
 
-# --- SAVE INTERMEDIATE COUNTRY DATA ---
-# This is large but useful for the 3 tables
+#----- Process summary tables
+
 dir.create("tables", showWarnings = FALSE)
 
 # --- TABLE 1: Country-level annual excess deaths (Masselot 2023 Table S6) ---
-# Sum across ages and GCMS for a given SSP and Decade
-# We use mean across GCMS and then summary stats across SIMS
-# Or better: mean across SIMS per GCM, then mean of GCMS? 
-# Usually, we treat (GCM x SIM) as the uncertainty pool.
 
 t1_raw <- country_results[, .(
   an_total = sum(an),
@@ -124,6 +119,7 @@ fwrite(table_s6, "tables/Table_Masselot2023_S6_Country.csv")
 
 
 # --- TABLE 2: Average annual number of deaths by Temperature Range (Lloyd 2024 Table S1) ---
+
 # Group by Range and Decade/SSP, sum across countries
 table_s1 <- t1_raw[, .(
   an_total = sum(an_total)
@@ -139,8 +135,8 @@ fwrite(table_s1_summary, "tables/Table_Lloyd2024_S1_Ranges.csv")
 
 
 # --- TABLE 3: Percent change in Absolute Risk (Lloyd 2024 Table S2) ---
+
 # Absolute Risk = AN / Pop
-# We compare Decade 2020 vs 2090 for SSP585
 table_s2_raw <- country_results[, .(
   an_sum = sum(an),
   pop_sum = sum(pop_baseline)
@@ -150,7 +146,7 @@ table_s2_ar <- table_s2_raw[, .(
   AR = mean(an_sum / (pop_sum + 1e-6)) * 100000
 ), by = .(agegroup, range, decade, ssp)]
 
-# Compare 2020s vs 2090s
+# Compare 2020s vs 2090s for SSP5
 ar_2020 <- table_s2_ar[decade == 2020 & ssp == 5]
 ar_2090 <- table_s2_ar[decade == 2090 & ssp == 5]
 

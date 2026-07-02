@@ -9,13 +9,18 @@
 #
 ################################################################################
 
+#----- Libraries and environment
+
 library(data.table)
 library(foreach)
 library(doSNOW)
 
+# Source global parameters
 source("R_pipeline/01_initialize.R")
 
 message("\n[3/3] Aggregating results from temp_results/...")
+
+#----- Check for existing progress
 
 out_file <- "data/final_attribution_results.csv"
 existing_cities <- character(0)
@@ -25,12 +30,15 @@ if(file.exists(out_file)){
   message("Found existing results for ", length(existing_cities), " cities.")
 }
 
+# Identify RDS files not yet aggregated
 rds_files <- list.files("temp_results", pattern = "\\.rds$", full.names = TRUE)
 rds_to_process <- rds_files[!(gsub(".rds", "", basename(rds_files)) %in% existing_cities)]
 
+#----- Perform aggregation
+
 if(length(rds_to_process) == 0 && length(existing_cities) > 0){
   message("All cities already aggregated. Skipping.")
-  # Still run validation on existing file
+    # Still run validation on existing file
 } else {
   message("Processing ", length(rds_to_process), " new cities...")
   
@@ -47,10 +55,12 @@ if(length(rds_to_process) == 0 && length(existing_cities) > 0){
     d <- try(readRDS(f), silent = TRUE)
     if(inherits(d, "try-error")) return(NULL)
     
+    # Aggregate by decade and range
     d_city <- d[, .(an = sum(an)), by = .(year, range, sim, ssp, gcm)]
     d_city[, decade := (year %/% 10) * 10]
     d_decade <- d_city[, .(an = sum(an)), by = .(decade, range, sim, ssp, gcm)]
     
+    # Calculate summary statistics across simulations
     d_summary <- d_decade[, .(
       an_mean = mean(an),
       an_p2.5 = quantile(an, 0.025),
@@ -64,7 +74,9 @@ if(length(rds_to_process) == 0 && length(existing_cities) > 0){
   stopCluster(cl)
   close(pb)
   
-  # Combine new and existing
+  #----- Save final dataset
+
+  # Combine new and existing results
   final_results <- rbindlist(new_summaries)
   if(length(existing_cities) > 0){
     d_old <- fread(out_file)
@@ -74,7 +86,8 @@ if(length(rds_to_process) == 0 && length(existing_cities) > 0){
   message("\nAggregation complete. Results saved to: ", out_file)
 }
 
-# --- Validation Block ---
+#----- Validation block
+
 message("\n--- Validating Results ---")
 final_results <- fread(out_file)
 
