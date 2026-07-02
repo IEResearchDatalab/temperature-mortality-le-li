@@ -58,11 +58,11 @@ process_city_file <- function(city_file) {
   # Take mean across simulations (sim column)
   d_agg <- d_hist[, .(an_mean = mean(an)), by = .(agegroup, range, ssp, gcm, year)]
   
-  # Sum across all years in the period to get total AN for 2000-2014
-  d_total <- d_agg[, .(an_total = sum(an_mean)), by = .(agegroup, range, ssp, gcm)]
+  # Take annual average across years (Masselot baseline is annual, not cumulative)
+  d_annual <- d_agg[, .(an_annual = mean(an_mean)), by = .(agegroup, range, ssp, gcm)]
   
   # Average across GCMs and SSPs to get ensemble mean (matching Masselot's approach)
-  d_ensemble <- d_total[, .(an_ensemble = mean(an_total)), by = .(agegroup, range)]
+  d_ensemble <- d_annual[, .(an_ensemble = mean(an_annual)), by = .(agegroup, range)]
   
   # Add city ID
   d_ensemble[, URAU_CODE := city_id]
