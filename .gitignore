@@ -147,11 +147,6 @@ __marimo__/
 
 # ─── Generated output ────────────────────────────────
 results/
-!results/.gitkeep
-tables/
-data/final_attribution_results.csv
-data/le_decomposition_results.csv
-data/le_li_input_ans.csv
 
 # ─── External data (too big for git; see data/README.md for sources) ─
 data/tmeanproj.gz.parquet

@@ -13,6 +13,9 @@ library(data.table)
 
 source("R_pipeline/01_initialize.R")
 
+# Create output directories
+dir.create("results/tables", recursive = TRUE, showWarnings = FALSE)
+
 message("\n[5/5] Generating Summary Tables...")
 
 city_meta <- fread("data/city_results.csv")
@@ -96,9 +99,8 @@ le_li_data <- country_results[, .(
 ), by = .(country, decade, range, ssp, gcm, agegroup)]
 
 setnames(le_li_data, "country", "cntr_name")
-fwrite(le_li_data, "data/le_li_input_ans.csv")
-
-dir.create("tables", showWarnings = FALSE)
+dir.create("results/le_li_input", recursive = TRUE, showWarnings = FALSE)
+fwrite(le_li_data, "results/le_li_input/le_li_input_ans.csv")
 
 message("Generating Table S1/S6...")
 t1_raw <- country_results[, .(
@@ -127,6 +129,7 @@ table_s6 <- t1_combined[, .(
 ), by = .(country, decade, ssp, type)]
 
 fwrite(table_s6, "tables/Table_Masselot2023_S6_Country.csv")
+results/tables/Table_Masselot2023_S6_Country.csv")
 
 table_s1 <- t1_raw[, .(
   an_total = sum(an_total)
@@ -138,7 +141,6 @@ table_s1_summary <- table_s1[, .(
   hi = quantile(an_total, 0.975)
 ), by = .(decade, ssp, range)]
 
-fwrite(table_s1_summary, "tables/Table_Lloyd2024_S1_Ranges.csv")
+fwrite(table_s1_summary, "results/tables/Table_Lloyd2024_S1_Ranges.csv")
 
-message("Table generation complete. Files saved in tables/")
-unlink("temp_table_batches", recursive = TRUE)
+message("Table generation complete. Files saved in results/

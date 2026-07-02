@@ -10,8 +10,11 @@ library(ungroup)
 library(DemoDecomp)
 library(parallel)
 
+# Create output directory
+dir.create("results/le_li_decomposition", recursive = TRUE, showWarnings = FALSE)
+
 # Load data
-ans_data <- fread("data/le_li_input_ans.csv")
+ans_data <- fread("results/le_li_input/le_li_input_ans.csv")
 
 # We have age groups: 65-74, 75-84, 85+ 
 # Needs to map to age intervals for pclm
@@ -240,10 +243,9 @@ results_decomp <- mclapply(1:nrow(comparison_groups), process_decomposition, mc.
 le_decomp_final <- rbindlist(results_decomp)
 
 # Save results
-dir.create("data", showWarnings = FALSE)
-fwrite(le_decomp_final, "data/le_decomposition_results.csv")
+fwrite(le_decomp_final, "results/le_li_decomposition/le_decomposition_results.csv")
 
-cat("LE decomposition complete. Results saved to data/le_decomposition_results.csv\n")
+cat("LE decomposition complete. Results saved to results/le_li_decomposition/le_decomposition_results.csv\n")
     causes <- unique(d2020$cause)
     
     # Horiuchi decomposition

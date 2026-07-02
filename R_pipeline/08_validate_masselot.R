@@ -12,6 +12,9 @@ library(data.table)
 library(dplyr)
 library(ggplot2)
 
+# Create output directory
+dir.create("results/masselot_validation", recursive = TRUE, showWarnings = FALSE)
+
 message("\n=== MASSELOT REPRODUCIBILITY VALIDATION ===\n")
 
 #----- Load Masselot baseline results (2000-2014 historical period)
@@ -30,28 +33,26 @@ message("Loaded Masselot baseline for ", length(unique(masselot_ref$URAU_CODE)),
 
 #----- Load our temp_results and aggregate for 2000-2014
 
+library(doSNOW)
+library(foreach)
+
 # Identify all city RDS files
 rds_files <- list.files("temp_results", pattern = "\\.rds$", full.names = TRUE)
 message("Found ", length(rds_files), " city result files")
 
-# Process each city
-our_results_list <- list()
-
-pb <- txtProgressBar(max = length(rds_files), style = 3)
-
-for (i in seq_along(rds_files)) {
-  city_file <- rds_files[i]
+# Parallel processing function
+process_city_file <- function(city_file) {
   city_id <- gsub(".rds", "", basename(city_file))
   
   d <- try(readRDS(city_file), silent = TRUE)
-  if (inherits(d, "try-error")) next
+  if (inherits(d, "try-error")) return(NULL)
   
   setDT(d)
   
   # Filter for 2000-2014 period (matching Masselot's histrange)
   d_hist <- d[year >= 2000 & year <= 2014]
   
-  if (nrow(d_hist) == 0) next
+  if (nrow(d_hist) == 0) return(NULL)
   
   # Aggregate by agegroup, range, ssp, gcm across years and simulations
   # Take mean across simulations (sim column)
@@ -66,13 +67,33 @@ for (i in seq_along(rds_files)) {
   # Add city ID
   d_ensemble[, URAU_CODE := city_id]
   
-  our_results_list[[length(our_results_list) + 1]] <- d_ensemble
-  
-  setTxtProgressBar(pb, i)
+  return(d_ensemble)
 }
 
+# Setup parallel processing
+n_cores <- min(8, parallel::detectCores() - 1)
+cl <- makeCluster(n_cores)
+registerDoSNOW(cl)
+
+message("Processing cities in parallel using ", n_cores, " cores...")
+
+# Progress bar
+pb <- txtProgressBar(max = length(rds_files), style = 3)
+progress <- function(n) setTxtProgressBar(pb, n)
+opts <- list(progress = progress)
+
+# Process in parallel
+our_results_list <- foreach(f = rds_files, 
+                            .packages = c("data.table"),
+                            .options.snow = opts) %dopar% {
+  process_city_file(f)
+}
+
+stopCluster(cl)
 close(pb)
 
+# Remove NULL results
+our_results_list <- our_results_list[!sapply(our_results_list, is.null)]
 our_results <- rbindlist(our_results_list)
 
 message("\nProcessed results for ", length(unique(our_results$URAU_CODE)), " cities")
@@ -136,15 +157,13 @@ print(top_cold[, .(URAU_CODE, agegroup, our_cold, masselot_cold, diff_cold, rel_
 message("\n--- TOP 10 DISCREPANCIES (Heat) ---")
 top_heat <- comparison[order(-abs(diff_heat))][1:10]
 print(top_heat[, .(URAU_CODE, agegroup, our_heat, masselot_heat, diff_heat, rel_error_heat)])
-
-#----- Save validation results
+results/masselot_validation/validation_masselot_comparison.csv")
+message("\nFull comparison saved to: results/masselot_validation
 
 fwrite(comparison, "data/validation_masselot_comparison.csv")
 message("\nFull comparison saved to: data/validation_masselot_comparison.csv")
 
 #----- Create validation plots
-
-dir.create("figures", showWarnings = FALSE)
 
 # Scatter plot: Cold
 p1 <- ggplot(comparison, aes(x = masselot_cold, y = our_cold)) +
@@ -176,10 +195,10 @@ p2 <- ggplot(comparison, aes(x = masselot_heat, y = our_heat)) +
 
 ggsave("figures/validation_cold_scatter.png", p1, width = 8, height = 7, dpi = 300)
 ggsave("figures/validation_heat_scatter.png", p2, width = 8, height = 7, dpi = 300)
+results/masselot_validation/validation_cold_scatter.png", p1, width = 8, height = 7, dpi = 300)
+ggsave("results/masselot_validation/validation_heat_scatter.png", p2, width = 8, height = 7, dpi = 300)
 
-message("\nValidation plots saved to figures/")
-
-#----- Breakdown by range component
+message("\nValidation plots saved to results/masselot_validation
 
 message("\n--- COLD DISAGGREGATION (% of total) ---")
 comparison[, cold_total_ours := our_extrcold + our_modcold]

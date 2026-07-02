@@ -16,7 +16,8 @@ library(foreach)
 
 n_cores <- 8
 input_dir <- "temp_results"
-output_file <- "data/le_li_input_ans.csv"
+output_file <- "results/le_li_input/le_li_input_ans.csv"
+dir.create("results/le_li_input", recursive = TRUE, showWarnings = FALSE)
 
 # Time periods
 baseline_decade <- 2010

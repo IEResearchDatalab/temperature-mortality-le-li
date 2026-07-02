@@ -20,9 +20,12 @@ source("R_pipeline/01_initialize.R")
 
 message("\n[3/3] Aggregating results from temp_results/...")
 
+# Create output directory
+dir.create("results/attribution_aggregated", recursive = TRUE, showWarnings = FALSE)
+
 #----- Check for existing progress
 
-out_file <- "data/final_attribution_results.csv"
+out_file <- "results/attribution_aggregated/final_attribution_results.csv"
 existing_cities <- character(0)
 if(file.exists(out_file)){
   d_existing <- fread(out_file, select = "URAU_CODE")
