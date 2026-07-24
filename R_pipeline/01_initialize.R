@@ -19,12 +19,16 @@ library(arrow)
 
 # Number of Monte Carlo simulations and cores for parallelization
 nsim <- 500
-n_cores <- 8
+n_cores <- 16
+
+# DLNM basis function: Masselot uses bs (B-spline, degree 2); our original used ns
+varfun <- "bs"
+vardegree <- 2
 
 #----- Study periods and scenarios
 
-# Reference period for historical bias correction
-hist_years <- 1990:2014
+# Reference period for historical bias correction (matching Masselot 2000-2014)
+hist_years <- 2000:2014
 
 # Scenarios mapping (SSP 126, 245, 585)
 scenarios <- c(1, 2, 3) 

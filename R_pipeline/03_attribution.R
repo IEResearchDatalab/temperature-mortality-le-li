@@ -148,8 +148,11 @@ results <- foreach(city_id = cities, .packages = c("data.table", "arrow", "dlnm"
         bound <- range(obs_temp_vals, na.rm=TRUE)
         
         # Calculate basis functions centered at MMT
-        b_fut <- onebasis(t_proj_sc_gcm$tmean_bc, fun="ns", knots=knots, Bound=bound, intercept = TRUE)
-        b_mmt <- onebasis(mmt, fun="ns", knots=knots, Bound=bound, intercept = TRUE)
+        # Masselot uses bs (B-spline, degree 2) without intercept
+        basis_args <- list(x = t_proj_sc_gcm$tmean_bc, fun = varfun, degree = vardegree, knots = knots, Bound = bound)
+        b_fut <- do.call(onebasis, basis_args)
+        basis_args$x <- mmt
+        b_mmt <- do.call(onebasis, basis_args)
         b_fut_centered <- scale(b_fut, center = b_mmt, scale = FALSE)
         
         # Compute attributable numbers for nsim simulations
