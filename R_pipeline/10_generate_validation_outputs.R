@@ -56,6 +56,9 @@ if (!nrow(baseline_long)) {
   stop("No ERA5 point-estimate rows found in temp_results_baseline/", call. = FALSE)
 }
 
+baseline_year_min <- min(baseline_long$year, na.rm = TRUE)
+baseline_year_max <- max(baseline_long$year, na.rm = TRUE)
+
 message("Collapsing annual outputs to exact baseline-period attributable numbers...")
 
 baseline_complete <- baseline_long[, .(an = sum(an)), by = .(URAU_CODE, agegroup, year, range)]
@@ -141,6 +144,8 @@ p_heat <- ggplot(merged, aes(x = masselot_heat, y = our_heat)) +
 
 ggsave("results/validation/fig1_additivity_cold.pdf", p_cold, width = 6.5, height = 5)
 ggsave("results/validation/fig1_additivity_heat.pdf", p_heat, width = 6.5, height = 5)
+ggsave("results/validation/fig1_additivity_cold.png", p_cold, width = 6.5, height = 5, dpi = 220)
+ggsave("results/validation/fig1_additivity_heat.png", p_heat, width = 6.5, height = 5, dpi = 220)
 
 message("Creating Figure 2 and Table 1: regional summaries...")
 
@@ -244,6 +249,7 @@ p_region <- ggplot(regional_long, aes(x = factor(region, levels = c("Northern", 
   theme_minimal(base_size = 11)
 
 ggsave("results/validation/fig2_regional_bars.pdf", p_region, width = 8, height = 5.5)
+ggsave("results/validation/fig2_regional_bars.png", p_region, width = 8, height = 5.5, dpi = 220)
 
 message("Creating Figure 3 and Table 3: age gradients...")
 
@@ -306,6 +312,7 @@ p_age <- ggplot(age_long, aes(x = factor(agegroup, levels = c("20-44", "45-64", 
   theme_minimal(base_size = 11)
 
 ggsave("results/validation/fig3_age_gradient.pdf", p_age, width = 7.5, height = 5.5)
+ggsave("results/validation/fig3_age_gradient.png", p_age, width = 7.5, height = 5.5, dpi = 220)
 
 message("Creating Figure 4 and Table 2: city-level extreme burden...")
 
@@ -377,6 +384,7 @@ p_map <- ggplot() +
   )
 
 ggsave("results/validation/fig4_extreme_moderate_ratio_map.pdf", p_map, width = 8.5, height = 6.5)
+ggsave("results/validation/fig4_extreme_moderate_ratio_map.png", p_map, width = 8.5, height = 6.5, dpi = 220)
 
 message("Creating Figure 5: why disaggregation matters at the city level...")
 
@@ -402,6 +410,7 @@ p_extreme_share <- ggplot(
   theme_minimal(base_size = 11)
 
 ggsave("results/validation/fig5_city_extreme_share_vs_total.pdf", p_extreme_share, width = 8, height = 5.5)
+ggsave("results/validation/fig5_city_extreme_share_vs_total.png", p_extreme_share, width = 8, height = 5.5, dpi = 220)
 
 message("Creating Figure 6: extreme shares by age group...")
 
@@ -446,12 +455,170 @@ p_age_share <- ggplot(
   theme_minimal(base_size = 11)
 
 ggsave("results/validation/fig6_age_extreme_shares.pdf", p_age_share, width = 7.5, height = 5.5)
+ggsave("results/validation/fig6_age_extreme_shares.png", p_age_share, width = 7.5, height = 5.5, dpi = 220)
+
+message("Creating Figure 7: range-by-age heatmap across regions...")
+
+region_age_summary <- merged[, .(
+  person_years = sum(agepop),
+  ExtrCold = sum(ExtrCold),
+  ModCold = sum(ModCold),
+  ModHeat = sum(ModHeat),
+  ExtrHeat = sum(ExtrHeat)
+), by = .(region, agegroup)]
+region_age_long <- melt(
+  region_age_summary,
+  id.vars = c("region", "agegroup", "person_years"),
+  variable.name = "range",
+  value.name = "an_total"
+)
+region_age_long[, rate_per_100k := an_total / person_years * 100000]
+region_age_long[, `:=`(
+  region = factor(region, levels = c("Northern", "Western", "Eastern", "Southern")),
+  agegroup = factor(agegroup, levels = c("20-44", "45-64", "65-74", "75-84", "85+")),
+  range = factor(range, levels = c("ExtrCold", "ModCold", "ModHeat", "ExtrHeat"))
+)]
+
+p_region_age_heatmap <- ggplot(region_age_long, aes(x = agegroup, y = region, fill = rate_per_100k)) +
+  geom_tile(color = "white", linewidth = 0.3) +
+  facet_wrap(~ range, nrow = 1) +
+  scale_fill_gradientn(colours = c("#f7fbff", "#6baed6", "#08306b"), name = "Deaths per\n100,000") +
+  labs(
+    title = "Range-Specific Attributable Burden by Region and Age",
+    subtitle = "Normalized attributable numbers reveal which ranges dominate in each regional age profile",
+    x = "Age group",
+    y = NULL
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(panel.grid = element_blank())
+
+ggsave("results/validation/fig7_region_age_heatmap.pdf", p_region_age_heatmap, width = 11, height = 4.5)
+ggsave("results/validation/fig7_region_age_heatmap.png", p_region_age_heatmap, width = 11, height = 4.5, dpi = 220)
+
+message("Creating Figure 8: top-city range composition using normalized attributable numbers...")
+
+city_top25 <- city_summary[order(-total_temp_rate)][1:25, .(
+  LABEL,
+  cntr_name,
+  ExtrCold = ExtrCold / pop_total * 100000,
+  ModCold = ModCold / pop_total * 100000,
+  ModHeat = ModHeat / pop_total * 100000,
+  ExtrHeat = ExtrHeat / pop_total * 100000,
+  total_temp_rate
+)]
+city_top25[, city_label := paste0(LABEL, ", ", cntr_name)]
+city_top25 <- city_top25[!is.na(city_label) & city_label != ""]
+city_top25[, city_label := factor(city_label, levels = city_top25[order(total_temp_rate)]$city_label)]
+city_top25_long <- melt(
+  city_top25[, .(city_label, total_temp_rate, ExtrCold, ModCold, ModHeat, ExtrHeat)],
+  id.vars = c("city_label", "total_temp_rate"),
+  variable.name = "range",
+  value.name = "rate_per_100k"
+)
+city_top25_long[, range := factor(range, levels = c("ExtrCold", "ModCold", "ModHeat", "ExtrHeat"))]
+
+p_city_top25 <- ggplot(city_top25_long, aes(x = city_label, y = rate_per_100k, fill = range)) +
+  geom_col() +
+  scale_fill_manual(values = c(
+    ExtrCold = "#2c7fb8",
+    ModCold = "#7fcdbb",
+    ModHeat = "#fdae61",
+    ExtrHeat = "#d7191c"
+  )) +
+  labs(
+    title = "Top 25 Cities by Total Temperature Burden",
+    subtitle = "Stacked normalized attributable numbers show whether the burden is driven by moderate or extreme ranges",
+    x = NULL,
+    y = "Attributable deaths per 100,000 person-years",
+    fill = "Range"
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+
+ggsave("results/validation/fig8_top25_city_composition.pdf", p_city_top25, width = 10, height = 8)
+ggsave("results/validation/fig8_top25_city_composition.png", p_city_top25, width = 10, height = 8, dpi = 220)
+
+message("Creating Figure 9: cold-versus-heat normalized attributable numbers...")
+
+p_cold_heat_rate <- ggplot(
+  city_summary,
+  aes(x = (ExtrCold + ModCold) / pop_total * 100000,
+      y = (ModHeat + ExtrHeat) / pop_total * 100000,
+      color = region,
+      size = total_extreme_rate)
+) +
+  geom_point(alpha = 0.6) +
+  scale_color_manual(values = c(
+    Northern = "#1f78b4",
+    Western = "#33a02c",
+    Eastern = "#e31a1c",
+    Southern = "#ff7f00"
+  )) +
+  scale_size_continuous(name = "Extreme burden\nper 100,000", range = c(0.8, 4)) +
+  labs(
+    title = "City-Level Cold vs Heat Burden",
+    subtitle = "Normalized attributable numbers show where heat burden becomes comparable to or exceeds cold burden",
+    x = "Cold attributable deaths per 100,000 person-years",
+    y = "Heat attributable deaths per 100,000 person-years",
+    color = "Region"
+  ) +
+  theme_minimal(base_size = 11)
+
+ggsave("results/validation/fig9_cold_vs_heat_city_scatter.pdf", p_cold_heat_rate, width = 8, height = 5.5)
+ggsave("results/validation/fig9_cold_vs_heat_city_scatter.png", p_cold_heat_rate, width = 8, height = 5.5, dpi = 220)
+
+message("Creating Figure 10: latitude gradients in normalized attributable numbers...")
+
+city_lat_long <- melt(
+  city_summary[, .(
+    lat,
+    region,
+    rate_ExtrCold = ExtrCold / pop_total * 100000,
+    rate_ModCold = ModCold / pop_total * 100000,
+    rate_ModHeat = ModHeat / pop_total * 100000,
+    rate_ExtrHeat = ExtrHeat / pop_total * 100000
+  )],
+  id.vars = c("lat", "region"),
+  variable.name = "range",
+  value.name = "rate_per_100k"
+)
+city_lat_long[, range := factor(sub("^rate_", "", range), levels = c("ExtrCold", "ModCold", "ModHeat", "ExtrHeat"))]
+
+p_latitude <- ggplot(city_lat_long, aes(x = lat, y = rate_per_100k, color = range)) +
+  geom_point(alpha = 0.22, size = 0.8) +
+  geom_smooth(se = FALSE, linewidth = 0.9, method = "loess") +
+  scale_color_manual(values = c(
+    ExtrCold = "#2c7fb8",
+    ModCold = "#7fcdbb",
+    ModHeat = "#fdae61",
+    ExtrHeat = "#d7191c"
+  )) +
+  labs(
+    title = "Latitudinal Gradients in Range-Specific Burden",
+    subtitle = "Normalized attributable numbers reveal how moderate and extreme temperature burdens shift across Europe",
+    x = "Latitude",
+    y = "Attributable deaths per 100,000 person-years",
+    color = "Range"
+  ) +
+  theme_minimal(base_size = 11)
+
+ggsave("results/validation/fig10_latitude_range_gradients.pdf", p_latitude, width = 8.5, height = 5.5)
+ggsave("results/validation/fig10_latitude_range_gradients.png", p_latitude, width = 8.5, height = 5.5, dpi = 220)
 
 message("Writing summary metrics...")
 
 summary_lines <- c(
   "# Validation Outputs Summary",
   "",
+  "## Data Utilized",
+  sprintf("- Baseline RDS inputs: %d files from `temp_results_baseline/`", length(baseline_files)),
+  "- Baseline temperature source: ERA5 observed temperatures retained in the baseline pipeline (`gcm == \"ERA5\"`, `sim == 0`).",
+  "- City metadata source: `data/city_results.csv`.",
+  "- Validation target source: `references/2025-masselot-zenodo/results/cityage.csv`.",
+  sprintf("- Year range represented in the baseline RDS files: %d-%d.", baseline_year_min, baseline_year_max),
+  "- Aggregation logic: yearly attributable outputs are collapsed to exact baseline-period attributable numbers using day-weighted annualization across the full observed ERA5 span.",
+  "",
+  "## Validation Metrics",
   sprintf("- Cities processed: %d", uniqueN(merged$URAU_CODE)),
   sprintf("- City-age combinations: %d", nrow(merged)),
   sprintf("- Cold R^2: %.6f", cor(merged$masselot_cold, merged$our_cold)^2),
@@ -459,7 +626,7 @@ summary_lines <- c(
   sprintf("- Mean cold error (%%): %.6f", mean(merged$error_cold_pct)),
   sprintf("- Mean heat error (%%): %.6f", mean(merged$error_heat_pct)),
   "",
-  "## Files",
+  "## Generated Files",
   "- fig1_additivity_cold.pdf",
   "- fig1_additivity_heat.pdf",
   "- fig2_regional_bars.pdf",
@@ -467,10 +634,18 @@ summary_lines <- c(
   "- fig4_extreme_moderate_ratio_map.pdf",
   "- fig5_city_extreme_share_vs_total.pdf",
   "- fig6_age_extreme_shares.pdf",
+  "- fig7_region_age_heatmap.pdf",
+  "- fig8_top25_city_composition.pdf",
+  "- fig9_cold_vs_heat_city_scatter.pdf",
+  "- fig10_latitude_range_gradients.pdf",
   "- table1_validation_summary.csv",
   "- table2_top20_cities_extreme_burden.csv",
   "- table3_age_gradient_4range.csv",
-  "- validation_city_age_4range.csv"
+  "- validation_city_age_4range.csv",
+  "- CRITICAL_EVALUATION.md",
+  "- senior_supervisor_validation_briefing.qmd",
+  "- senior_supervisor_validation_briefing.html",
+  "- senior_supervisor_validation_briefing.pdf"
 )
 writeLines(summary_lines, "results/validation/README.md")
 
