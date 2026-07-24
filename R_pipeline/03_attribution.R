@@ -67,7 +67,7 @@ registerDoSNOW(cl)
 # Export objects to workers
 clusterExport(cl, c("isimip3", "nsim", "scenarios", "gcms", "hist_years", 
                    "knots_percentiles", "path_tmean", "path_coef_simu",
-                   "thresholds", "obs_data"))
+                   "thresholds", "obs_data", "varfun", "vardegree"))
 
 # Initialize progress bar
 pb <- txtProgressBar(max = length(cities), style = 3)
@@ -140,7 +140,7 @@ results <- foreach(city_id = cities, .packages = c("data.table", "arrow", "dlnm"
       for (agegrp in unique(city_thresholds$agegroup)) {
         age_thresh <- city_thresholds[agegroup == agegrp]
         mmt <- age_thresh$mmt
-        daily_deaths <- age_thresh$death / 365.25
+        death_annual <- age_thresh$death
         
         # Determine knots/bounds from historical data
         obs_temp_vals <- tmean_obs_city$tmean_obs
@@ -148,17 +148,18 @@ results <- foreach(city_id = cities, .packages = c("data.table", "arrow", "dlnm"
         bound <- range(obs_temp_vals, na.rm=TRUE)
         
         # Calculate basis functions centered at MMT
-        # Masselot uses bs (B-spline, degree 2) without intercept
-        basis_args <- list(x = t_proj_sc_gcm$tmean_bc, fun = varfun, degree = vardegree, knots = knots, Bound = bound)
-        b_fut <- do.call(onebasis, basis_args)
-        basis_args$x <- mmt
-        b_mmt <- do.call(onebasis, basis_args)
+        # Use ERA5 range as boundary knots for consistent basis computation
+        b_fut <- onebasis(t_proj_sc_gcm$tmean_bc, fun = varfun, degree = vardegree, knots = knots, Bound = bound)
+        b_mmt <- onebasis(mmt, fun = varfun, degree = vardegree, knots = knots, Bound = bound)
         b_fut_centered <- scale(b_fut, center = b_mmt, scale = FALSE)
         
         # Compute attributable numbers for nsim simulations
+        # Using 2023 formula: af = 1 - exp(-logRR), an = af * death_annual
         age_coefs <- as.matrix(city_coefs_raw[agegroup == agegrp, .(b1, b2, b3, b4, b5)])
-        rr <- pmax(exp(b_fut_centered %*% t(age_coefs)), 1)  # Clamp RR at 1.0 to prevent negative AN
-        an <- (1 - 1/rr) * daily_deaths
+        log_rr <- b_fut_centered %*% t(age_coefs)
+        af <- 1 - exp(-log_rr)  # = 1 - 1/RR, automatically >= 0 when RR >= 1
+        af[af < 0] <- 0  # Clamp at 0 (equivalent to RR >= 1)
+        an <- af * death_annual
         
         # Group by year and temperature range
         range_idx <- case_when(
@@ -170,6 +171,15 @@ results <- foreach(city_id = cities, .packages = c("data.table", "arrow", "dlnm"
         
         groups <- paste(t_proj_sc_gcm$year, range_idx, sep = "::")
         an_agg <- rowsum(an, groups)
+        
+        # Normalize: divide by days-per-year to convert from sum(af*death_annual) 
+        # to annual AN rate. This matches Masselot 2023: sum(anday) / n_days.
+        # Count total days in each year to normalize correctly
+        year_days <- as.numeric(table(t_proj_sc_gcm$year))
+        year_labels <- names(table(t_proj_sc_gcm$year))
+        group_year <- sub("::.*", "", rownames(an_agg))
+        days_per_group <- year_days[match(group_year, year_labels)]
+        an_agg <- an_agg / days_per_group
         
         # Collect results in long format
         an_agg_dt <- as.data.table(an_agg, keep.rownames = "group")

@@ -40,7 +40,9 @@ process_city <- function(f, city_meta, baseline_decade, future_decade, groups) {
   
   # Filter for decades and age groups
   d[, decade := (year %/% 10) * 10]
-  d_sub <- d[decade %in% c(baseline_decade, future_decade) & agegroup %in% groups]
+  dec_vec <- d[["decade"]]
+  age_vec <- d[["agegroup"]]
+  d_sub <- d[dec_vec %in% c(baseline_decade, future_decade) & age_vec %in% groups]
   
   if(nrow(d_sub) == 0) return(NULL)
   
@@ -52,7 +54,9 @@ process_city <- function(f, city_meta, baseline_decade, future_decade, groups) {
   # But 500 simulations x 854 cities is too much data to keep in memory easily.
   # Let's take the mean AN over simulations per city/decade/range/ssp/gcm/agegroup.
   
-  d_agg <- d_sub[, .(an = sum(an) / 10), by = .(decade, range, ssp, gcm, agegroup)]
+  # Average over simulations first, then over years to get annual AN
+  d_sim <- d_sub[, .(an_sim_mean = mean(an)), by = .(year, range, ssp, gcm, agegroup)]
+  d_agg <- d_sim[, .(an = mean(an_sim_mean)), by = .(decade, range, ssp, gcm, agegroup)]
   
   # Add city meta
   city_info <- city_meta[URAU_CODE == city_id]

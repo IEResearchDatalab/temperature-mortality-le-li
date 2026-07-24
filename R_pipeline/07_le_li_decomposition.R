@@ -54,12 +54,12 @@ p_disaggregate <- function(row_idx) {
   
   # Disaggregate Population
   pclm_pop <- tryCatch({
-    pclm(x = x, y = age_agg$pop, nlast = 15)$y
+    pclm(x = x, y = age_agg$pop, nlast = 15)$fitted
   }, error = function(e) return(rep(NA, 35))) 
   
   # Disaggregate Baseline Deaths
   pclm_deaths <- tryCatch({
-    pclm(x = x, y = age_agg$death_baseline, nlast = 15)$y
+    pclm(x = x, y = age_agg$death_baseline, nlast = 15)$fitted
   }, error = function(e) return(rep(NA, 35)))
   
   # Create a base table for single ages 65-99
@@ -79,7 +79,7 @@ p_disaggregate <- function(row_idx) {
     an_agg <- sub_data[range == r]
     setorder(an_agg, age_start)
     pclm_an <- tryCatch({
-      pclm(x = x, y = an_agg$an, nlast = 15)$y
+      pclm(x = x, y = an_agg$an, nlast = 15)$fitted
     }, error = function(e) return(rep(0, 35)))
     
     dt <- copy(base_single)
@@ -246,28 +246,3 @@ le_decomp_final <- rbindlist(results_decomp)
 fwrite(le_decomp_final, "results/le_li_decomposition/le_decomposition_results.csv")
 
 cat("LE decomposition complete. Results saved to results/le_li_decomposition/le_decomposition_results.csv\n")
-    causes <- unique(d2020$cause)
-    
-    # Horiuchi decomposition
-    decomp_results <- horiuchi(func = le_wrapper, pars1 = pars1, pars2 = pars2, N = 20, age_vec = age_vec)
-    
-    # Reshape results
-    res_dt <- data.table(
-        cntr_name = scen$cntr_name,
-        ssp = scen$ssp,
-        gcm = scen$gcm,
-        age = rep(age_vec, length(causes)),
-        cause = rep(causes, each = length(age_vec)),
-        contribution = decomp_results
-    )
-    
-    return(res_dt)
-}
-
-le_results_list <- mclapply(1:nrow(unique_scenarios), decomp_worker, mc.cores = num_cores)
-le_decomp_final <- rbindlist(le_results_list)
-
-# Save results
-fwrite(le_decomp_final, "data/le_decomposition_results.csv")
-
-cat("LE decomposition complete. Results saved to data/le_decomposition_results.csv\n")
