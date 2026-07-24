@@ -1,13 +1,5 @@
 # Temperature-Mortality to Life Expectancy & Lifespan Inequality
 
-> Current workflow status lives in `PROJECT_STATUS.md`. Start there before reading historical notes or running pipeline steps.
->
-> Session planning lives in `SESSION_GOAL_YYYY-MM-DD.md`.
->
-> Fast incremental checks live in `test_pipeline_component.R`.
->
-> Historical session diaries, TODOs, and PI correction notes are archived in `references/archive_sessions/`.
-
 This repository reproduces and extends the health impact projection methodology from **Masselot et al. (2025)** to quantify the burden of heat and cold-related mortality across 854 European cities under various climate change scenarios.
 
 ## Simulation Pipeline
