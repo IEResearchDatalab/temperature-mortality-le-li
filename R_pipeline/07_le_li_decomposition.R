@@ -10,6 +10,8 @@ library(ungroup)
 library(DemoDecomp)
 library(parallel)
 
+source("R_pipeline/functions/pclm_utils.R")
+
 # Create output directory
 dir.create("results/le_li_decomposition", recursive = TRUE, showWarnings = FALSE)
 
@@ -20,11 +22,11 @@ ans_data <- fread("results/le_li_input/le_li_input_ans.csv")
 # Needs to map to age intervals for pclm
 # 65-74: [65, 75) -> width 10
 # 75-84: [75, 85) -> width 10
-# 85+:   [85, 100+] -> width 15 (assuming 100 as open interval end for pclm)
+# 85+:   [85, 100+] -> width 16 (85-99 plus 100+)
 
 ans_data[agegroup == "65-74", `:=`(age_start = 65, age_width = 10)]
 ans_data[agegroup == "75-84", `:=`(age_start = 75, age_width = 10)]
-ans_data[agegroup == "85+",    `:=`(age_start = 85, age_width = 15)] # Open interval
+ans_data[agegroup == "85+",    `:=`(age_start = 85, age_width = 16)]
 
 # Groups that uniquely identify a "population" to disaggregate
 # We need to disaggregate:
@@ -50,25 +52,27 @@ p_disaggregate <- function(row_idx) {
   setorder(age_agg, age_start)
   
   x <- age_agg$age_start
-  n <- age_agg$age_width
+  nlast <- tail(age_agg$age_width, 1)
   
   # Disaggregate Population
   pclm_pop <- tryCatch({
-    pclm(x = x, y = age_agg$pop, nlast = 15)$fitted
-  }, error = function(e) return(rep(NA, 35))) 
+    pclm_disaggregate_nonnegative(x = x, y = age_agg$pop, nlast = nlast)
+  }, error = function(e) return(rep(NA_real_, pclm_expected_length(x, nlast)))) 
   
   # Disaggregate Baseline Deaths
   pclm_deaths <- tryCatch({
-    pclm(x = x, y = age_agg$death_baseline, nlast = 15)$fitted
-  }, error = function(e) return(rep(NA, 35)))
+    pclm_disaggregate_nonnegative(x = x, y = age_agg$death_baseline, nlast = nlast)
+  }, error = function(e) return(rep(NA_real_, pclm_expected_length(x, nlast))))
   
-  # Create a base table for single ages 65-99
+  single_age_seq <- 65:(65 + pclm_expected_length(x, nlast) - 1)
+
+  # Create a base table for single ages 65-100 (where 100 represents 100+)
   base_single <- data.table(
     cntr_name = pop_info$cntr_name,
     decade = pop_info$decade,
     ssp = pop_info$ssp,
     gcm = pop_info$gcm,
-    age = 65:99, # 35 intervals
+    age = single_age_seq,
     pop = as.vector(pclm_pop),
     death_baseline = as.vector(pclm_deaths)
   )
@@ -79,8 +83,8 @@ p_disaggregate <- function(row_idx) {
     an_agg <- sub_data[range == r]
     setorder(an_agg, age_start)
     pclm_an <- tryCatch({
-      pclm(x = x, y = an_agg$an, nlast = 15)$fitted
-    }, error = function(e) return(rep(0, 35)))
+      pclm_disaggregate_signed(x = x, y = an_agg$an, nlast = nlast)
+    }, error = function(e) return(rep(0, pclm_expected_length(x, nlast))))
     
     dt <- copy(base_single)
     dt[, range := r]
