@@ -3,7 +3,7 @@
 # CITY-LEVEL Validation: Direct City-by-City Comparison with Masselot
 #
 # Goal: Compare our 4-range disaggregation city-by-city against Masselot's
-#       cityage-level baseline (2000-2014) WITHOUT any aggregation
+#       cityage-level baseline using the full ERA5 observed period
 #
 # Approach: For each city-age combination:
 #   - Our Cold = ExtrCold + ModCold
@@ -20,6 +20,11 @@ library(foreach)
 
 # Create output directory
 dir.create("results/masselot_validation_city", recursive = TRUE, showWarnings = FALSE)
+
+input_dir <- "temp_results_baseline"
+if (!dir.exists(input_dir)) {
+  stop("Expected baseline results in 'temp_results_baseline/'. Run R_pipeline/03_attribution_baseline.R first.")
+}
 
 message("\n=== CITY-LEVEL VALIDATION (NO AGGREGATION) ===\n")
 
@@ -42,37 +47,70 @@ message("  - Cities: ", length(unique(masselot_ref$URAU_CODE)))
 message("  - Age groups: ", paste(unique(masselot_ref$agegroup), collapse=", "))
 message("  - Total combinations: ", nrow(masselot_ref))
 
-#----- Load our temp_results for 2000-2014 period
+#----- Load our ERA5 baseline results
 
-rds_files <- list.files("temp_results", pattern = "\\.rds$", full.names = TRUE)
+rds_files <- list.files(input_dir, pattern = "\\.rds$", full.names = TRUE)
 message("\nFound ", length(rds_files), " city result files")
 
 # Function to process each city
 process_city_file <- function(city_file) {
   city_id <- gsub(".rds", "", basename(city_file))
+  expected_ranges <- c("ExtrCold", "ModCold", "ModHeat", "ExtrHeat")
   
   d <- try(readRDS(city_file), silent = TRUE)
   if (inherits(d, "try-error")) return(NULL)
   
   setDT(d)
   
-  # Filter for 2000-2014 period ONLY
-  d_hist <- d[year >= 2000 & year <= 2014]
+  # Use the full ERA5 baseline period and point estimate when available
+  d_hist <- d[gcm == "ERA5"]
+  if (any(d_hist$sim == 0, na.rm = TRUE)) {
+    d_hist <- d_hist[sim == 0]
+  }
   
   if (nrow(d_hist) == 0) return(NULL)
-  
-  # Average across simulations first
-  d_sim <- d_hist[, .(an_mean = mean(an)), 
-                  by = .(agegroup, range, ssp, gcm, year)]
-  
-  # Average across years (annual average, not cumulative)
-  d_year <- d_sim[, .(an_annual = mean(an_mean)), 
-                  by = .(agegroup, range, ssp, gcm)]
-  
-  # Average across SSPs and GCMs (ensemble mean for historical period)
-  # This matches Masselot's approach of providing a single baseline estimate
-  d_ens <- d_year[, .(an_ens = mean(an_annual)), 
-                  by = .(agegroup, range)]
+
+  all_years <- sort(unique(d_hist$year))
+
+  if (any(d_hist$sim == 0, na.rm = TRUE)) {
+    d_point <- d_hist[, .(an = sum(an)), by = .(agegroup, year, range)]
+    full_index <- CJ(
+      agegroup = unique(d_point$agegroup),
+      year = all_years,
+      range = expected_ranges,
+      unique = TRUE
+    )
+    d_point <- d_point[full_index, on = .(agegroup, year, range)]
+    d_point[is.na(an), an := 0]
+    d_point[, year_days := fifelse(
+      (year %% 400L == 0L) | (year %% 4L == 0L & year %% 100L != 0L),
+      366L,
+      365L
+    )]
+    d_ens <- d_point[, .(
+      an_ens = sum(an * year_days) / sum(year_days)
+    ), by = .(agegroup, range)]
+  } else {
+    d_sim <- d_hist[, .(an = sum(an)), by = .(agegroup, year, range, sim)]
+    full_index <- CJ(
+      agegroup = unique(d_sim$agegroup),
+      year = all_years,
+      range = expected_ranges,
+      sim = unique(d_sim$sim),
+      unique = TRUE
+    )
+    d_sim <- d_sim[full_index, on = .(agegroup, year, range, sim)]
+    d_sim[is.na(an), an := 0]
+    d_sim[, year_days := fifelse(
+      (year %% 400L == 0L) | (year %% 4L == 0L & year %% 100L != 0L),
+      366L,
+      365L
+    )]
+    d_sim <- d_sim[, .(
+      an_period = sum(an * year_days) / sum(year_days)
+    ), by = .(agegroup, range, sim)]
+    d_ens <- d_sim[, .(an_ens = mean(an_period)), by = .(agegroup, range)]
+  }
   
   # Reshape to wide format
   d_wide <- dcast(d_ens, agegroup ~ range, value.var = "an_ens", fill = 0)
