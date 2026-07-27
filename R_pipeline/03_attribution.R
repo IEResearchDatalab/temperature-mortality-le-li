@@ -62,6 +62,15 @@ output_dir <- trimws(Sys.getenv("OUTPUT_DIR", unset = "temp_results"))
 city_filter <- trimws(Sys.getenv("CITY_FILTER", unset = ""))
 gcm_filter <- trimws(Sys.getenv("GCM_FILTER", unset = ""))
 ssp_filter <- trimws(Sys.getenv("SSP_FILTER", unset = ""))
+cores_env <- trimws(Sys.getenv("N_CORES", unset = ""))
+
+run_cores <- n_cores
+if (nzchar(cores_env)) {
+  requested_cores <- suppressWarnings(as.integer(cores_env))
+  if (!is.na(requested_cores) && requested_cores >= 1L) {
+    run_cores <- requested_cores
+  }
+}
 
 if (nzchar(city_filter)) {
   wanted_cities <- trimws(strsplit(city_filter, ",", fixed = TRUE)[[1]])
@@ -89,10 +98,11 @@ message("  output_dir = ", output_dir)
 message("  cities = ", length(cities))
 message("  gcms = ", paste(gcms, collapse = ", "))
 message("  ssps = ", paste(scenarios, collapse = ", "))
+message("  cores = ", run_cores)
 
 #----- Prepare parallel loop
 
-cl <- makeCluster(n_cores)
+cl <- makeCluster(run_cores)
 registerDoSNOW(cl)
 
 # Export objects to workers
