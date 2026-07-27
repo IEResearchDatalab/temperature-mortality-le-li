@@ -57,7 +57,38 @@ message("\n[2/3] Starting attribution simulations...")
 #----- Prepare data and directory
 
 load("data/prep_data.RData")
-dir.create("temp_results", showWarnings = FALSE)
+
+output_dir <- trimws(Sys.getenv("OUTPUT_DIR", unset = "temp_results"))
+city_filter <- trimws(Sys.getenv("CITY_FILTER", unset = ""))
+gcm_filter <- trimws(Sys.getenv("GCM_FILTER", unset = ""))
+ssp_filter <- trimws(Sys.getenv("SSP_FILTER", unset = ""))
+
+if (nzchar(city_filter)) {
+  wanted_cities <- trimws(strsplit(city_filter, ",", fixed = TRUE)[[1]])
+  cities <- intersect(cities, wanted_cities)
+}
+
+if (nzchar(gcm_filter)) {
+  wanted_gcms <- trimws(strsplit(gcm_filter, ",", fixed = TRUE)[[1]])
+  gcms <- unique(wanted_gcms)
+}
+
+if (nzchar(ssp_filter)) {
+  wanted_ssps <- as.integer(trimws(strsplit(ssp_filter, ",", fixed = TRUE)[[1]]))
+  scenarios <- intersect(scenarios, wanted_ssps)
+}
+
+if (!length(cities)) stop("No cities selected for projection run.", call. = FALSE)
+if (!length(gcms)) stop("No GCMs selected for projection run.", call. = FALSE)
+if (!length(scenarios)) stop("No SSP scenarios selected for projection run.", call. = FALSE)
+
+dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+
+message("Projection run configuration:")
+message("  output_dir = ", output_dir)
+message("  cities = ", length(cities))
+message("  gcms = ", paste(gcms, collapse = ", "))
+message("  ssps = ", paste(scenarios, collapse = ", "))
 
 #----- Prepare parallel loop
 
@@ -79,7 +110,7 @@ opts <- list(progress = progress)
 results <- foreach(city_id = cities, .packages = c("data.table", "arrow", "dlnm", "splines", "dplyr"), .options.snow = opts) %dopar% {
   
   # Check if result already exists to allow resuming
-  out_path <- paste0("temp_results/", city_id, ".rds")
+  out_path <- file.path(output_dir, paste0(city_id, ".rds"))
   if(file.exists(out_path)) return(paste0("Skipped: ", city_id))
 
   # Extract city metadata
@@ -194,7 +225,7 @@ results <- foreach(city_id = cities, .packages = c("data.table", "arrow", "dlnm"
   
   if(length(city_results_list) > 0) {
     city_total <- rbindlist(city_results_list)
-    saveRDS(city_total, paste0("temp_results/", city_id, ".rds"))
+    saveRDS(city_total, out_path)
     return(paste0("Success: ", city_id))
   } else {
     return(paste0("Empty: ", city_id))
