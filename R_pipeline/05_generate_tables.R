@@ -143,4 +143,4 @@ table_s1_summary <- table_s1[, .(
 
 fwrite(table_s1_summary, "results/tables/Table_Lloyd2024_S1_Ranges.csv")
 
-message("Table generation complete. Files saved in results/
+message("Table generation complete. Files saved in results")
