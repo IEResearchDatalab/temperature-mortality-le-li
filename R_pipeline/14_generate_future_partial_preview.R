@@ -39,7 +39,6 @@ for (index in seq_along(files)) {
   dt_annual <- dt[, .(an = sum(an)), by = .(year, range, ssp, gcm, sim)]
   dt_city <- dt_annual[, .(an = mean(an)), by = .(year, range, ssp)]
   dt_city <- dt_city[CJ(year = sort(unique(year)), range = expected_ranges, ssp = expected_ssps, unique = TRUE), on = .(year, range, ssp)]
-  # dt_city[is.na(an), an := 0]
   dt_city[, URAU_CODE := city_id]
 
   annual_city_list[[index]] <- dt_city
