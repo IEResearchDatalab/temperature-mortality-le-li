@@ -78,6 +78,11 @@ wide <- dt[, .(
 ), by = .(geo_id, geo_name, year, ssp, gcm, sim, age)]
 
 wide[, rest := total_deaths - (extr_cold + mod_cold + mod_heat + extr_heat)]
+
+# Remove tiny floating-point artefacts (e.g. -1e-8 deaths)
+floating_point_tol <- 1e-7
+wide[abs(rest) < floating_point_tol, rest := 0]
+
 wide[, `:=`(sex = sex_label, reth = reth_label)]
 setcolorder(wide, c(
   "geo_id", "geo_name", "year", "ssp", "gcm", "sim", "sex", "reth", "age", "pop",
@@ -104,7 +109,7 @@ checks <- wide[, .(
   any_na = anyNA(.SD),
   min_rest = min(rest),
   max_rest = max(rest),
-  negative_rest_rows = sum(rest < 0)
+  negative_rest_rows = sum(rest < -floating_point_tol)
 ), by = .(geo_id, geo_name, year, ssp, gcm, sim), .SDcols = c("pop", "total_deaths", "extr_cold", "mod_cold", "mod_heat", "extr_heat", "rest")]
 
 fwrite(wide, output_wide_file)
