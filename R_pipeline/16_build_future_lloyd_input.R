@@ -5,6 +5,8 @@ suppressPackageStartupMessages({
 })
 
 message("\n[16] Building Lloyd-compatible future life-table input with fixed baseline rest...")
+message("NOTE: baseline rest is temporarily clamped at ages with negative values.")
+message("      Final analyses will use a constrained baseline redistribution.")
 
 # ------------------------------------------------------------------------------
 # Inputs and outputs
@@ -159,37 +161,37 @@ if (anyNA(rest_ref$rest)) {
   stop("Baseline rest reference contains NA values.", call. = FALSE)
 }
 
-n_negative <- sum(rest_ref$rest < -floating_point_tol)
-if (n_negative > 0L) {
-  negative_rows <- rest_ref[rest < -floating_point_tol]
-  message(sprintf(
-    "  Clamping %d baseline geo-age rows with negative rest, mostly at age %s.",
-    n_negative,
-    paste(sort(unique(negative_rows$age)), collapse = ", ")
-  ))
-  rest_ref[rest < -floating_point_tol, rest := 0]
-}
-
-# Save clamped rows for reproducibility
-clamped_file <- sub(
-  "\\.csv$",
-  "_clamped_rows.csv",
-  rest_file
-)
+# ------------------------------------------------------------------
+# TEMPORARY VALIDATION WORKAROUND
+#
+# Negative rest values occur because the baseline single-age
+# attributable deaths were generated with the original unconstrained
+# PCLM redistribution, whereas future attributable deaths use the
+# constrained redistribution (Script 17).
+#
+# Until Script 11 is rebuilt using the constrained algorithm,
+# negative baseline rest values are truncated to zero solely to
+# validate the end-to-end LE/LI pipeline.
+# ------------------------------------------------------------------
 
 negative_rows <- copy(rest_ref[rest < -floating_point_tol])
 
-message(sprintf(
-  "  Clamping %d baseline geo-age rows with negative rest, mostly at age %s.",
-  nrow(negative_rows),
-  paste(sort(unique(negative_rows$age)), collapse = ", ")
-))
+if (nrow(negative_rows) > 0L) {
+  clamped_file <- sub("\\.csv$", "_clamped_rows.csv", rest_file)
 
-fwrite(negative_rows, clamped_file)
-message("  Saved clamped rows to ", clamped_file)
+  message(sprintf(
+    "  Clamping %d baseline geo-age rows (minimum rest = %.2f deaths).",
+    nrow(negative_rows),
+    min(negative_rows$rest)
+  ))
 
-# Temporary workaround until baseline is rebuilt with constrained redistribution
-rest_ref[rest < -floating_point_tol, rest := 0]
+  fwrite(negative_rows, clamped_file)
+  message("  Saved clamped rows to ", clamped_file)
+
+  rest_ref[rest < -floating_point_tol, rest := 0]
+}
+
+rest_ref[abs(rest) < floating_point_tol, rest := 0]
 
 fwrite(rest_ref, rest_file)
 message("Saved fixed baseline rest reference to ", rest_file)
