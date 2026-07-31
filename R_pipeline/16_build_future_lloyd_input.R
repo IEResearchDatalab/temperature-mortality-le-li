@@ -170,7 +170,26 @@ if (n_negative > 0L) {
   rest_ref[rest < -floating_point_tol, rest := 0]
 }
 
-rest_ref[abs(rest) < floating_point_tol, rest := 0]
+# Save clamped rows for reproducibility
+clamped_file <- sub(
+  "\\.csv$",
+  "_clamped_rows.csv",
+  rest_file
+)
+
+negative_rows <- copy(rest_ref[rest < -floating_point_tol])
+
+message(sprintf(
+  "  Clamping %d baseline geo-age rows with negative rest, mostly at age %s.",
+  nrow(negative_rows),
+  paste(sort(unique(negative_rows$age)), collapse = ", ")
+))
+
+fwrite(negative_rows, clamped_file)
+message("  Saved clamped rows to ", clamped_file)
+
+# Temporary workaround until baseline is rebuilt with constrained redistribution
+rest_ref[rest < -floating_point_tol, rest := 0]
 
 fwrite(rest_ref, rest_file)
 message("Saved fixed baseline rest reference to ", rest_file)
