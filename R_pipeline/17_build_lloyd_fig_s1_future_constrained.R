@@ -167,7 +167,7 @@ process_city <- function(file_path) {
   if (!is.null(wanted_ssps)) d <- d[ssp %in% wanted_ssps]
   if (!is.null(wanted_gcms)) d <- d[gcm %in% wanted_gcms]
   if (!is.null(wanted_sims)) d <- d[sim_id %in% wanted_sims]
-  if (!nrow(d)) return(NULL)
+  if (!nrow(d)) return(list(empty = TRUE, city_id = city_id))
 
   meta_city <- city_meta[URAU_CODE == city_id][order(age_start)]
   if (nrow(meta_city) != 3) {
@@ -270,7 +270,7 @@ process_city <- function(file_path) {
     )
   }
 
-  list(data = rbindlist(rows), checks = rbindlist(checks))
+  list(empty = FALSE, city_id = city_id, data = rbindlist(rows), checks = rbindlist(checks))
 }
 
 num_cores <- if (is.na(n_cores_env) || n_cores_env < 1L) {
@@ -279,11 +279,58 @@ num_cores <- if (is.na(n_cores_env) || n_cores_env < 1L) {
   n_cores_env
 }
 
-results <- mclapply(future_files, process_city, mc.cores = num_cores)
-results <- Filter(Negate(is.null), results)
+results_raw <- mclapply(future_files, process_city, mc.cores = num_cores)
+
+n_total <- length(results_raw)
+n_missing <- sum(vapply(results_raw, is.null, logical(1)))
+n_errors <- sum(vapply(results_raw, inherits, logical(1), what = "try-error"))
+n_empty <- sum(vapply(results_raw, function(x) is.list(x) && isTRUE(x$empty), logical(1)))
+
+results <- Filter(function(x) {
+  is.list(x) && !isTRUE(x$empty) && !is.null(x$data) && !is.null(x$checks)
+}, results_raw)
 
 if (!length(results)) {
-  stop("All selected future files were filtered out; nothing to write.", call. = FALSE)
+  filter_msg <- c(
+    if (nzchar(country_filter)) sprintf("COUNTRY_FILTER=%s", country_filter) else NULL,
+    if (nzchar(city_filter)) sprintf("CITY_FILTER=%s", city_filter) else NULL,
+    if (nzchar(year_filter)) sprintf("YEAR_FILTER=%s", year_filter) else NULL,
+    if (nzchar(ssp_filter)) sprintf("SSP_FILTER=%s", ssp_filter) else NULL,
+    if (nzchar(gcm_filter)) sprintf("GCM_FILTER=%s", gcm_filter) else NULL,
+    if (nzchar(sim_filter)) sprintf("SIM_FILTER=%s", sim_filter) else NULL
+  )
+  filter_text <- if (length(filter_msg)) paste(filter_msg, collapse = ", ") else "(none)"
+
+  if ((n_missing + n_errors) > 0L) {
+    stop(
+      sprintf(
+        paste0(
+          "Step 17 produced no usable city outputs. Worker failures are likely.\n",
+          "  files scheduled: %d\n",
+          "  missing worker results: %d\n",
+          "  worker try-error results: %d\n",
+          "  filter-empty city results: %d\n",
+          "  active filters: %s\n",
+          "Try rerunning with lower parallelism (e.g., N_CORES=1 or N_CORES=4)."
+        ),
+        n_total, n_missing, n_errors, n_empty, filter_text
+      ),
+      call. = FALSE
+    )
+  }
+
+  stop(
+    sprintf(
+      paste0(
+        "All selected future files were filtered out; nothing to write.\n",
+        "  files scheduled: %d\n",
+        "  filter-empty city results: %d\n",
+        "  active filters: %s"
+      ),
+      n_total, n_empty, filter_text
+    ),
+    call. = FALSE
+  )
 }
 
 lloyd_s1_future <- rbindlist(lapply(results, `[[`, "data"), use.names = TRUE)
