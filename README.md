@@ -56,6 +56,13 @@ The work is organized into a robust **8-stage pipeline** located in [R_pipeline/
 | `coefs.csv` | [Masselot et al. 2023 — Zenodo](https://doi.org/10.5281/zenodo.8320789) | B-spline coefficients (b1–b5) per city × age group for reconstructing ERFs |
 | `vcov.csv` | Same Zenodo record | Lower-triangle 5×5 variance–covariance per city × age group |
 | `city_results.csv` | Same Zenodo record | City metadata, population, deaths, MMT, MMP, RR, historical attributable fractions |
+| `wittgenstein_assr.csv` | [Masselot et al. 2025 Zenodo release](https://zenodo.org/records/14004322) | Projected survival ratios by SSP, age, sex, year, and country used by the published future demographic workflow |
+| `wittgenstein_pop.csv` | [Masselot et al. 2025 Zenodo release](https://zenodo.org/records/14004322) | Projected population by SSP, age, sex, year, and country used by the published future demographic workflow |
+| `warming_years.csv` | [Masselot et al. 2025 Zenodo release](https://zenodo.org/records/14004322) | Warming-level thresholds by GCM and SSP used in the reference workflow |
+
+### External Zenodo source
+
+The repository now includes the published Masselot 2025 Zenodo data inputs locally in [data/](data/). They are treated as the authoritative external source for the future demographic workflow and are not yet wired into the current LE/LI scripts. The current production path still uses the temporary fixed-rest bridge in [R_pipeline/16_build_future_lloyd_input.R](R_pipeline/16_build_future_lloyd_input.R) and [R_pipeline/17_build_lloyd_fig_s1_future_constrained.R](R_pipeline/17_build_lloyd_fig_s1_future_constrained.R).
 
 ### Generated results (in `results/`, organized by script)
 
