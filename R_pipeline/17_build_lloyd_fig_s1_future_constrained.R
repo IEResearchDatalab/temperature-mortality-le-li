@@ -13,6 +13,9 @@ message("\n[17] Building constrained Lloyd-style single-age future AN table...")
 input_dir <- trimws(Sys.getenv("INPUT_DIR", unset = "temp_results_future"))
 output_file <- trimws(Sys.getenv("OUTPUT_FILE", unset = "results/le_li_input/lloyd_fig_s1_future_constrained_city_year_single_age.csv"))
 check_file <- trimws(Sys.getenv("CHECK_FILE", unset = "results/le_li_input/lloyd_fig_s1_future_constrained_checks.csv"))
+merge_input_dir <- trimws(Sys.getenv("MERGE_INPUT_DIR", unset = ""))
+merge_output_file <- trimws(Sys.getenv("MERGE_OUTPUT_FILE", unset = ""))
+merge_check_file <- trimws(Sys.getenv("MERGE_CHECK_FILE", unset = ""))
 city_filter <- trimws(Sys.getenv("CITY_FILTER", unset = ""))
 country_filter <- trimws(Sys.getenv("COUNTRY_FILTER", unset = ""))
 year_filter <- trimws(Sys.getenv("YEAR_FILTER", unset = ""))
@@ -20,9 +23,49 @@ ssp_filter <- trimws(Sys.getenv("SSP_FILTER", unset = ""))
 gcm_filter <- trimws(Sys.getenv("GCM_FILTER", unset = ""))
 sim_filter <- trimws(Sys.getenv("SIM_FILTER", unset = ""))
 n_cores_env <- suppressWarnings(as.integer(trimws(Sys.getenv("N_CORES", unset = ""))))
+chunk_tag <- trimws(Sys.getenv("STEP17_CHUNK_TAG", unset = ""))
+checkpoint_root <- trimws(Sys.getenv("STEP17_CHECKPOINTS_DIR", unset = ""))
+use_checkpoints <- nzchar(chunk_tag) && nzchar(checkpoint_root)
+
+if (nzchar(merge_input_dir)) {
+  if (!nzchar(merge_output_file)) merge_output_file <- output_file
+  if (!nzchar(merge_check_file)) merge_check_file <- check_file
+  dir.create(dirname(merge_output_file), recursive = TRUE, showWarnings = FALSE)
+  dir.create(dirname(merge_check_file), recursive = TRUE, showWarnings = FALSE)
+
+  data_files <- sort(list.files(merge_input_dir, pattern = "^lloyd_fig_s1_future_constrained_chunk_[0-9]+\\.csv$", full.names = TRUE))
+  check_files <- sort(list.files(merge_input_dir, pattern = "^lloyd_fig_s1_future_constrained_chunk_[0-9]+_checks\\.csv$", full.names = TRUE))
+
+  if (!length(data_files) || !length(check_files)) {
+    stop(sprintf("No chunk outputs found in %s", merge_input_dir), call. = FALSE)
+  }
+  if (length(data_files) != length(check_files)) {
+    stop(sprintf("Mismatched chunk data/check files found in %s", merge_input_dir), call. = FALSE)
+  }
+
+  merged_data <- rbindlist(lapply(data_files, fread), use.names = TRUE, fill = TRUE)
+  merged_checks <- rbindlist(lapply(check_files, fread), use.names = TRUE, fill = TRUE)
+
+  setcolorder(merged_data, c(
+    "URAU_CODE", "LABEL", "CNTR_CODE", "cntr_name", "region", "lon", "lat",
+    "year", "ssp", "gcm", "sim", "age", "age_label", "pop", "death_baseline",
+    "AN_ExtrCold", "AN_ModCold", "AN_ModHeat", "AN_ExtrHeat", "AN_total"
+  ))
+
+  fwrite(merged_data, merge_output_file)
+  fwrite(merged_checks, merge_check_file)
+  message("Merged chunk output into ", merge_output_file)
+  message("Merged chunk checks into ", merge_check_file)
+  quit(status = 0)
+}
 
 dir.create(dirname(output_file), recursive = TRUE, showWarnings = FALSE)
 dir.create(dirname(check_file), recursive = TRUE, showWarnings = FALSE)
+
+if (use_checkpoints) {
+  dir.create(checkpoint_root, recursive = TRUE, showWarnings = FALSE)
+  dir.create(file.path(checkpoint_root, chunk_tag, "cities"), recursive = TRUE, showWarnings = FALSE)
+}
 
 range_levels <- c("ExtrCold", "ModCold", "ModHeat", "ExtrHeat")
 age_groups_65plus <- c("65-74", "75-84", "85+")
@@ -30,7 +73,8 @@ overshoot_tol <- 1e-8
 
 parse_int_filter <- function(value) {
   if (!nzchar(value)) return(NULL)
-  as.integer(trimws(strsplit(value, ",", fixed = TRUE)[[1]]))
+  tokens <- trimws(strsplit(value, ",", fixed = TRUE)[[1]])
+  as.integer(sub("^V", "", tokens))
 }
 
 parse_chr_filter <- function(value) {
@@ -123,6 +167,15 @@ ipf_with_margins <- function(seed, target_rows, target_cols, tol = 1e-8, max_ite
   out
 }
 
+append_manifest_entry <- function(manifest_file, row) {
+  if (!file.exists(manifest_file)) {
+    fwrite(row, manifest_file)
+  } else {
+    existing <- fread(manifest_file, showProgress = FALSE)
+    fwrite(rbind(existing, row), manifest_file)
+  }
+}
+
 wanted_years <- parse_int_filter(year_filter)
 wanted_ssps <- parse_int_filter(ssp_filter)
 wanted_sims <- parse_int_filter(sim_filter)
@@ -145,7 +198,7 @@ city_meta <- unique(city_meta[agegroup %in% age_groups_65plus, .(
   death_baseline = death
 )])
 
-future_files <- list.files(input_dir, pattern = "\\.rds$", full.names = TRUE)
+future_files <- sort(list.files(input_dir, pattern = "\\.rds$", full.names = TRUE))
 if (!is.null(wanted_countries)) {
   wanted_country_cities <- unique(city_meta[CNTR_CODE %in% wanted_countries, URAU_CODE])
   future_files <- future_files[sub("\\.rds$", "", basename(future_files)) %in% wanted_country_cities]
@@ -184,6 +237,12 @@ process_city <- function(file_path) {
 
   grouped <- d[, .(an = sum(an)), by = .(year, ssp, gcm, sim = sim_id, agegroup, range)]
   grouped <- dcast(grouped, year + ssp + gcm + sim + agegroup ~ range, value.var = "an", fill = 0)
+  for (range_name in range_levels) {
+    if (!range_name %in% names(grouped)) {
+      grouped[[range_name]] <- 0
+    }
+    grouped[[range_name]] <- as.numeric(grouped[[range_name]])
+  }
   grouped <- merge(grouped, meta_city[, .(agegroup, age_start, age_width)], by = "agegroup")
   setorder(grouped, year, ssp, gcm, sim, age_start)
 
@@ -203,7 +262,8 @@ process_city <- function(file_path) {
       sim == slice$sim
     ][order(age_start)]
 
-    if (any(as.matrix(grp[, ..range_levels]) < -1e-10, na.rm = TRUE)) {
+    grp_range_values <- as.data.frame(grp[, range_levels, with = FALSE])
+    if (any(as.matrix(grp_range_values) < -1e-10, na.rm = TRUE)) {
       stop(sprintf("Negative grouped AN encountered for %s in constrained prototype.", city_id))
     }
 
@@ -221,7 +281,7 @@ process_city <- function(file_path) {
       idx <- band_indices[[band_idx]]
       seed_band <- unconstrained_mat[idx, , drop = FALSE]
       cap_band <- death_single[idx]
-      target_cols <- as.numeric(grp[band_idx, ..range_levels])
+      target_cols <- as.numeric(grp_range_values[band_idx, range_levels])
       target_rows <- redistribute_with_caps(rowSums(seed_band), cap_band, target_total = sum(target_cols))
       constrained_mat[idx, ] <- ipf_with_margins(seed_band, target_rows, target_cols)
     }
@@ -273,24 +333,75 @@ process_city <- function(file_path) {
   list(empty = FALSE, city_id = city_id, data = rbindlist(rows), checks = rbindlist(checks))
 }
 
-num_cores <- if (is.na(n_cores_env) || n_cores_env < 1L) {
-  min(8L, max(1L, detectCores() - 1L))
-} else {
-  n_cores_env
+if (use_checkpoints) {
+  manifest_file <- file.path(checkpoint_root, "manifest.csv")
+  if (file.exists(manifest_file)) {
+    manifest <- tryCatch(fread(manifest_file, showProgress = FALSE), error = function(e) data.table(
+      chunk_tag = character(),
+      output_file = character(),
+      check_file = character(),
+      completed_at = character(),
+      completed = logical(),
+      cities = integer(),
+      rows = integer()
+    ))
+  } else {
+    manifest <- data.table(
+      chunk_tag = character(),
+      output_file = character(),
+      check_file = character(),
+      completed_at = character(),
+      completed = logical(),
+      cities = integer(),
+      rows = integer()
+    )
+  }
+
+  chunk_tag_value <- chunk_tag
+  if (nrow(manifest[chunk_tag == chunk_tag_value & completed]) > 0L && file.exists(output_file) && file.exists(check_file)) {
+    message(sprintf("[17] Chunk %s already completed; skipping recomputation.", chunk_tag))
+    quit(status = 0)
+  }
 }
 
-results_raw <- mclapply(future_files, process_city, mc.cores = num_cores)
+city_results <- vector("list", length(future_files))
+city_checks <- vector("list", length(future_files))
+processed_count <- 0L
 
-n_total <- length(results_raw)
-n_missing <- sum(vapply(results_raw, is.null, logical(1)))
-n_errors <- sum(vapply(results_raw, inherits, logical(1), what = "try-error"))
-n_empty <- sum(vapply(results_raw, function(x) is.list(x) && isTRUE(x$empty), logical(1)))
+for (idx in seq_along(future_files)) {
+  file_path <- future_files[[idx]]
+  city_id <- sub("\\.rds$", "", basename(file_path))
+  checkpoint_file <- if (use_checkpoints) file.path(checkpoint_root, chunk_tag, "cities", paste0(city_id, ".rds")) else ""
 
-results <- Filter(function(x) {
-  is.list(x) && !isTRUE(x$empty) && !is.null(x$data) && !is.null(x$checks)
-}, results_raw)
+  if (use_checkpoints && file.exists(checkpoint_file)) {
+    checkpoint <- readRDS(checkpoint_file)
+    city_results[[idx]] <- checkpoint$data
+    city_checks[[idx]] <- checkpoint$checks
+    message(sprintf("[17] chunk %s city %s: resumed from checkpoint (%d/%d)", chunk_tag, city_id, idx, length(future_files)))
+    next
+  }
 
-if (!length(results)) {
+  message(sprintf("[17] chunk %s city %s: processing (%d/%d)", chunk_tag, city_id, idx, length(future_files)))
+  city_result <- process_city(file_path)
+  if (isTRUE(city_result$empty)) {
+    message(sprintf("[17] chunk %s city %s: empty after filtering", chunk_tag, city_id))
+    next
+  }
+
+  if (use_checkpoints) {
+    saveRDS(list(data = city_result$data, checks = city_result$checks), checkpoint_file)
+  }
+
+  city_results[[idx]] <- city_result$data
+  city_checks[[idx]] <- city_result$checks
+  processed_count <- processed_count + 1L
+  message(sprintf("[17] chunk %s city %s: completed (%d/%d)", chunk_tag, city_id, idx, length(future_files)))
+}
+
+city_results <- city_results[!vapply(city_results, is.null, logical(1))]
+city_checks <- city_checks[!vapply(city_checks, is.null, logical(1))]
+
+if (!length(city_results)) {
   filter_msg <- c(
     if (nzchar(country_filter)) sprintf("COUNTRY_FILTER=%s", country_filter) else NULL,
     if (nzchar(city_filter)) sprintf("CITY_FILTER=%s", city_filter) else NULL,
@@ -301,40 +412,21 @@ if (!length(results)) {
   )
   filter_text <- if (length(filter_msg)) paste(filter_msg, collapse = ", ") else "(none)"
 
-  if ((n_missing + n_errors) > 0L) {
-    stop(
-      sprintf(
-        paste0(
-          "Step 17 produced no usable city outputs. Worker failures are likely.\n",
-          "  files scheduled: %d\n",
-          "  missing worker results: %d\n",
-          "  worker try-error results: %d\n",
-          "  filter-empty city results: %d\n",
-          "  active filters: %s\n",
-          "Try rerunning with lower parallelism (e.g., N_CORES=1 or N_CORES=4)."
-        ),
-        n_total, n_missing, n_errors, n_empty, filter_text
-      ),
-      call. = FALSE
-    )
-  }
-
   stop(
     sprintf(
       paste0(
         "All selected future files were filtered out; nothing to write.\n",
         "  files scheduled: %d\n",
-        "  filter-empty city results: %d\n",
         "  active filters: %s"
       ),
-      n_total, n_empty, filter_text
+      length(future_files), filter_text
     ),
     call. = FALSE
   )
 }
 
-lloyd_s1_future <- rbindlist(lapply(results, `[[`, "data"), use.names = TRUE)
-checks <- rbindlist(lapply(results, `[[`, "checks"), use.names = TRUE)
+lloyd_s1_future <- rbindlist(city_results, use.names = TRUE)
+checks <- rbindlist(city_checks, use.names = TRUE)
 
 setcolorder(lloyd_s1_future, c(
   "URAU_CODE", "LABEL", "CNTR_CODE", "cntr_name", "region", "lon", "lat",
@@ -345,6 +437,20 @@ setcolorder(lloyd_s1_future, c(
 fwrite(lloyd_s1_future, output_file)
 fwrite(checks, check_file)
 
+if (use_checkpoints) {
+  manifest_entry <- data.table(
+    chunk_tag = chunk_tag,
+    output_file = output_file,
+    check_file = check_file,
+    completed_at = format(Sys.time(), "%Y-%m-%d %H:%M:%OS3"),
+    completed = TRUE,
+    cities = length(city_results),
+    rows = nrow(lloyd_s1_future)
+  )
+  append_manifest_entry(manifest_file, manifest_entry)
+}
+
+message(sprintf("[17] chunk %s completed: wrote %d city outputs and %d rows", chunk_tag, length(city_results), nrow(lloyd_s1_future)))
 message("Saved constrained Lloyd-style future table to ", output_file)
 message("Saved constrained additivity/cap checks to ", check_file)
 message(sprintf(
