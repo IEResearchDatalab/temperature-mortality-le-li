@@ -25,7 +25,21 @@ sim_filter <- trimws(Sys.getenv("SIM_FILTER", unset = ""))
 n_cores_env <- suppressWarnings(as.integer(trimws(Sys.getenv("N_CORES", unset = ""))))
 chunk_tag <- trimws(Sys.getenv("STEP17_CHUNK_TAG", unset = ""))
 checkpoint_root <- trimws(Sys.getenv("STEP17_CHECKPOINTS_DIR", unset = ""))
+timing_file <- trimws(Sys.getenv("STEP17_TIMING_FILE", unset = ""))
 use_checkpoints <- nzchar(chunk_tag) && nzchar(checkpoint_root)
+
+timing_state <- new.env(parent = emptyenv())
+timing_state$rows <- list()
+
+append_timing <- function(stage, city_id = NA_character_, slice_id = NA_character_, seconds) {
+  timing_state$rows[[length(timing_state$rows) + 1L]] <- data.table(
+    stage = stage,
+    city_id = as.character(city_id),
+    slice_id = as.character(slice_id),
+    seconds = as.numeric(seconds)
+  )
+  invisible(NULL)
+}
 
 if (nzchar(merge_input_dir)) {
   if (!nzchar(merge_output_file)) merge_output_file <- output_file
@@ -213,6 +227,20 @@ if (!length(future_files)) {
 
 process_city <- function(file_path) {
   city_id <- sub("\\.rds$", "", basename(file_path))
+  city_t0 <- Sys.time()
+  city_timing_rows <- list()
+
+  append_city_timing <- function(stage, city_id = NA_character_, slice_id = NA_character_, seconds) {
+    city_timing_rows[[length(city_timing_rows) + 1L]] <<- data.table(
+      stage = stage,
+      city_id = as.character(city_id),
+      slice_id = as.character(slice_id),
+      seconds = as.numeric(seconds)
+    )
+    invisible(NULL)
+  }
+
+  read_t0 <- Sys.time()
   d <- as.data.table(readRDS(file_path))[agegroup %in% age_groups_65plus]
   d[, sim_id := normalize_sim_id(sim)]
 
@@ -220,13 +248,28 @@ process_city <- function(file_path) {
   if (!is.null(wanted_ssps)) d <- d[ssp %in% wanted_ssps]
   if (!is.null(wanted_gcms)) d <- d[gcm %in% wanted_gcms]
   if (!is.null(wanted_sims)) d <- d[sim_id %in% wanted_sims]
-  if (!nrow(d)) return(list(empty = TRUE, city_id = city_id))
+  if (!nrow(d)) {
+    append_timing("city_total", city_id = city_id, seconds = as.numeric(difftime(Sys.time(), city_t0, units = "secs")))
+    append_city_timing("city_total", city_id = city_id, seconds = as.numeric(difftime(Sys.time(), city_t0, units = "secs")))
+    return(list(empty = TRUE, city_id = city_id, timing_rows = data.table(
+      stage = character(),
+      city_id = character(),
+      slice_id = character(),
+      seconds = numeric()
+    )))
+  }
+  append_timing("readRDS", city_id = city_id, seconds = as.numeric(difftime(Sys.time(), read_t0, units = "secs")))
+  append_city_timing("readRDS", city_id = city_id, seconds = as.numeric(difftime(Sys.time(), read_t0, units = "secs")))
 
+  meta_t0 <- Sys.time()
   meta_city <- city_meta[URAU_CODE == city_id][order(age_start)]
   if (nrow(meta_city) != 3) {
     stop(sprintf("Metadata for %s does not contain the three expected 65+ age groups.", city_id))
   }
+  append_timing("city_meta", city_id = city_id, seconds = as.numeric(difftime(Sys.time(), meta_t0, units = "secs")))
+  append_city_timing("city_meta", city_id = city_id, seconds = as.numeric(difftime(Sys.time(), meta_t0, units = "secs")))
 
+  disagg_t0 <- Sys.time()
   x <- meta_city$age_start
   widths <- meta_city$age_width
   nlast <- tail(widths, 1)
@@ -234,7 +277,10 @@ process_city <- function(file_path) {
 
   pop_single <- pclm_disaggregate_nonnegative(x = x, y = meta_city$pop, nlast = nlast)
   death_single <- pclm_disaggregate_nonnegative(x = x, y = meta_city$death_baseline, nlast = nlast)
+  append_timing("city_disagg", city_id = city_id, seconds = as.numeric(difftime(Sys.time(), disagg_t0, units = "secs")))
+  append_city_timing("city_disagg", city_id = city_id, seconds = as.numeric(difftime(Sys.time(), disagg_t0, units = "secs")))
 
+  reshape_t0 <- Sys.time()
   grouped <- d[, .(an = sum(an)), by = .(year, ssp, gcm, sim = sim_id, agegroup, range)]
   grouped <- dcast(grouped, year + ssp + gcm + sim + agegroup ~ range, value.var = "an", fill = 0)
   for (range_name in range_levels) {
@@ -245,6 +291,8 @@ process_city <- function(file_path) {
   }
   grouped <- merge(grouped, meta_city[, .(agegroup, age_start, age_width)], by = "agegroup")
   setorder(grouped, year, ssp, gcm, sim, age_start)
+  append_timing("city_reshape", city_id = city_id, seconds = as.numeric(difftime(Sys.time(), reshape_t0, units = "secs")))
+  append_city_timing("city_reshape", city_id = city_id, seconds = as.numeric(difftime(Sys.time(), reshape_t0, units = "secs")))
 
   band_starts <- cumsum(c(1L, head(widths, -1L)))
   band_indices <- Map(seq.int, band_starts, band_starts + widths - 1L)
@@ -255,6 +303,9 @@ process_city <- function(file_path) {
 
   for (i in seq_len(nrow(slices))) {
     slice <- slices[i]
+    slice_t0 <- Sys.time()
+    slice_id <- sprintf("%s|%s|%s|%s", slice$year, slice$ssp, slice$gcm, slice$sim)
+
     grp <- grouped[
       year == slice$year &
       ssp == slice$ssp &
@@ -262,6 +313,7 @@ process_city <- function(file_path) {
       sim == slice$sim
     ][order(age_start)]
 
+    precompute_t0 <- Sys.time()
     grp_range_values <- as.data.frame(grp[, range_levels, with = FALSE])
     if (any(as.matrix(grp_range_values) < -1e-10, na.rm = TRUE)) {
       stop(sprintf("Negative grouped AN encountered for %s in constrained prototype.", city_id))
@@ -273,7 +325,10 @@ process_city <- function(file_path) {
     unconstrained_mat <- as.matrix(unconstrained_mat)
     colnames(unconstrained_mat) <- range_levels
     unconstrained_total <- rowSums(unconstrained_mat)
+    append_timing("slice_precompute", city_id = city_id, slice_id = slice_id, seconds = as.numeric(difftime(Sys.time(), precompute_t0, units = "secs")))
+    append_city_timing("slice_precompute", city_id = city_id, slice_id = slice_id, seconds = as.numeric(difftime(Sys.time(), precompute_t0, units = "secs")))
 
+    ipf_t0 <- Sys.time()
     constrained_mat <- matrix(0, nrow = length(ages_single), ncol = length(range_levels))
     colnames(constrained_mat) <- range_levels
 
@@ -287,7 +342,10 @@ process_city <- function(file_path) {
     }
 
     constrained_total <- rowSums(constrained_mat)
+    append_timing("slice_ipf", city_id = city_id, slice_id = slice_id, seconds = as.numeric(difftime(Sys.time(), ipf_t0, units = "secs")))
+    append_city_timing("slice_ipf", city_id = city_id, slice_id = slice_id, seconds = as.numeric(difftime(Sys.time(), ipf_t0, units = "secs")))
 
+    output_t0 <- Sys.time()
     single <- data.table(
       URAU_CODE = city_id,
       LABEL = meta_city$LABEL[1],
@@ -328,9 +386,23 @@ process_city <- function(file_path) {
       n_post_overshoot = sum(constrained_total > death_single + overshoot_tol),
       any_na = anyNA(single[, .(AN_ExtrCold, AN_ModCold, AN_ModHeat, AN_ExtrHeat, pop, death_baseline)])
     )
+    append_timing("slice_output", city_id = city_id, slice_id = slice_id, seconds = as.numeric(difftime(Sys.time(), output_t0, units = "secs")))
+    append_city_timing("slice_output", city_id = city_id, slice_id = slice_id, seconds = as.numeric(difftime(Sys.time(), output_t0, units = "secs")))
+    append_timing("slice_total", city_id = city_id, slice_id = slice_id, seconds = as.numeric(difftime(Sys.time(), slice_t0, units = "secs")))
+    append_city_timing("slice_total", city_id = city_id, slice_id = slice_id, seconds = as.numeric(difftime(Sys.time(), slice_t0, units = "secs")))
   }
 
-  list(empty = FALSE, city_id = city_id, data = rbindlist(rows), checks = rbindlist(checks))
+  append_timing("city_total", city_id = city_id, seconds = as.numeric(difftime(Sys.time(), city_t0, units = "secs")))
+  append_city_timing("city_total", city_id = city_id, seconds = as.numeric(difftime(Sys.time(), city_t0, units = "secs")))
+
+  timing_rows <- if (length(city_timing_rows)) rbindlist(city_timing_rows, fill = TRUE) else data.table(
+    stage = character(),
+    city_id = character(),
+    slice_id = character(),
+    seconds = numeric()
+  )
+
+  list(empty = FALSE, city_id = city_id, data = rbindlist(rows), checks = rbindlist(checks), timing_rows = timing_rows)
 }
 
 if (use_checkpoints) {
@@ -368,34 +440,72 @@ city_results <- vector("list", length(future_files))
 city_checks <- vector("list", length(future_files))
 processed_count <- 0L
 
+parallel_cores <- if (!is.na(n_cores_env) && n_cores_env > 1L) n_cores_env else 1L
+if (parallel_cores > 1L) {
+  message(sprintf("[17] chunk %s: using city-level parallelism with %d cores", chunk_tag, parallel_cores))
+}
+
+city_plan <- vector("list", length(future_files))
 for (idx in seq_along(future_files)) {
   file_path <- future_files[[idx]]
   city_id <- sub("\\.rds$", "", basename(file_path))
   checkpoint_file <- if (use_checkpoints) file.path(checkpoint_root, chunk_tag, "cities", paste0(city_id, ".rds")) else ""
+  city_plan[[idx]] <- list(file_path = file_path, city_id = city_id, checkpoint_file = checkpoint_file)
+}
+
+run_city_job <- function(job) {
+  file_path <- job$file_path
+  city_id <- job$city_id
+  checkpoint_file <- job$checkpoint_file
 
   if (use_checkpoints && file.exists(checkpoint_file)) {
     checkpoint <- readRDS(checkpoint_file)
-    city_results[[idx]] <- checkpoint$data
-    city_checks[[idx]] <- checkpoint$checks
-    message(sprintf("[17] chunk %s city %s: resumed from checkpoint (%d/%d)", chunk_tag, city_id, idx, length(future_files)))
-    next
+    message(sprintf("[17] chunk %s city %s: resumed from checkpoint", chunk_tag, city_id))
+    return(list(
+      empty = FALSE,
+      city_id = city_id,
+      data = checkpoint$data,
+      checks = checkpoint$checks,
+      resumed = TRUE,
+      timing_rows = data.table(
+        stage = character(),
+        city_id = character(),
+        slice_id = character(),
+        seconds = numeric()
+      )
+    ))
   }
 
-  message(sprintf("[17] chunk %s city %s: processing (%d/%d)", chunk_tag, city_id, idx, length(future_files)))
+  message(sprintf("[17] chunk %s city %s: processing", chunk_tag, city_id))
   city_result <- process_city(file_path)
   if (isTRUE(city_result$empty)) {
     message(sprintf("[17] chunk %s city %s: empty after filtering", chunk_tag, city_id))
-    next
+    return(list(empty = TRUE, city_id = city_id, resumed = FALSE))
   }
 
   if (use_checkpoints) {
     saveRDS(list(data = city_result$data, checks = city_result$checks), checkpoint_file)
   }
 
-  city_results[[idx]] <- city_result$data
-  city_checks[[idx]] <- city_result$checks
+  message(sprintf("[17] chunk %s city %s: completed", chunk_tag, city_id))
+  list(empty = FALSE, city_id = city_id, data = city_result$data, checks = city_result$checks, resumed = FALSE, timing_rows = city_result$timing_rows)
+}
+
+if (parallel_cores > 1L) {
+  worker_results <- mclapply(city_plan, run_city_job, mc.cores = parallel_cores)
+} else {
+  worker_results <- lapply(city_plan, run_city_job)
+}
+
+for (idx in seq_along(worker_results)) {
+  result <- worker_results[[idx]]
+  if (isTRUE(result$empty)) next
+  city_results[[idx]] <- result$data
+  city_checks[[idx]] <- result$checks
+  if (nrow(result$timing_rows)) {
+    timing_state$rows[[length(timing_state$rows) + 1L]] <- result$timing_rows
+  }
   processed_count <- processed_count + 1L
-  message(sprintf("[17] chunk %s city %s: completed (%d/%d)", chunk_tag, city_id, idx, length(future_files)))
 }
 
 city_results <- city_results[!vapply(city_results, is.null, logical(1))]
@@ -434,8 +544,10 @@ setcolorder(lloyd_s1_future, c(
   "AN_ExtrCold", "AN_ModCold", "AN_ModHeat", "AN_ExtrHeat", "AN_total"
 ))
 
+write_t0 <- Sys.time()
 fwrite(lloyd_s1_future, output_file)
 fwrite(checks, check_file)
+append_timing("writing", seconds = as.numeric(difftime(Sys.time(), write_t0, units = "secs")))
 
 if (use_checkpoints) {
   manifest_entry <- data.table(
@@ -464,3 +576,30 @@ message(sprintf(
   any(checks$any_na),
   max(checks$max_post_overshoot)
 ))
+
+if (length(timing_state$rows)) {
+  timing_dt <- rbindlist(timing_state$rows, fill = TRUE)
+  phase_summary <- timing_dt[stage != "city_total" & stage != "slice_total", .(seconds = sum(seconds, na.rm = TRUE)), by = stage]
+  setorder(phase_summary, -seconds)
+  city_summary <- timing_dt[stage == "city_total", .(seconds = sum(seconds, na.rm = TRUE)), by = city_id]
+  setorder(city_summary, -seconds)
+  slice_summary <- timing_dt[stage == "slice_total", .(seconds = sum(seconds, na.rm = TRUE)), by = .(city_id, slice_id)]
+  setorder(slice_summary, -seconds)
+
+  message("[17] Timing summary by phase:")
+  print(phase_summary)
+  message("[17] Timing summary by city:")
+  print(city_summary)
+  message("[17] Timing summary by slice:")
+  print(slice_summary)
+
+  if (nzchar(timing_file)) {
+    dir.create(dirname(timing_file), recursive = TRUE, showWarnings = FALSE)
+    summary_dt <- rbind(
+      city_summary[, .(level = "city", city_id, slice_id = NA_character_, seconds)],
+      slice_summary[, .(level = "slice", city_id, slice_id, seconds)]
+    )
+    fwrite(summary_dt, timing_file)
+    message("[17] Timing breakdown written to ", timing_file)
+  }
+}

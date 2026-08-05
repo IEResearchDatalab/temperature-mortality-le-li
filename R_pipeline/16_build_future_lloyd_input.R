@@ -42,6 +42,11 @@ rest_file <- trimws(Sys.getenv(
   unset = "results/le_li_input/fixed_rest_reference.csv"
 ))
 
+projected_demography_file <- trimws(Sys.getenv(
+  "FUTURE_DEMOGRAPHIC_FILE",
+  unset = ""
+))
+
 geo_level <- trimws(Sys.getenv("GEO_LEVEL", unset = "country"))
 country_filter <- trimws(Sys.getenv("COUNTRY_FILTER", unset = ""))
 ssp_filter <- trimws(Sys.getenv("SSP_FILTER", unset = ""))
@@ -64,6 +69,75 @@ parse_int_filter <- function(value) {
 parse_chr_filter <- function(value) {
   if (!nzchar(value)) return(NULL)
   trimws(strsplit(value, ",", fixed = TRUE)[[1]])
+}
+
+read_projected_demography <- function(path) {
+  if (!nzchar(path)) return(NULL)
+  if (!file.exists(path)) {
+    stop(sprintf("Projected demographic input not found: %s", path), call. = FALSE)
+  }
+
+  if (grepl("\\.rds$", path, ignore.case = TRUE)) {
+    dem <- readRDS(path)
+  } else {
+    dem <- fread(path)
+  }
+
+  if (!is.data.table(dem)) {
+    dem <- as.data.table(dem)
+  }
+
+  if ("CNTR_CODE" %in% names(dem)) {
+    dem[, geo_id := as.character(CNTR_CODE)]
+  } else if ("geo_id" %in% names(dem)) {
+    dem[, geo_id := as.character(geo_id)]
+  } else if ("country" %in% names(dem)) {
+    dem[, geo_id := as.character(country)]
+  } else {
+    stop("Projected demographic input must contain CNTR_CODE, geo_id, or country.", call. = FALSE)
+  }
+
+  if ("year" %in% names(dem)) {
+    dem[, year := as.integer(year)]
+  } else if ("year5" %in% names(dem)) {
+    dem[, year := as.integer(year5)]
+  } else {
+    stop("Projected demographic input must contain a year column.", call. = FALSE)
+  }
+
+  if ("age" %in% names(dem)) {
+    dem[, age := as.integer(age)]
+  } else if ("agegroup" %in% names(dem)) {
+    dem[, age := NA_integer_]
+  } else {
+    stop("Projected demographic input must contain an age column.", call. = FALSE)
+  }
+
+  if ("death" %in% names(dem)) {
+    dem[, death := as.numeric(death)]
+  } else {
+    stop("Projected demographic input must contain a death column.", call. = FALSE)
+  }
+
+  if ("pop" %in% names(dem)) {
+    dem[, pop := as.numeric(pop)]
+  } else {
+    stop("Projected demographic input must contain a pop column.", call. = FALSE)
+  }
+
+  if (!is.null(wanted_countries)) {
+    dem <- dem[geo_id %in% wanted_countries]
+  }
+  if (!is.null(wanted_years)) dem <- dem[year %in% wanted_years]
+  if ("ssp" %in% names(dem) && !is.null(wanted_ssps)) dem <- dem[ssp %in% wanted_ssps]
+  if ("gcm" %in% names(dem) && !is.null(wanted_gcms)) dem <- dem[gcm %in% wanted_gcms]
+  if ("sim" %in% names(dem) && !is.null(wanted_sims)) dem <- dem[sim %in% wanted_sims]
+
+  if (!nrow(dem)) {
+    stop("Projected demographic input filtered to zero rows.", call. = FALSE)
+  }
+
+  dem
 }
 
 wanted_years <- parse_int_filter(year_filter)
@@ -140,25 +214,93 @@ if (geo_level == "country") {
 }
 
 # ------------------------------------------------------------------------------
-# Build fixed baseline rest reference
+# Build the future rest reference
 # ------------------------------------------------------------------------------
 
-baseline_geo_year_age <- baseline_dt[, .(
-  total_deaths = sum(death_baseline),
+future_geo_year_age <- future_dt[, .(
+  geo_id,
+  geo_name,
+  year,
+  ssp,
+  gcm,
+  sim,
+  age,
   extr_cold = sum(AN_ExtrCold),
   mod_cold = sum(AN_ModCold),
   mod_heat = sum(AN_ModHeat),
   extr_heat = sum(AN_ExtrHeat)
-), by = .(geo_id, geo_name, year, age)]
+), by = .(geo_id, geo_name, year, ssp, gcm, sim, age)]
 
-baseline_geo_year_age[, temp_deaths := extr_cold + mod_cold + mod_heat + extr_heat]
+future_geo_year_age[, temp_deaths := extr_cold + mod_cold + mod_heat + extr_heat]
 
-rest_ref <- baseline_geo_year_age[, .(
-  rest = mean(total_deaths - temp_deaths)
-), by = .(geo_id, geo_name, age)]
+projected_demography <- read_projected_demography(projected_demography_file)
+
+if (!is.null(projected_demography)) {
+  message("Using projected demographic deaths to build the future rest reference.")
+
+  projected_cols <- c("geo_id", "year", "age")
+  join_cols <- projected_cols
+  if ("ssp" %in% names(projected_demography)) join_cols <- c(join_cols, "ssp")
+  if ("gcm" %in% names(projected_demography)) join_cols <- c(join_cols, "gcm")
+  if ("sim" %in% names(projected_demography)) join_cols <- c(join_cols, "sim")
+
+  if (!all(join_cols %in% names(future_geo_year_age))) {
+    future_geo_year_age[, `:=`(
+      ssp = as.integer(ssp),
+      gcm = as.character(gcm),
+      sim = as.integer(sim)
+    )]
+  }
+
+  projected_demography[, `:=`(
+    geo_id = as.character(geo_id),
+    age = as.integer(age),
+    year = as.integer(year)
+  )]
+
+  join_cols <- intersect(join_cols, names(projected_demography))
+  join_cols <- intersect(join_cols, names(future_geo_year_age))
+
+  rest_ref <- merge(
+    future_geo_year_age,
+    projected_demography[, .(geo_id, year, age, death, pop)],
+    by = c("geo_id", "year", "age"),
+    all.x = TRUE,
+    sort = FALSE
+  )
+
+  if (anyNA(rest_ref$death)) {
+    missing_keys <- rest_ref[is.na(death), unique(.(
+      geo_id, year, age
+    ))]
+    stop(
+      sprintf("Projected demographic deaths are missing for %d geo-year-age combinations.", nrow(missing_keys)),
+      call. = FALSE
+    )
+  }
+
+  rest_ref[, rest := death - temp_deaths]
+  rest_ref <- rest_ref[, .(rest = mean(rest)), by = .(geo_id, geo_name, age)]
+} else {
+  message("Projected demographic file not supplied; falling back to the baseline rest reference.")
+
+  baseline_geo_year_age <- baseline_dt[, .(
+    total_deaths = sum(death_baseline),
+    extr_cold = sum(AN_ExtrCold),
+    mod_cold = sum(AN_ModCold),
+    mod_heat = sum(AN_ModHeat),
+    extr_heat = sum(AN_ExtrHeat)
+  ), by = .(geo_id, geo_name, year, age)]
+
+  baseline_geo_year_age[, temp_deaths := extr_cold + mod_cold + mod_heat + extr_heat]
+
+  rest_ref <- baseline_geo_year_age[, .(
+    rest = mean(total_deaths - temp_deaths)
+  ), by = .(geo_id, geo_name, age)]
+}
 
 if (anyNA(rest_ref$rest)) {
-  stop("Baseline rest reference contains NA values.", call. = FALSE)
+  stop("Rest reference contains NA values.", call. = FALSE)
 }
 
 # ------------------------------------------------------------------
@@ -180,7 +322,7 @@ if (nrow(negative_rows) > 0L) {
   clamped_file <- sub("\\.csv$", "_clamped_rows.csv", rest_file)
 
   message(sprintf(
-    "  Clamping %d baseline geo-age rows (minimum rest = %.2f deaths).",
+    "  Clamping %d geo-age rows (minimum rest = %.2f deaths).",
     nrow(negative_rows),
     min(negative_rows$rest)
   ))
@@ -194,7 +336,7 @@ if (nrow(negative_rows) > 0L) {
 rest_ref[abs(rest) < floating_point_tol, rest := 0]
 
 fwrite(rest_ref, rest_file)
-message("Saved fixed baseline rest reference to ", rest_file)
+message("Saved future rest reference to ", rest_file)
 
 # ------------------------------------------------------------------------------
 # Aggregate future temperature causes and merge fixed rest
