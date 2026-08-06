@@ -90,7 +90,12 @@ for (i in seq_along(future_files)) {
   setcolorder(collapsed, c("sim", "an", "year", "range", "ssp", "gcm", "agegroup"))
 
   out_file <- file.path(output_dir, basename(file_path))
+  rows_out <- nrow(collapsed)
+  sims_out <- uniqueN(collapsed$sim)
+
   saveRDS(collapsed, out_file)
+  rm(d, collapsed)
+  gc()
 
   elapsed <- as.numeric(difftime(Sys.time(), t0, units = "secs"))
   message(sprintf(
@@ -98,7 +103,7 @@ for (i in seq_along(future_files)) {
     city_id,
     rows_in,
     unique_sim_in,
-    nrow(collapsed),
+    rows_out,
     out_file,
     elapsed
   ))
@@ -106,9 +111,9 @@ for (i in seq_along(future_files)) {
   summary_rows[[i]] <- data.table(
     URAU_CODE = city_id,
     rows_in = rows_in,
-    rows_out = nrow(collapsed),
+    rows_out = rows_out,
     unique_sim_in = unique_sim_in,
-    unique_sim_out = uniqueN(collapsed$sim),
+    unique_sim_out = sims_out,
     elapsed_sec = elapsed
   )
 }
