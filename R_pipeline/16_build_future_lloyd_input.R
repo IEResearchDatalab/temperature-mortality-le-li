@@ -113,6 +113,18 @@ read_projected_demography <- function(path) {
     stop("Projected demographic input must contain an age column.", call. = FALSE)
   }
 
+  if (all(is.na(dem$age))) {
+    stop(
+      paste(
+        "Projected demographic input does not contain single-age values.",
+        "Script 16 expects age-specific deaths for ages 65:100.",
+        "Please transform age-group rows into single-age rows before using FUTURE_DEMOGRAPHIC_FILE.",
+        sep = " "
+      ),
+      call. = FALSE
+    )
+  }
+
   if ("death" %in% names(dem)) {
     dem[, death := as.numeric(death)]
   } else {
@@ -218,13 +230,6 @@ if (geo_level == "country") {
 # ------------------------------------------------------------------------------
 
 future_geo_year_age <- future_dt[, .(
-  geo_id,
-  geo_name,
-  year,
-  ssp,
-  gcm,
-  sim,
-  age,
   extr_cold = sum(AN_ExtrCold),
   mod_cold = sum(AN_ModCold),
   mod_heat = sum(AN_ModHeat),
@@ -261,10 +266,12 @@ if (!is.null(projected_demography)) {
   join_cols <- intersect(join_cols, names(projected_demography))
   join_cols <- intersect(join_cols, names(future_geo_year_age))
 
+  dem_keep_cols <- unique(c(join_cols, "death", "pop"))
+
   rest_ref <- merge(
     future_geo_year_age,
-    projected_demography[, .(geo_id, year, age, death, pop)],
-    by = c("geo_id", "year", "age"),
+    projected_demography[, ..dem_keep_cols],
+    by = join_cols,
     all.x = TRUE,
     sort = FALSE
   )
