@@ -87,6 +87,7 @@ for (i in seq_along(future_files)) {
 
   collapsed <- d[, .(an = mean(an, na.rm = TRUE)), by = .(year, range, ssp, gcm, agegroup)]
   collapsed[, sim := 0L]
+  collapsed[is.nan(an), an := 0]
   setcolorder(collapsed, c("sim", "an", "year", "range", "ssp", "gcm", "agegroup"))
 
   out_file <- file.path(output_dir, basename(file_path))
