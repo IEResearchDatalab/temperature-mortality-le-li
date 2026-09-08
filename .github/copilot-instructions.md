@@ -37,12 +37,13 @@
 - Current downstream blockers are Script 04/05 baseline integration, total mortality data, and the demographic methods design.
 
 ## Session End Checklist
-1. Update `references/PROJECT_STATUS.md`.
-2. Move completed work out of the in-progress section.
-3. Record any new blocker with an exact cause.
-4. Create the next session-goal file.
-5. Archive throwaway test artifacts if they are no longer useful.
-6. Only then consider a commit.
+1. Write down a new markdown in `references`. Use the format "YYMMDDXX_name.md" where XX is the file number for the day and `name` is a short description of the session goal.
+2. Update `references/PROJECT_STATUS.md`.
+3. Move completed work out of the in-progress section.
+4. Record any new blocker with an exact cause.
+5. Create the next session-goal file.
+6. Archive throwaway test artifacts if they are no longer useful.
+7. Only then consider a commit.
 
 ## When to Contact the PI
 - Validation misses its expected threshold.
@@ -56,7 +57,7 @@
 - `LE/LI blocked` -> do not code past the blocker without mortality data and an approved methods note.
 
 ## Good Session Pattern
-- Read `references/PROJECT_STATUS.md`.
+- Read `references/PROJECT_STATUS.md` and the most recent notes first.
 - Read the session goal.
 - Run a one-city or sample test.
 - Fix one concrete defect.
