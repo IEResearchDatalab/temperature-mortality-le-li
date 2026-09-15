@@ -221,8 +221,13 @@ if (geo_level == "country") {
 } else if (geo_level == "europe") {
   future_dt[, `:=`(geo_id = "EUROPE", geo_name = "Europe")]
   baseline_dt[, `:=`(geo_id = "EUROPE", geo_name = "Europe")]
+} else if (geo_level == "city") {
+  future_geo_name <- if ("LABEL" %in% names(future_dt)) future_dt$LABEL else future_dt$URAU_CODE
+  baseline_geo_name <- if ("LABEL" %in% names(baseline_dt)) baseline_dt$LABEL else baseline_dt$URAU_CODE
+  future_dt[, `:=`(geo_id = URAU_CODE, geo_name = future_geo_name)]
+  baseline_dt[, `:=`(geo_id = URAU_CODE, geo_name = baseline_geo_name)]
 } else {
-  stop("GEO_LEVEL must be either 'country' or 'europe'.", call. = FALSE)
+  stop("GEO_LEVEL must be one of 'country', 'europe', or 'city'.", call. = FALSE)
 }
 
 # ------------------------------------------------------------------------------
