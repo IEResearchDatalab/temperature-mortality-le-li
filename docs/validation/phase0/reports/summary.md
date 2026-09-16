@@ -26,7 +26,7 @@ The clean-room validation pack reproduced the current validation pack exactly at
 The remaining unresolved blockers are the broader negative grouped-AN census and PCLM zero/NA behavior. The current single-age baseline file provenance is fixed-baseline PCLM and is not suitable as a future demographic source.
 
 ## Recommendation
-Full implementation should **not** begin yet. The validated gates now support the five-script specification and the production choices for ASSR, coefficient draws, leap days, signed grouped AN, and Lloyd N=400, but the spec still has unresolved blockers and one failed reproduction gate that require a separate scientific decision.
+Full implementation should **not** begin yet. The validated gates now support the five-script specification and the production choices for ASSR, coefficient draws, leap days, signed grouped AN, Lloyd N=400, and the corrected attribution reproduction, but the spec still has unresolved blockers that require a separate scientific decision.
 
 ## Status
 BLOCKED

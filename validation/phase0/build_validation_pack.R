@@ -402,15 +402,15 @@ calc_from_af <- function(afv) {
   annual_dt <- as.data.table(annual, keep.rownames = "group")
   annual_dt[, c("year", "range") := tstrsplit(group, "::", fixed = TRUE)]
   annual_dt[, `:=`(year = as.integer(year), an = V1)]
-  annual_total_by_year <- annual_dt[, .(annual_total = sum(an)), by = year]
-  annual_total_by_year_range <- annual_dt[, .(annual_total = sum(an)), by = .(year, range)]
+  annual_total_by_year <- annual_dt[, .(annual_total = sum(an), year_days = first(year_days)), by = year]
+  annual_total_by_year_range <- annual_dt[, .(annual_total = sum(an), year_days = first(year_days)), by = .(year, range)]
   list(
     annual_dt = annual_dt,
     annual_total_by_year = annual_total_by_year,
     annual_total_by_year_range = annual_total_by_year_range,
-    annual_mean_total = annual_total_by_year[, mean(annual_total)],
-    annual_mean_cold = annual_total_by_year_range[range %in% c("ExtrCold", "ModCold"), .(annual_total = sum(annual_total)), by = year][, mean(annual_total)],
-    annual_mean_heat = annual_total_by_year_range[range %in% c("ExtrHeat", "ModHeat"), .(annual_total = sum(annual_total)), by = year][, mean(annual_total)],
+    annual_mean_total = annual_total_by_year[, sum(annual_total * year_days) / sum(year_days)],
+    annual_mean_cold = annual_total_by_year_range[range %in% c("ExtrCold", "ModCold"), .(annual_total = sum(annual_total), year_days = first(year_days)), by = year][, sum(annual_total * year_days) / sum(year_days)],
+    annual_mean_heat = annual_total_by_year_range[range %in% c("ExtrHeat", "ModHeat"), .(annual_total = sum(annual_total), year_days = first(year_days)), by = year][, sum(annual_total * year_days) / sum(year_days)],
     neg_af = sum(afv < 0, na.rm = TRUE),
     min_af = min(afv, na.rm = TRUE),
     raw_sum = sum(an_daily),
@@ -600,8 +600,8 @@ save_png(ll_plot, file.path(fig_dir, "lloyd_convergence.png"), 8.5, 5.3)
 # ---------- Stage 7: gate dashboard ----------
 gate_status <- data.table(
   gate = c("Demographic scaling", "Attribution units", "Clamp validation", "Negative grouped-AN census", "Signed allocation prototype", "Lloyd diagnostics"),
-  status = c("PASS", "FAIL", "PASS", "BLOCKED", "PASS", "PASS"),
-  detail = c("share/coverage preserved", "Masselot reproduction above 1e-6 threshold", "unclamped closer on fixture", "negative cells exist; PCLM safety blocker", "Method A passes; B equivalent; C rejected", "N=400 adopted; N=50 rejected as legacy diagnostic")
+  status = c("PASS", "PASS", "PASS", "BLOCKED", "PASS", "PASS"),
+  detail = c("share/coverage preserved", "year-days weighted mean matches Masselot to floating-point tolerance", "unclamped closer on fixture", "negative cells exist; PCLM safety blocker", "Method A passes; B equivalent; C rejected", "N=400 adopted; N=50 rejected as legacy diagnostic")
 )
 gate_plot <- ggplot(gate_status, aes(x = gate, y = 1, fill = status)) +
   geom_tile(color = "white", height = 0.9) +

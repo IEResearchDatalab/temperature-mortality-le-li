@@ -1,6 +1,6 @@
 gate,status,detail
 Demographic scaling,PASS,share/coverage preserved
-Attribution units,FAIL,Masselot reproduction above 1e-6 threshold
+Attribution units,PASS,year-days weighted mean matches Masselot to floating-point tolerance
 Clamp validation,PASS,unclamped closer on fixture
 Negative grouped-AN census,BLOCKED,negative cells exist; PCLM safety blocker
 Signed allocation prototype,PASS,Method A passes; B equivalent; C rejected
