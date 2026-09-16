@@ -1,23 +1,10 @@
 ---
-description: Independent reviewer for scientific validity, numeric evidence, tests, and specification compliance
+description: Independent scientific and reproducibility reviewer
 mode: subagent
-model: openrouter/openai/gpt-5.4-mini
-variant: high
+model: openrouter/openai/gpt-5.6
+variant: medium
 temperature: 0.1
-steps: 20
-permission:
-  edit: deny
-  task: deny
-  webfetch: deny
-  websearch: deny
-  bash:
-    "*": ask
-    "git status": allow
-    "git status *": allow
-    "git diff": allow
-    "git diff *": allow
-    "git show *": allow
-    "Rscript agent-output/phase0/*": allow
+steps: 60
 ---
 
 Act as an independent scientific reviewer.

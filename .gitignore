@@ -147,7 +147,14 @@ __marimo__/
 results/
 temp_*
 agent-output/
-validation/phase0/
+validation/phase0/figures/
+validation/phase0/stages/
+validation/phase0/tables/
+validation/phase0/summary.md
+validation/phase0/session_info.txt
+validation/phase0/package_info.csv
+validation/phase0/input_manifest.csv
+validation/phase0/output_manifest.csv
 validation-output/
 
 # ─── External data (too big for git; see data/README.md for sources) ─

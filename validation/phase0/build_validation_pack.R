@@ -7,7 +7,9 @@ suppressPackageStartupMessages({
 })
 
 root <- normalizePath(".")
-out_root <- file.path(root, "validation", "phase0")
+out_root <- Sys.getenv("VALIDATION_OUT_ROOT", unset = file.path(root, "validation", "phase0"))
+if (!nzchar(out_root)) out_root <- file.path(root, "validation", "phase0")
+out_root <- normalizePath(out_root, mustWork = FALSE)
 fig_dir <- file.path(out_root, "figures")
 table_dir <- file.path(out_root, "tables")
 stage_root <- file.path(out_root, "stages")
@@ -36,6 +38,25 @@ write_contract <- function(stage, checks, failures, summary_text, overview_plot)
 }
 
 fmt_num <- function(x, digits = 6) formatC(x, format = "f", digits = digits)
+
+sha256_file <- function(path) {
+  out <- system2("sha256sum", shQuote(path), stdout = TRUE)
+  sub(" .*", "", out[1])
+}
+
+write_manifest <- function(paths, manifest_path) {
+  paths <- paths[file.exists(paths)]
+  if (!length(paths)) {
+    fwrite(data.table(relative_path = character(), sha256 = character(), size_bytes = integer()), manifest_path)
+    return(invisible(NULL))
+  }
+  dt <- data.table(
+    relative_path = file.path(".", sub(paste0("^", normalizePath(root, winslash = "/", mustWork = TRUE), "/?"), "", normalizePath(paths, winslash = "/", mustWork = TRUE))),
+    sha256 = vapply(paths, sha256_file, character(1)),
+    size_bytes = file.info(paths)$size
+  )
+  fwrite(dt, manifest_path)
+}
 
 # Canonical LE/LI functions from the Lloyd reference implementation.
 cond_surv <- 65
@@ -499,5 +520,25 @@ summary_lines <- c(
   ""
 )
 writeLines(summary_lines, file.path(out_root, "summary.md"))
+
+session_txt <- capture.output(sessionInfo())
+writeLines(session_txt, file.path(out_root, "session_info.txt"))
+
+pkg_dt <- data.table(
+  package = c("data.table", "ggplot2", "patchwork", "dlnm"),
+  version = vapply(c("data.table", "ggplot2", "patchwork", "dlnm"), function(pkg) as.character(packageVersion(pkg)), character(1))
+)
+fwrite(pkg_dt, file.path(out_root, "package_info.csv"))
+
+input_paths <- c(
+  file.path(root, "results", "projdata", "projdata_prototype.csv"),
+  file.path(root, "references", "2025-masselot-zenodo", "results", "cityage.csv"),
+  file.path(root, "data", "prep_data.RData"),
+  file.path(root, "data", "coefs.csv")
+)
+write_manifest(input_paths, file.path(out_root, "input_manifest.csv"))
+
+output_paths <- list.files(out_root, recursive = TRUE, full.names = TRUE, all.files = FALSE)
+write_manifest(output_paths, file.path(out_root, "output_manifest.csv"))
 
 cat("Validation pack written to ", out_root, "\n", sep = "")
