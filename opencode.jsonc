@@ -1,0 +1,81 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  "model": "openrouter/openai/gpt-5.4-mini",
+  "share": "disabled",
+  "snapshot": true,
+  "references": {
+    "lloyd": {
+        "path": "./references/2024-lloyd-reciprocal",
+        "description": "Lloyd and Aburto reference code, decomposition outputs, and regression fixtures"
+    },
+    "masselot": {
+        "path": "./references/2025-masselot-zenodo",
+        "description": "Masselot historical ERA5 inputs, city-age results, and validation fixtures"
+    },
+    "data-sources": {
+        "path": "./data",
+        "description": "Data sources used for analysis, including ERA5 and other datasets"
+    },
+    "reference-papers": {
+        "path": "./references",
+        "description": "Reference papers used for context and validation"
+    },
+    "pipeline-results": {
+        "path": "./results",
+        "description": "Results of the analysis, including figures and tables"
+    }
+  },
+
+  "permission": {
+  "*": "allow",
+
+  "read": {
+    "*": "allow",
+    "**/.env": "deny",
+    "**/.env.*": "deny",
+    "**/*.pem": "deny",
+    "**/*.key": "deny"
+  },
+
+  "task": {
+    "*": "deny",
+    "scientific-reviewer": "allow"
+  },
+
+  "webfetch": "deny",
+  "websearch": "deny",
+
+  "external_directory": {
+    "*": "deny",
+    "/home/SHARED/temperature-mortality-le-li-untracked-backup-20260916": "allow",
+    "/home/SHARED/temperature-mortality-le-li-untracked-backup-20260916/**": "allow"
+  },
+
+  "bash": {
+    "*": "allow",
+
+    "sudo *": "deny",
+    "rm *": "deny",
+    "git clean *": "deny",
+    "git reset *": "deny",
+    "git checkout *": "deny",
+    "git restore *": "deny",
+    "git branch -D *": "deny",
+    "git push --force*": "deny",
+    "git push * --force*": "deny"
+  }
+},
+
+  "agent": {
+    "phase0": {
+      "description": "Runs only the bounded pipeline Phase 0 investigations",
+      "mode": "primary",
+      "model": "openrouter/openai/gpt-5.4-mini",
+      "variant": "medium",
+      "temperature": 0.1,
+      "steps": 120,
+      "prompt": "{file:./.opencode/prompts/phase0.md}"
+    }
+  }
+}

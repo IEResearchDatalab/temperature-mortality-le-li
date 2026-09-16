@@ -146,6 +146,9 @@ __marimo__/
 # ─── Generated output ────────────────────────────────
 results/
 temp_*
+agent-output/
+validation/phase0/
+validation-output/
 
 # ─── External data (too big for git; see data/README.md for sources) ─
 data/tmeanproj.gz.parquet
