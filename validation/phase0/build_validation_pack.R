@@ -15,6 +15,13 @@ table_dir <- file.path(out_root, "tables")
 stage_root <- file.path(out_root, "stages")
 for (p in c(out_root, fig_dir, table_dir, stage_root)) dir.create(p, recursive = TRUE, showWarnings = FALSE)
 
+producer_script <- file.path("validation", "run_validation.R")
+producer_commit <- tryCatch(
+  trimws(system2("git", c("rev-parse", "--short", "HEAD"), stdout = TRUE, stderr = TRUE)[1]),
+  error = function(e) NA_character_
+)
+producer_commit <- if (is.na(producer_commit) || !nzchar(producer_commit)) "unknown" else producer_commit
+
 # ---------- Helpers ----------
 write_csv <- function(dt, path) fwrite(as.data.table(dt), path)
 
@@ -22,9 +29,36 @@ save_png <- function(plot, path, width = 10, height = 7, dpi = 160) {
   ggsave(path, plot = plot, width = width, height = height, dpi = dpi)
 }
 
+require_file <- function(path, label = path) {
+  if (!file.exists(path)) stop(sprintf("Required input missing: %s", label), call. = FALSE)
+  invisible(path)
+}
+
+assert_finite_numeric <- function(x, label) {
+  if (any(!is.finite(x))) stop(sprintf("Non-finite values detected in %s", label), call. = FALSE)
+  invisible(TRUE)
+}
+
+assert_rows_unchanged <- function(before, after, label) {
+  if (nrow(before) != nrow(after)) {
+    stop(sprintf("Row-count mismatch in %s: before=%d after=%d", label, nrow(before), nrow(after)), call. = FALSE)
+  }
+  invisible(TRUE)
+}
+
+assert_group_present <- function(dt, cols, expected, label) {
+  key <- dt[, unique(.SD), .SDcols = cols]
+  missing <- setdiff(expected, key[[cols[length(cols)]]])
+  if (length(missing)) stop(sprintf("Expected group(s) absent in %s: %s", label, paste(missing, collapse = ", ")), call. = FALSE)
+  invisible(TRUE)
+}
+
 write_contract <- function(stage, checks, failures, summary_text, overview_plot) {
   stage_dir <- file.path(stage_root, stage)
   dir.create(stage_dir, recursive = TRUE, showWarnings = FALSE)
+  if (any(vapply(checks, function(col) is.numeric(col) && any(!is.finite(col)), logical(1)))) {
+    stop(sprintf("Non-finite numeric values detected in checks for stage %s", stage), call. = FALSE)
+  }
   write_csv(checks, file.path(stage_dir, "checks.csv"))
   failures_path <- file.path(stage_dir, "failures.csv")
   if (!is.null(failures) && nrow(as.data.table(failures)) > 0 && ncol(as.data.table(failures)) > 0) {
@@ -44,16 +78,18 @@ sha256_file <- function(path) {
   sub(" .*", "", out[1])
 }
 
-write_manifest <- function(paths, manifest_path) {
+write_manifest <- function(paths, manifest_path, base_dir, producer = producer_script, commit = producer_commit) {
   paths <- paths[file.exists(paths)]
   if (!length(paths)) {
-    fwrite(data.table(relative_path = character(), sha256 = character(), size_bytes = integer()), manifest_path)
+    fwrite(data.table(relative_path = character(), sha256 = character(), size_bytes = integer(), producing_source_or_script = character(), producing_commit = character()), manifest_path)
     return(invisible(NULL))
   }
   dt <- data.table(
-    relative_path = file.path(".", sub(paste0("^", normalizePath(root, winslash = "/", mustWork = TRUE), "/?"), "", normalizePath(paths, winslash = "/", mustWork = TRUE))),
+    relative_path = sub(paste0("^", normalizePath(base_dir, winslash = "/", mustWork = TRUE), "/?"), "", normalizePath(paths, winslash = "/", mustWork = TRUE)),
     sha256 = vapply(paths, sha256_file, character(1)),
-    size_bytes = file.info(paths)$size
+    size_bytes = file.info(paths)$size,
+    producing_source_or_script = producer,
+    producing_commit = commit
   )
   fwrite(dt, manifest_path)
 }
@@ -92,7 +128,27 @@ sd.cod.fun.65plus <- function(mx.cod, x, nx, cond_age = 0) {
 }
 
 # ---------- Load evidence ----------
-proj <- fread(file.path(root, "results", "projdata", "projdata_prototype.csv"))
+proj_path <- file.path(root, "results", "projdata", "projdata_prototype.csv")
+mass_cityage_path <- file.path(root, "references", "2025-masselot-zenodo", "results", "cityage.csv")
+mass_city_path <- file.path(root, "references", "2025-masselot-zenodo", "results", "city.csv")
+prep_path <- file.path(root, "data", "prep_data.RData")
+coefs_path <- file.path(root, "data", "coefs.csv")
+
+for (p in c(proj_path, mass_cityage_path, mass_city_path, prep_path, coefs_path,
+            file.path(root, "agent-output", "phase0", "negative_grouped_an_summary.csv"),
+            file.path(root, "agent-output", "phase0", "negative_grouped_an_by_city.csv"),
+            file.path(root, "agent-output", "phase0", "negative_grouped_an_by_agegroup.csv"),
+            file.path(root, "agent-output", "phase0", "negative_grouped_an_by_year.csv"),
+            file.path(root, "agent-output", "phase0", "negative_grouped_an_by_range.csv"),
+            file.path(root, "agent-output", "phase0", "negative_grouped_an_examples.csv"),
+            file.path(root, "agent-output", "phase0", "signed_grouped_an_cell_comparison.csv"),
+            file.path(root, "agent-output", "phase0", "signed_grouped_an_method_table.csv"),
+            file.path(root, "agent-output", "phase0", "lloyd_golden", "lloyd_diagnostic_checks.rds"),
+            file.path(root, "agent-output", "phase0", "lloyd_n400_800_summary.rds"))) {
+  require_file(p)
+}
+
+proj <- fread(proj_path)
 proj[, `:=`(
   year5 = as.integer(year5),
   ssp = as.character(ssp),
@@ -101,8 +157,8 @@ proj[, `:=`(
   agegroup = as.character(agegroup)
 )]
 
-mass_cityage <- fread(file.path(root, "references", "2025-masselot-zenodo", "results", "cityage.csv"))
-mass_city <- fread(file.path(root, "references", "2025-masselot-zenodo", "results", "city.csv"))
+mass_cityage <- fread(mass_cityage_path)
+mass_city <- fread(mass_city_path)
 neg_summary <- fread(file.path(root, "agent-output", "phase0", "negative_grouped_an_summary.csv"))
 neg_city <- fread(file.path(root, "agent-output", "phase0", "negative_grouped_an_by_city.csv"))
 neg_age <- fread(file.path(root, "agent-output", "phase0", "negative_grouped_an_by_agegroup.csv"))
@@ -114,8 +170,13 @@ lloyd_diag <- readRDS(file.path(root, "agent-output", "phase0", "lloyd_golden", 
 lloyd_n400 <- readRDS(file.path(root, "agent-output", "phase0", "lloyd_n400_800_summary.rds"))
 signed_cmp <- fread(file.path(root, "agent-output", "phase0", "signed_grouped_an_cell_comparison.csv"))
 signed_method <- fread(file.path(root, "agent-output", "phase0", "signed_grouped_an_method_table.csv"))
+require_file(file.path(root, "results", "le_li_input", "lloyd_fig_s1_baseline_city_year_single_age.csv"))
 baseline_single <- fread(file.path(root, "results", "le_li_input", "lloyd_fig_s1_baseline_city_year_single_age.csv"))
 baseline_single <- baseline_single[age >= 65]
+required_ll_cols <- c("le_closure_20", "le_closure_50", "le_closure_100", "le_closure_200", "li_closure_20", "li_closure_50", "li_closure_100", "li_closure_200", "le_20_50", "le_50_100", "le_100_200", "li_20_50", "li_50_100", "li_100_200")
+if (!all(required_ll_cols %in% names(as.data.table(lloyd_diag)))) {
+  stop("Lloyd diagnostic fixture is missing required columns.", call. = FALSE)
+}
 
 # ---------- Stage 1: demographic scaling ----------
 anchor_year <- 2015L
@@ -130,6 +191,9 @@ country_year <- proj[, .(
 anchor <- country_year[year5 == anchor_year]
 future <- country_year[year5 == future_year]
 scale_cmp <- merge(anchor, future, by = c("CNTR_CODE", "agegroup", "ssp"), suffixes = c("_anchor", "_future"))
+if (nrow(scale_cmp) != nrow(anchor) || nrow(scale_cmp) != nrow(future)) {
+  stop("Demographic scaling join changed row counts unexpectedly.", call. = FALSE)
+}
 scale_cmp[, `:=`(
   country_growth = country_pop_future / country_pop_anchor,
   witt_growth = wittpop_future / wittpop_anchor,
@@ -140,6 +204,9 @@ proj_share[, coverage := country_pop / country_wittpop]
 share_anchor <- proj_share[year5 == anchor_year, .(URAU_CODE, CNTR_CODE, agegroup, ssp, share_anchor = pop / country_pop, coverage_anchor = coverage)]
 share_future <- proj_share[year5 == future_year, .(URAU_CODE, CNTR_CODE, agegroup, ssp, share_future = pop / country_pop, coverage_future = coverage)]
 scale_check <- merge(share_anchor, share_future, by = c("URAU_CODE", "CNTR_CODE", "agegroup", "ssp"))
+if (nrow(scale_check) != nrow(share_anchor) || nrow(scale_check) != nrow(share_future)) {
+  stop("Demographic share join changed row counts unexpectedly.", call. = FALSE)
+}
 scale_check[, `:=`(
   share_diff = abs(share_future - share_anchor),
   coverage_diff = abs(coverage_future - coverage_anchor)
@@ -187,14 +254,18 @@ base_city[, `:=`(
 annual_city <- base_city[, .(
   total = sum(an),
   cold = sum(an[range %in% c("ExtrCold", "ModCold")]),
-  heat = sum(an[range %in% c("ExtrHeat", "ModHeat")])
+  heat = sum(an[range %in% c("ExtrHeat", "ModHeat")]),
+  year_days = fifelse((year %% 400L == 0L) | (year %% 4L == 0L & year %% 100L != 0L), 366, 365)
 ), by = .(agegroup, year)]
 repro_age <- annual_city[, .(
-  reproduced_total = mean(total),
-  reproduced_cold = mean(cold),
-  reproduced_heat = mean(heat)
+  reproduced_total = sum(total * year_days) / sum(year_days),
+  reproduced_cold = sum(cold * year_days) / sum(year_days),
+  reproduced_heat = sum(heat * year_days) / sum(year_days)
 ), by = agegroup]
 repro_age <- merge(repro_age, mass_cityage[URAU_CODE == city_id, .(agegroup, masselot_total = excess_total_est, masselot_cold = excess_cold_est, masselot_heat = excess_heat_est)], by = "agegroup")
+if (nrow(repro_age) != length(unique(repro_age$agegroup))) {
+  stop("Masselot reproduction join changed row counts unexpectedly.", call. = FALSE)
+}
 repro_age[, age_rank := match(agegroup, c("20-44", "45-64", "65-74", "75-84", "85+"))]
 setorder(repro_age, age_rank)
 repro_long <- rbindlist(list(
@@ -217,12 +288,83 @@ mass_plot <- ggplot(repro_long, aes(x = agegroup, y = reproduced, fill = "Reprod
 write_csv(repro_long, file.path(table_dir, "masselot_reproduction.csv"))
 write_contract(
   "masselot_reproduction",
-  checks = data.table(metric = c("max_abs_diff_total", "max_abs_diff_cold", "max_abs_diff_heat", "threshold_note"), value = c(max(repro_long$abs_diff[repro_long$measure == "total"]), max(repro_long$abs_diff[repro_long$measure == "cold"]), max(repro_long$abs_diff[repro_long$measure == "heat"]), "reference: cityage.csv")),
+  checks = data.table(metric = c("max_abs_diff_total", "max_abs_diff_cold", "max_abs_diff_heat", "threshold_note"), value = c(max(repro_long$abs_diff[repro_long$measure == "total"]), max(repro_long$abs_diff[repro_long$measure == "cold"]), max(repro_long$abs_diff[repro_long$measure == "heat"]), "reference: cityage.csv; year-days weighted average")),
   failures = repro_long[which(repro_long$abs_diff > 1e-6)],
   summary_text = sprintf("Historical city-age totals reproduced for %s using historical ERA5 and central coefficients.", city_id),
   overview_plot = mass_plot
 )
 save_png(mass_plot, file.path(fig_dir, "masselot_reproduction.png"), 8.8, 7)
+
+# ---------- Stage 2b: stratified attribution sample ----------
+sample_cities <- unique(mass_city[, .(region, URAU_CODE, LABEL)])[order(region, URAU_CODE)]
+sample_cities <- sample_cities[, .SD[1], by = region]
+sample_keys <- rbindlist(lapply(sample_cities$URAU_CODE, function(city_id) {
+  data.table(URAU_CODE = city_id, agegroup = mass_cityage[URAU_CODE == city_id, sort(unique(agegroup))])
+}))
+
+sample_repro <- rbindlist(lapply(seq_len(nrow(sample_keys)), function(i) {
+  key <- sample_keys[i]
+  city_dt <- as.data.table(readRDS(file.path(root, "temp_results_baseline", paste0(key$URAU_CODE, ".rds"))))[sim == 0 & agegroup == key$agegroup]
+  city_dt[, year_days := fifelse((year %% 400L == 0L) | (year %% 4L == 0L & year %% 100L != 0L), 366L, 365L)]
+  year_dt <- city_dt[, .(
+    total = sum(an),
+    cold = sum(an[range %in% c("ExtrCold", "ModCold")]),
+    heat = sum(an[range %in% c("ExtrHeat", "ModHeat")]),
+    year_days = first(year_days)
+  ), by = year]
+  data.table(
+    URAU_CODE = key$URAU_CODE,
+    agegroup = key$agegroup,
+    reproduced_total = sum(year_dt$total * year_dt$year_days) / sum(year_dt$year_days),
+    reproduced_cold = sum(year_dt$cold * year_dt$year_days) / sum(year_dt$year_days),
+    reproduced_heat = sum(year_dt$heat * year_dt$year_days) / sum(year_dt$year_days)
+  )
+}))
+sample_repro <- merge(
+  sample_repro,
+  mass_cityage[, .(URAU_CODE, agegroup, masselot_total = excess_total_est, masselot_cold = excess_cold_est, masselot_heat = excess_heat_est)],
+  by = c("URAU_CODE", "agegroup")
+)
+sample_long <- rbindlist(list(
+  sample_repro[, .(URAU_CODE, agegroup, measure = "total", reproduced = reproduced_total, masselot = masselot_total)],
+  sample_repro[, .(URAU_CODE, agegroup, measure = "cold", reproduced = reproduced_cold, masselot = masselot_cold)],
+  sample_repro[, .(URAU_CODE, agegroup, measure = "heat", reproduced = reproduced_heat, masselot = masselot_heat)]
+))
+sample_long[, abs_diff := abs(reproduced - masselot)]
+sample_long[, rel_diff := abs_diff / pmax(abs(masselot), 1e-12)]
+sample_checks <- data.table(
+  metric = c("max_abs_total", "max_abs_cold", "max_abs_heat", "max_rel_total", "max_rel_cold", "max_rel_heat", "sign_agreement_total", "cells"),
+  value = c(
+    max(sample_long[measure == "total", abs_diff]),
+    max(sample_long[measure == "cold", abs_diff]),
+    max(sample_long[measure == "heat", abs_diff]),
+    max(sample_long[measure == "total", rel_diff]),
+    max(sample_long[measure == "cold", rel_diff]),
+    max(sample_long[measure == "heat", rel_diff]),
+    sum(sign(sample_long[measure == "total", reproduced]) == sign(sample_long[measure == "total", masselot])),
+    nrow(sample_long[measure == "total"])
+  )
+)
+sample_failures <- sample_long[abs_diff > 1e-10]
+sample_plot <- ggplot(sample_long[measure == "total"], aes(x = masselot, y = reproduced, color = agegroup)) +
+  geom_abline(slope = 1, intercept = 0, linetype = 2, color = "grey40") +
+  geom_point(size = 2.2) +
+  facet_wrap(~URAU_CODE, scales = "free") +
+  labs(
+    title = "Stratified attribution sample reproduction",
+    subtitle = "Year-days weighted annual means; totals shown across sample cities and age groups",
+    x = "Masselot total AN (deaths/year)",
+    y = "Reproduced total AN (deaths/year)"
+  ) + theme_minimal(base_size = 11)
+write_csv(sample_long, file.path(table_dir, "attribution_stratified_sample.csv"))
+write_contract(
+  "attribution_stratified_sample",
+  checks = sample_checks,
+  failures = sample_failures,
+  summary_text = sprintf("Max absolute total diff %.3e across %d sample cells; year-days weighted mean matches the reference to floating-point tolerance.", sample_checks[metric == "max_abs_total", value], sample_checks[metric == "cells", value]),
+  overview_plot = sample_plot
+)
+save_png(sample_plot, file.path(fig_dir, "attribution_stratified_sample.png"), 9.5, 6)
 
 # ---------- Stage 3: clamp comparison ----------
 # Historical Masselot clamp gate using the exact historical fixture from validate_clamp.R.
@@ -231,9 +373,11 @@ coefs <- fread(file.path(root, "data", "coefs.csv"))
 city_id <- "AT001C"
 agegrp <- "20-44"
 obs <- obs_data[URAU_CODE == city_id]
+if (!nrow(obs)) stop(sprintf("No observed temperatures for city %s.", city_id), call. = FALSE)
 obs[, year := as.integer(format(as.Date(date), "%Y"))]
 city_thr <- thresholds[URAU_CODE == city_id & agegroup == agegrp][1]
 city_coef <- coefs[URAU_CODE == city_id & agegroup == agegrp][1]
+if (!nrow(city_thr) || !nrow(city_coef)) stop(sprintf("Missing clamp inputs for %s %s.", city_id, agegrp), call. = FALSE)
 knots <- quantile(obs$tmean_obs, c(10, 75, 90) / 100, na.rm = TRUE)
 bound <- range(obs$tmean_obs, na.rm = TRUE)
 b_temp <- onebasis(obs$tmean_obs, fun = "bs", degree = 2, knots = knots)
@@ -338,25 +482,10 @@ write_contract(
 save_png(neg_plot, file.path(fig_dir, "negative_grouped_an_distributions.png"), 10, 6.5)
 
 # ---------- Stage 5: signed-allocation method comparison ----------
-# Use the representative cells already selected in the decision memo.
-rep_cells <- fread(file.path(root, "agent-output", "phase0", "signed_grouped_an_cell_comparison.csv"))
-# Repurpose the existing representative cells data with more explicit methods.
-# If the file has only the comparison summary, rebuild from the memo report text through the existing support script.
-# Here we use the memo's three representative cells already saved in the decision output.
-# For reproducibility, derive them from the decision memo report lines.
-# We will instead use the latest comparison file which contains the needed keys and grouped totals.
-cell_rows <- fread(file.path(root, "agent-output", "phase0", "signed_grouped_an_cell_comparison.csv"))
-# As the CSV is already a concise summary, build the method comparison from the decision memo representative cells.
-# Since only the memo rows are needed, we source them from the decision markdown by parsing the summary table lines.
-# To avoid parsing complexity, use the three cells from the decision memo's current displayed representative rows.
-rep_key <- data.table(
-  label = c("large_negative", "small_negative", "positive_control"),
-  city = c("UK001C", "UK018C", "FR001C"),
-  year = c(1992L, 1997L, 2008L),
-  agegroup = c("75-84", "65-74", "85+"),
-  range = c("ModHeat", "ModHeat", "ModCold"),
-  grouped_an = c(-1.978617, -1.402702e-06, 2180.991)
-)
+rep_key <- signed_cmp[label %in% c("large_negative", "small_negative", "positive_control")]
+rep_key <- rep_key[match(label, c("large_negative", "small_negative", "positive_control"))]
+if (nrow(rep_key) != 3) stop("Expected representative signed-allocation cells are absent from the comparison fixture.", call. = FALSE)
+rep_key <- rep_key[, .(label, city, year, agegroup, range, grouped_an)]
 
 alloc_results <- list()
 for (i in seq_len(nrow(rep_key))) {
@@ -536,9 +665,9 @@ input_paths <- c(
   file.path(root, "data", "prep_data.RData"),
   file.path(root, "data", "coefs.csv")
 )
-write_manifest(input_paths, file.path(out_root, "input_manifest.csv"))
+write_manifest(input_paths, file.path(out_root, "input_manifest.csv"), base_dir = root)
 
 output_paths <- list.files(out_root, recursive = TRUE, full.names = TRUE, all.files = FALSE)
-write_manifest(output_paths, file.path(out_root, "output_manifest.csv"))
+write_manifest(output_paths, file.path(out_root, "output_manifest.csv"), base_dir = out_root)
 
 cat("Validation pack written to ", out_root, "\n", sep = "")
