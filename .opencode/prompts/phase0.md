@@ -422,7 +422,7 @@ After a gate has a complete candidate evidence package, call the `scientific-rev
 
 The reviewer must use:
 
-`openrouter/openai/gpt-5.6`
+`openrouter/openai/gpt-5.6-sol`
 
 The reviewer must report:
 

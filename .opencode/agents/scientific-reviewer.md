@@ -1,7 +1,7 @@
 ---
 description: Independent scientific and reproducibility reviewer
 mode: subagent
-model: openrouter/openai/gpt-5.6
+model: openrouter/openai/gpt-5.6-sol
 variant: medium
 temperature: 0.1
 steps: 60
