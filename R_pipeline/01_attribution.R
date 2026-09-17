@@ -46,6 +46,22 @@ gcm_name <- "GFDL_ESM4"
 ssp_name <- "3"
 variant_levels <- c("with_cc", "without_cc")
 range_levels <- c("ExtrCold", "ModCold", "ModHeat", "ExtrHeat")
+branch_labels <- c(
+  with_cc = "Projected climate change",
+  without_cc = "No additional warming"
+)
+range_labels <- c(
+  ExtrCold = "Extreme cold",
+  ModCold = "Moderate cold",
+  ModHeat = "Moderate heat",
+  ExtrHeat = "Extreme heat"
+)
+range_colors <- c(
+  ExtrCold = "#2166ac",
+  ModCold = "#67a9cf",
+  ModHeat = "#ef8a62",
+  ExtrHeat = "#b2182b"
+)
 hist_years_bias <- 2000:2014
 hist_years_counterfactual <- 2000:2019
 future_years <- 2020:2099
@@ -329,13 +345,14 @@ y_min <- min(plot_dt$an, na.rm = TRUE)
 y_max <- max(plot_dt$an, na.rm = TRUE)
 p <- ggplot(plot_dt, aes(x = year, y = an, color = range)) +
   geom_line(linewidth = 0.6) +
-  facet_wrap(~branch) +
+  facet_wrap(~branch, labeller = as_labeller(branch_labels)) +
+  scale_color_manual(values = range_colors, labels = range_labels, name = NULL) +
   scale_y_continuous(limits = c(y_min, y_max)) +
   labs(
-    title = "Madrid SSP3-7.0 attributable numbers",
+    title = "Madrid SSP3-7.0 annual temperature-attributable deaths",
     subtitle = sprintf("One GCM (%s); central coefficients; annualized with actual calendar days", gcm_name),
     x = "Year",
-    y = "Annualized attributable number"
+    y = "Annual temperature-attributable deaths"
   ) +
   theme_minimal(base_size = 11)
 ggsave(fig_file, p, width = 11, height = 6, dpi = 160)
