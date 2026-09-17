@@ -1,12 +1,20 @@
 #!/usr/bin/env Rscript
 
+################################################################################
+#
+# Temperature-related mortality / life expectancy pipeline -- Madrid pilot
+#
+# R Pipeline Step 02: Allocate grouped attributable numbers to single ages
+#   Allocates Step 01 grouped attributable numbers to ages 65:100 using the
+#   canonical single-age all-cause death schedule produced by Step 00.
+#
+################################################################################
+
 suppressPackageStartupMessages({
   library(data.table)
   library(ggplot2)
   library(patchwork)
 })
-
-source("R_pipeline/functions/pclm_utils.R")
 
 message("\n[02] Allocating Madrid grouped AN to single ages...")
 
@@ -24,22 +32,25 @@ fig_file <- file.path(fig_dir, "02_single_age_diagnostic.png")
 
 city_id <- "ES001C"
 city_name <- "Madrid"
+future_years <- 2020:2099
 age_groups <- c("65-74", "75-84", "85+")
 age_slices <- list(
   "65-74" = 65:74,
   "75-84" = 75:84,
   "85+" = 85:100
 )
-age_starts <- c("65-74" = 65L, "75-84" = 75L, "85+" = 85L)
-nlast <- 16L
+#----- Load Step 00/01 outputs and restrict to the Madrid/SSP3 domain
 
 grouped_dem <- fread(file.path(out_dir, "00_demography_grouped.csv"))
+single_dem <- fread(file.path(out_dir, "00_demography_single_age.csv"))
 grouped_an <- fread(file.path(out_dir, "01_attribution_grouped.csv"))
 
 grouped_dem <- grouped_dem[geo_id == city_id & ssp == 3]
+single_dem <- single_dem[geo_id == city_id & ssp == 3 & age %in% 65:100]
 grouped_an <- grouped_an[geo_id == city_id & ssp == 3]
 
 if (!nrow(grouped_dem)) stop("Grouped demography for Madrid is missing; run 00_demography.R first.", call. = FALSE)
+if (!nrow(single_dem)) stop("Single-age demography for Madrid is missing; run 00_demography.R first.", call. = FALSE)
 if (!nrow(grouped_an)) stop("Grouped AN for Madrid is missing; run 01_attribution.R first.", call. = FALSE)
 
 grouped_dem <- grouped_dem[agegroup %in% age_groups]
@@ -48,17 +59,22 @@ grouped_an <- grouped_an[agegroup %in% age_groups]
 if (any(!is.finite(grouped_dem$death)) || any(grouped_dem$death < 0)) {
   stop("Invalid grouped demographic deaths detected.", call. = FALSE)
 }
+if (any(!is.finite(single_dem$death)) || any(single_dem$death < 0)) {
+  stop("Invalid single-age demographic deaths detected.", call. = FALSE)
+}
 if (any(!is.finite(grouped_an$an))) {
   stop("Grouped AN contains non-finite values.", call. = FALSE)
 }
 
-full_dem_grid <- CJ(year = sort(unique(grouped_dem$year)), agegroup = age_groups)
-full_an_grid <- CJ(year = sort(unique(grouped_an$year)), agegroup = age_groups, range = c("ExtrCold", "ModCold", "ModHeat", "ExtrHeat"), branch = c("with_cc", "without_cc"))
+full_dem_grid <- CJ(year = future_years, agegroup = age_groups)
+full_an_grid <- CJ(year = future_years, agegroup = age_groups, range = c("ExtrCold", "ModCold", "ModHeat", "ExtrHeat"), branch = c("with_cc", "without_cc"))
 
-if (nrow(unique(grouped_dem, by = c("year", "agegroup"))) != nrow(full_dem_grid)) {
+dem_keys <- grouped_dem[, .(year, agegroup)]
+an_keys <- grouped_an[, .(year, agegroup, range, branch)]
+if (nrow(fsetdiff(full_dem_grid, unique(dem_keys))) || nrow(fsetdiff(unique(dem_keys), full_dem_grid)) || anyDuplicated(dem_keys)) {
   stop("Grouped demographic domain is incomplete for Madrid.", call. = FALSE)
 }
-if (nrow(unique(grouped_an, by = c("year", "agegroup", "range", "branch"))) != nrow(full_an_grid)) {
+if (nrow(fsetdiff(full_an_grid, unique(an_keys))) || nrow(fsetdiff(unique(an_keys), full_an_grid)) || anyDuplicated(an_keys)) {
   stop("Grouped AN domain is incomplete for Madrid.", call. = FALSE)
 }
 
@@ -69,76 +85,47 @@ if (anyNA(grouped_dem$death) || anyNA(grouped_an$an)) {
   stop("Merged demographic or AN inputs contain NA values.", call. = FALSE)
 }
 
-build_weights <- function(death_vec, year, agegroup) {
-  if (any(!is.finite(death_vec)) || any(death_vec < 0)) {
-    stop(sprintf("Invalid demographic death input for %s/%s.", year, agegroup), call. = FALSE)
-  }
-  if (sum(death_vec) == 0) {
-    return(rep(0, pclm_expected_length(c(65, 75, 85), nlast)))
-  }
-  fit <- pclm_disaggregate_nonnegative(x = c(65, 75, 85), y = death_vec, nlast = nlast)
-  if (any(!is.finite(fit)) || any(fit < 0)) {
-    stop(sprintf("PCLM output is invalid for %s/%s.", year, agegroup), call. = FALSE)
-  }
-  if (abs(sum(fit) - sum(death_vec)) > 1e-9) {
-    stop(sprintf("Grouped reconstruction error exceeds tolerance for %s/%s.", year, agegroup), call. = FALSE)
-  }
-  slices <- list(
-    "65-74" = fit[1:10],
-    "75-84" = fit[11:20],
-    "85+" = fit[21:36]
-  )
-  target_bins <- as.numeric(death_vec)
-  for (i in seq_along(slices)) {
-    s <- slices[[i]]
-    if (sum(s) == 0) {
-      slices[[i]] <- rep(0, length(s))
-    } else {
-      slices[[i]] <- s * (target_bins[i] / sum(s))
-    }
-  }
-  if (max(abs(c(sum(slices[[1]]), sum(slices[[2]]), sum(slices[[3]])) - target_bins)) > 1e-9) {
-    stop(sprintf("PCLM grouped-bin reconstruction failed for %s/%s.", year, agegroup), call. = FALSE)
-  }
-  weight_list <- lapply(names(slices), function(grp) {
-    vec <- slices[[grp]]
-    if (sum(vec) == 0) {
-      rep(0, length(vec))
-    } else {
-      vec / sum(vec)
-    }
-  })
-  names(weight_list) <- names(slices)
-  list(fit = fit, weights = weight_list)
+#----- Derive Method A weights from Step 00's canonical single-age deaths
+
+single_dem[, source_agegroup := fifelse(age <= 74L, "65-74", fifelse(age <= 84L, "75-84", "85+"))]
+if (any(single_dem$agegroup != single_dem$source_agegroup)) {
+  stop("Step 00 single-age rows do not match the required source age bands.", call. = FALSE)
 }
 
-weights_rows <- list()
+weights_dt <- single_dem[, .(death = sum(death)), by = .(year, source_agegroup, age)]
+weights_dt[, group_death := sum(death), by = .(year, source_agegroup)]
+weights_dt[, weight := fifelse(group_death > 0, death / group_death, 0)]
+
+expected_weight_grid <- rbindlist(lapply(age_groups, function(grp) {
+  CJ(year = future_years, source_agegroup = grp, age = age_slices[[grp]])
+}))
+if (nrow(fsetdiff(expected_weight_grid, weights_dt[, .(year, source_agegroup, age)])) ||
+    nrow(fsetdiff(weights_dt[, .(year, source_agegroup, age)], expected_weight_grid)) ||
+    anyDuplicated(weights_dt, by = c("year", "source_agegroup", "age"))) {
+  stop("Step 00 single-age demographic domain is incomplete or duplicated.", call. = FALSE)
+}
+
+gcm_values <- unique(grouped_an$gcm)
+if (length(gcm_values) != 1L || is.na(gcm_values)) {
+  stop("Grouped AN must contain exactly one GCM.", call. = FALSE)
+}
+
 allocation_rows <- list()
 reconstruction_rows <- list()
 
+#----- Loop years, then age groups, then branch/range to allocate AN to single ages
+
 for (yr in sort(unique(grouped_dem$year))) {
-  dem_year <- grouped_dem[year == yr][match(age_groups, agegroup)]
-  if (nrow(dem_year) != length(age_groups)) stop(sprintf("Missing demographic rows for year %s.", yr), call. = FALSE)
-
-  weight_obj <- build_weights(death_vec = dem_year$death, year = yr, agegroup = "65-74/75-84/85+")
-  fit <- weight_obj$fit
-  weight_slices <- list(
-    "65-74" = fit[1:10],
-    "75-84" = fit[11:20],
-    "85+" = fit[21:36]
-  )
-
   for (grp in age_groups) {
-    w_vec <- weight_slices[[grp]]
+    weight_rows <- weights_dt[year == yr & source_agegroup == grp][order(age)]
     ages <- age_slices[[grp]]
-    if (sum(w_vec) > 0) w_vec <- w_vec / sum(w_vec)
-    weights_rows[[length(weights_rows) + 1L]] <- data.table(
-      year = yr,
-      source_agegroup = grp,
-      age = ages,
-      weight = as.numeric(w_vec)
-    )
-    if (abs(sum(w_vec) - 1) > 1e-12) {
+    if (!identical(as.integer(weight_rows$age), as.integer(ages))) {
+      stop(sprintf("Age-band mapping is invalid for %s/%s.", yr, grp), call. = FALSE)
+    }
+    w_vec <- weight_rows$weight
+    group_death <- unique(weight_rows$group_death)
+    if (length(group_death) != 1L) stop(sprintf("Ambiguous group deaths for %s/%s.", yr, grp), call. = FALSE)
+    if (group_death > 0 && abs(sum(w_vec) - 1) > 1e-12) {
       stop(sprintf("Weight vector for %s/%s does not sum to 1.", yr, grp), call. = FALSE)
     }
 
@@ -147,8 +134,8 @@ for (yr in sort(unique(grouped_dem$year))) {
         an_row <- grouped_an[year == yr & agegroup == grp & branch == br & range == rg]
         if (nrow(an_row) != 1L) stop(sprintf("Missing grouped AN row for %s/%s/%s/%s.", yr, br, grp, rg), call. = FALSE)
         group_an <- an_row$an
-        if (group_an != 0 && any(w_vec == 0)) {
-          stop(sprintf("Nonzero AN with zero allocation weight for %s/%s/%s/%s.", yr, br, grp, rg), call. = FALSE)
+        if (group_an != 0 && group_death == 0) {
+          stop(sprintf("Nonzero AN with zero group allocation weight for %s/%s/%s/%s.", yr, br, grp, rg), call. = FALSE)
         }
         single_an <- group_an * w_vec
         if (abs(sum(single_an) - group_an) > 1e-9) {
@@ -159,7 +146,7 @@ for (yr in sort(unique(grouped_dem$year))) {
           geo_id = city_id,
           label = city_name,
           ssp = 3L,
-          gcm = grouped_an$gcm[1],
+          gcm = gcm_values,
           branch = br,
           year = yr,
           source_agegroup = grp,
@@ -180,27 +167,33 @@ for (yr in sort(unique(grouped_dem$year))) {
           abs_diff = abs(sum(single_an) - group_an),
           max_weight = max(w_vec),
           min_weight = min(w_vec),
-          zero_weight_count = sum(w_vec == 0)
+          zero_weight_count = sum(w_vec == 0),
+          group_death = group_death
         )
       }
     }
   }
 }
 
-weights_dt <- rbindlist(weights_rows, use.names = TRUE)
 single_an <- rbindlist(allocation_rows, use.names = TRUE)
 recon_dt <- rbindlist(reconstruction_rows, use.names = TRUE)
 
 setorder(single_an, branch, year, source_agegroup, age, range)
 setorder(weights_dt, year, source_agegroup, age)
 
-age_band_ok <- single_an[, all(age %in% age_slices[[source_agegroup]]), by = .(year, branch, source_agegroup, range)]
+#----- Invariant checks (project convention: a failing check stops the run)
+
+age_band_ok <- single_an[, {
+  expected_ages <- age_slices[[.BY$source_agegroup]]
+  .(ok = all(age %in% expected_ages))
+}, by = .(year, branch, source_agegroup, range)]
+weight_sums <- weights_dt[, .(weight_sum = sum(weight), group_death = unique(group_death)), by = .(year, source_agegroup)]
 
 checks <- data.table(
   check_name = c(
     "grouped_demography_domain_complete",
     "grouped_an_domain_complete",
-    "pclm_group_reconstruction",
+    "demographic_weight_source_consistent",
     "weight_vectors_sum_to_one",
     "single_age_grouped_total_preserved",
     "no_nonzero_an_zero_weight",
@@ -209,20 +202,20 @@ checks <- data.table(
   status = c(
     if (nrow(unique(grouped_dem, by = c("year", "agegroup"))) == nrow(full_dem_grid)) "PASS" else "FAIL",
     if (nrow(unique(grouped_an, by = c("year", "agegroup", "range", "branch"))) == nrow(full_an_grid)) "PASS" else "FAIL",
+    if (max(abs(weights_dt[, sum(death), by = .(year, source_agegroup)]$V1 - weights_dt[, unique(group_death), by = .(year, source_agegroup)]$V1)) <= 1e-9) "PASS" else "FAIL",
+    if (all(abs(weight_sums[group_death > 0]$weight_sum - 1) <= 1e-12) && all(weight_sums[group_death == 0]$weight_sum == 0)) "PASS" else "FAIL",
     if (max(recon_dt$abs_diff) <= 1e-9) "PASS" else "FAIL",
-    if (all(abs(weights_dt[, sum(weight), by = .(year, source_agegroup)]$V1 - 1) <= 1e-12)) "PASS" else "FAIL",
-    if (max(recon_dt$abs_diff) <= 1e-9) "PASS" else "FAIL",
-    if (all(recon_dt[group_an != 0]$zero_weight_count == 0L)) "PASS" else "FAIL",
-    if (all(age_band_ok$V1)) "PASS" else "FAIL"
+    if (!nrow(recon_dt[group_an != 0 & group_death == 0])) "PASS" else "FAIL",
+    if (all(age_band_ok$ok)) "PASS" else "FAIL"
   ),
   value = c(
     nrow(grouped_dem),
     nrow(grouped_an),
+    sprintf("max_abs_diff=%0.3e", max(abs(weights_dt[, sum(death), by = .(year, source_agegroup)]$V1 - weights_dt[, unique(group_death), by = .(year, source_agegroup)]$V1))),
+    sprintf("min_positive_weight_sum=%0.12f; max_positive_weight_sum=%0.12f", min(weight_sums[group_death > 0]$weight_sum), max(weight_sums[group_death > 0]$weight_sum)),
     sprintf("max_abs_diff=%0.3e", max(recon_dt$abs_diff)),
-    sprintf("min_weight_sum=%0.12f; max_weight_sum=%0.12f", min(weights_dt[, sum(weight), by = .(year, source_agegroup)]$V1), max(weights_dt[, sum(weight), by = .(year, source_agegroup)]$V1)),
-    sprintf("max_abs_diff=%0.3e", max(recon_dt$abs_diff)),
-    sprintf("nonzero_zero_weight_rows=%d", nrow(recon_dt[group_an != 0 & zero_weight_count > 0])),
-    sprintf("bad_band_rows=%d", sum(!age_band_ok$V1))
+    sprintf("nonzero_an_zero_group_weight_rows=%d", nrow(recon_dt[group_an != 0 & group_death == 0])),
+    sprintf("bad_band_rows=%d", sum(!age_band_ok$ok))
   ),
   threshold = c(
     sprintf("%d rows", nrow(full_dem_grid)),
@@ -230,7 +223,7 @@ checks <- data.table(
     "<= 1e-9",
     "sum to 1 within 1e-12",
     "<= 1e-9",
-    "0 rows",
+    "0 groups",
     "all TRUE"
   )
 )
@@ -246,14 +239,18 @@ if (any(checks$status == "FAIL")) {
   }), fill = TRUE)
 }
 
-fwrite(single_an, single_file)
+#----- Persist checks before exposing primary outputs
+
 fwrite(checks, checks_file)
 if (nrow(failures)) {
   fwrite(failures, failures_file)
+  stop(sprintf("02_single_age.R failed %d invariant(s); see %s", nrow(failures), failures_file), call. = FALSE)
 } else {
   if (file.exists(failures_file)) file.remove(failures_file)
   invisible(file.create(failures_file))
 }
+
+fwrite(single_an, single_file)
 
 min_year <- min(weights_dt$year)
 weights_plot <- weights_dt[year == min_year][, .(age, weight, source_agegroup)]
@@ -262,7 +259,7 @@ plot_weights <- ggplot(weights_plot, aes(x = age, y = weight)) +
   facet_wrap(~source_agegroup, scales = "free_x") +
   labs(
     title = "Madrid single-age demographic weights",
-    subtitle = "Corrected Method A weights derived from grouped deaths via PCLM",
+    subtitle = "Method A weights from Step 00 single-age all-cause deaths",
     x = "Age",
     y = "Weight"
   ) +
@@ -281,10 +278,6 @@ plot_recon <- ggplot(recon_dt, aes(x = group_an, y = reconstructed_an, color = b
 
 p <- plot_weights / plot_recon
 ggsave(fig_file, p, width = 11, height = 9, dpi = 160)
-
-if (nrow(failures)) {
-  stop(sprintf("02_single_age.R failed %d invariant(s); see %s", nrow(failures), failures_file), call. = FALSE)
-}
 
 message("Saved single-age AN to ", single_file)
 message("Saved checks to ", checks_file)
