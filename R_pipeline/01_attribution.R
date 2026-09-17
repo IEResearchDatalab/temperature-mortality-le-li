@@ -341,16 +341,24 @@ if (nrow(failures)) {
 fwrite(grouped, grouped_file)
 
 plot_dt <- grouped[, .(an = sum(an)), by = .(year, branch, range)]
-y_min <- min(plot_dt$an, na.rm = TRUE)
-y_max <- max(plot_dt$an, na.rm = TRUE)
-p <- ggplot(plot_dt, aes(x = year, y = an, color = range)) +
-  geom_line(linewidth = 0.6) +
+plot_dt[, range := factor(range, levels = range_levels)]
+setorder(plot_dt, branch, year, range)
+plot_dt[, lower := cumsum(an) - an, by = .(year, branch)]
+plot_dt[, upper := cumsum(an), by = .(year, branch)]
+axis_values <- c(plot_dt$lower, plot_dt$upper)
+y_min <- min(axis_values, na.rm = TRUE)
+y_max <- max(axis_values, na.rm = TRUE)
+p <- ggplot(plot_dt, aes(x = year)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper, fill = range), colour = NA, alpha = 0.85) +
+  geom_line(aes(y = upper, colour = range), linewidth = 0.6, show.legend = FALSE) +
+  geom_hline(yintercept = 0, colour = "grey40", linewidth = 0.4) +
   facet_wrap(~branch, labeller = as_labeller(branch_labels)) +
-  scale_color_manual(values = range_colors, labels = range_labels, name = NULL) +
+  scale_fill_manual(values = range_colors, labels = range_labels, name = NULL) +
+  scale_color_manual(values = range_colors, guide = "none") +
   scale_y_continuous(limits = c(y_min, y_max)) +
   labs(
-    title = "Madrid SSP3-7.0 annual temperature-attributable deaths",
-    subtitle = sprintf("One GCM (%s); central coefficients; annualized with actual calendar days", gcm_name),
+    title = "Madrid SSP3-7.0 annual temperature-attributable deaths by temperature range",
+    subtitle = sprintf("One GCM (%s); shaded areas accumulate from extreme cold to extreme heat", gcm_name),
     x = "Year",
     y = "Annual temperature-attributable deaths"
   ) +
