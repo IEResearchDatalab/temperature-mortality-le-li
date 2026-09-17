@@ -325,9 +325,12 @@ if (nrow(failures)) {
 fwrite(grouped, grouped_file)
 
 plot_dt <- grouped[, .(an = sum(an)), by = .(year, branch, range)]
+y_min <- min(plot_dt$an, na.rm = TRUE)
+y_max <- max(plot_dt$an, na.rm = TRUE)
 p <- ggplot(plot_dt, aes(x = year, y = an, color = range)) +
   geom_line(linewidth = 0.6) +
-  facet_wrap(~branch, scales = "free_y") +
+  facet_wrap(~branch) +
+  scale_y_continuous(limits = c(y_min, y_max)) +
   labs(
     title = "Madrid SSP3-7.0 attributable numbers",
     subtitle = sprintf("One GCM (%s); central coefficients; annualized with actual calendar days", gcm_name),
