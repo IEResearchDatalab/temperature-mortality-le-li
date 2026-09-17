@@ -115,10 +115,19 @@ if (any(country_5y$pop < 0) || any(!is.finite(country_5y$pop)) || any(!is.finite
   stop("Invalid SSP3 demographic source values detected.", call. = FALSE)
 }
 
-country_5y[, death := pop * (1 - assr)]
+country_5y[, death_5y := pop * (1 - assr)]
+country_5y[, death_annual := death_5y / 5]
 country_5y[, `:=`(
   year_end = pmin(year_start + 4L, 2100L)
 )]
+
+country_bridge <- country_5y[, .(
+  death_annual_expected = sum(death_annual),
+  death_5y_expected = sum(death_5y)
+), by = .(CNTR_CODE, cntr_name, ssp, year_start, age_band, sex)]
+if (any(!is.finite(country_bridge$death_annual_expected)) || any(country_bridge$death_annual_expected < 0)) {
+  stop("Annual death bridge derived from ASSR is invalid.", call. = FALSE)
+}
 
 #----- Annualise: hold each 5-year Wittgenstein snapshot constant across its window
 
@@ -126,17 +135,19 @@ expand_annual <- function(dt) {
   rbindlist(lapply(seq_len(nrow(dt)), function(i) {
     row <- dt[i]
     yrs <- seq(row$year_start, row$year_end)
-    data.table(
-      CNTR_CODE = row$CNTR_CODE,
-      cntr_name = row$cntr_name,
-      ssp = row$ssp,
-      year = yrs,
-      age_band = row$age_band,
-      age_start = age_map$age_start[match(row$age_band, age_map$age_band)],
-      sex = row$sex,
-      pop = row$pop,
-      death = row$death
-    )
+        data.table(
+          CNTR_CODE = row$CNTR_CODE,
+          cntr_name = row$cntr_name,
+          ssp = row$ssp,
+          year = yrs,
+          age_band = row$age_band,
+          age_start = age_map$age_start[match(row$age_band, age_map$age_band)],
+          sex = row$sex,
+          pop = row$pop,
+          death = row$death_annual,
+          death_annual = row$death_annual,
+          death_5y = row$death_5y
+        )
   }), use.names = TRUE, fill = TRUE)
 }
 
@@ -155,6 +166,18 @@ country_annual <- merge(country_annual, age_map[, .(age_band, agegroup, age_star
 if (anyNA(country_annual$agegroup)) {
   stop("Failed to map country age bands to Madrid age groups.", call. = FALSE)
 }
+
+country_annual_bridge <- country_annual_5y[, .(
+  death_annual_expected = sum(death_annual)
+), by = .(CNTR_CODE, cntr_name, ssp, year, age_band, age_start)]
+country_annual_bridge <- merge(
+  country_annual_bridge,
+  country_annual[, .(death_annual_observed = sum(death)), by = .(CNTR_CODE, cntr_name, ssp, year, age_band, age_start)],
+  by = c("CNTR_CODE", "cntr_name", "ssp", "year", "age_band", "age_start"),
+  all.x = TRUE,
+  sort = FALSE
+)
+country_annual_bridge[, bridge_abs_diff := abs(death_annual_expected - death_annual_observed)]
 
 # Aggregate the country age bands into the three Madrid age groups of interest
 country_agegroup <- country_annual[, .(
@@ -351,6 +374,7 @@ checks <- data.table(
     "single_primary_keys_complete",
     "population_finite_nonnegative",
     "death_finite_nonnegative",
+    "annual_death_bridge",
     "grouped_equals_single_sum",
     "baseline_shares_finite"
   ),
@@ -360,6 +384,7 @@ checks <- data.table(
     if (!nrow(missing_single_keys) && !nrow(extra_single_keys) && !anyDuplicated(city_single, by = c("year", "age"))) "PASS" else "FAIL",
     if (!any(!is.finite(city_grouped$pop)) && !any(city_grouped$pop < 0) && !any(!is.finite(city_single$pop)) && !any(city_single$pop < 0)) "PASS" else "FAIL",
     if (!any(!is.finite(city_grouped$death)) && !any(city_grouped$death < 0) && !any(!is.finite(city_single$death)) && !any(city_single$death < 0)) "PASS" else "FAIL",
+    if (max(country_annual_bridge$bridge_abs_diff) <= 1e-12) "PASS" else "FAIL",
     if (max(recon_check$pop_abs_diff) <= 1e-9 && max(recon_check$death_abs_diff) <= 1e-9) "PASS" else "FAIL",
     if (!any(!is.finite(share_tbl$pop_share)) && !any(!is.finite(share_tbl$death_share))) "PASS" else "FAIL"
   ),
@@ -369,6 +394,7 @@ checks <- data.table(
     nrow(single_keys),
     sprintf("min_pop=%g; min_single_pop=%g", min(city_grouped$pop), min(city_single$pop)),
     sprintf("min_death=%g; min_single_death=%g", min(city_grouped$death), min(city_single$death)),
+    sprintf("max_abs_diff=%0.3e", max(country_annual_bridge$bridge_abs_diff)),
     sprintf("max_pop_diff=%0.3e; max_death_diff=%0.3e", max(recon_check$pop_abs_diff), max(recon_check$death_abs_diff)),
     sprintf("max_pop_share=%0.6f; max_death_share=%0.6f", max(share_tbl$pop_share), max(share_tbl$death_share))
   ),
@@ -378,6 +404,7 @@ checks <- data.table(
     sprintf("%d rows", nrow(full_single_grid)),
     "finite and >= 0",
     "finite and >= 0",
+    "<= 1e-12",
     "<= 1e-9",
     "finite shares"
   )
