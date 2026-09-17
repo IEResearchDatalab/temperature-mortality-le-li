@@ -1,5 +1,17 @@
 #!/usr/bin/env Rscript
 
+################################################################################
+#
+# Temperature-related mortality / life expectancy pipeline -- Madrid pilot
+#
+# R Pipeline Step 03: Assemble the single-age master analysis table
+#   Combines Step 00's single-age demography (population, total deaths) with
+#   Step 02's single-age attributable numbers into one row per mortality
+#   component. The four temperature components and `rest` sum to all-cause
+#   deaths for each branch, year, and age.
+#
+################################################################################
+
 suppressPackageStartupMessages({
   library(data.table)
   library(ggplot2)
@@ -25,7 +37,11 @@ ssp_target <- 3L
 gcm_target <- "GFDL_ESM4"
 branch_levels <- c("with_cc", "without_cc")
 range_levels <- c("ExtrCold", "ModCold", "ModHeat", "ExtrHeat")
+cause_levels <- c(range_levels, "rest")
 age_levels <- 65:100
+year_levels <- 2020:2099
+
+#----- Load Step 00/02 outputs and restrict to the Madrid/SSP3/GCM domain
 
 grouped_dem <- fread(file.path(out_dir, "00_demography_grouped.csv"))
 single_dem <- fread(file.path(out_dir, "00_demography_single_age.csv"))
@@ -53,16 +69,25 @@ if (any(!is.finite(single_an$an)) || any(!is.finite(single_an$weight))) {
   stop("Single-age AN contains invalid values.", call. = FALSE)
 }
 
-dem_grid <- CJ(year = sort(unique(single_dem$year)), age = age_levels)
-an_grid <- CJ(year = sort(unique(single_an$year)), age = age_levels, range = range_levels, branch = branch_levels)
+#----- Build the full (branch x year x age x range) domain
 
-if (nrow(unique(single_dem, by = c("year", "age"))) != nrow(dem_grid)) {
+dem_grid <- CJ(year = year_levels, age = age_levels)
+an_grid <- CJ(year = year_levels, age = age_levels, range = range_levels, branch = branch_levels)
+
+dem_keys <- single_dem[, .(year, age)]
+an_keys <- single_an[, .(year, branch, age, range)]
+dem_keys_unique <- unique(dem_keys)
+setcolorder(dem_keys_unique, names(dem_grid))
+an_keys_unique <- unique(an_keys)
+setcolorder(an_keys_unique, names(an_grid))
+if (nrow(fsetdiff(dem_grid, dem_keys_unique)) || nrow(fsetdiff(dem_keys_unique, dem_grid)) || anyDuplicated(dem_keys)) {
   stop("Single-age demographic primary keys are incomplete.", call. = FALSE)
 }
-if (nrow(unique(single_an, by = c("year", "branch", "age", "range"))) != nrow(an_grid)) {
+if (nrow(fsetdiff(an_grid, an_keys_unique)) || nrow(fsetdiff(an_keys_unique, an_grid)) || anyDuplicated(an_keys)) {
   stop("Single-age AN primary keys are incomplete.", call. = FALSE)
 }
 
+#----- Merge attributable numbers (Step 02) with single-age demography (Step 00)
 master <- merge(
   an_grid,
   single_an,
@@ -87,31 +112,57 @@ master <- merge(
   sort = FALSE
 )
 
+if (anyNA(master$source_agegroup) || anyNA(master$agegroup) || any(master$source_agegroup != master$agegroup)) {
+  stop("Step 00 and Step 02 age-band mappings disagree.", call. = FALSE)
+}
+
 master[, age_temp_deaths := sum(an), by = .(year, branch, age)]
 master[, rest := death - age_temp_deaths]
 
+#----- Attach identifying columns
 master[, `:=`(
   geo_id = city_id,
   label = city_name,
   ssp = ssp_target,
   gcm = gcm_target,
-  source_agegroup = agegroup,
   temp_deaths = age_temp_deaths
 )]
+
+master[, deaths_component := an]
+rest_rows <- unique(master[, .(
+  geo_id, label, ssp, gcm, branch, year, age, agegroup, source_agegroup,
+  pop, death, grouped_pop, grouped_death, country_pop, country_death,
+  pop_share, death_share, pop_weight, death_weight, temp_deaths, rest
+)])
+rest_rows[, `:=`(
+  range = "rest",
+  group_an = 0,
+  weight = 0,
+  an = 0,
+  deaths_component = rest
+)]
+master[, rest := 0]
+master <- rbindlist(list(master, rest_rows), use.names = TRUE, fill = TRUE)
 
 setcolorder(master, c(
   "geo_id", "label", "ssp", "gcm", "branch", "year", "age", "agegroup", "source_agegroup",
   "range", "pop", "death", "grouped_pop", "grouped_death", "country_pop", "country_death",
   "pop_share", "death_share", "pop_weight", "death_weight", "group_an", "weight", "an",
-  "temp_deaths", "rest"
+  "temp_deaths", "rest", "deaths_component"
 ))
 
 master[, agegroup := as.character(agegroup)]
 master[, source_agegroup := as.character(source_agegroup)]
 
-full_grid <- CJ(branch = branch_levels, year = sort(unique(master$year)), age = age_levels, range = range_levels)
+#----- Invariant checks (project convention: a failing check stops the run)
 
-unique_keys <- unique(master[, .(geo_id, label, ssp, gcm, branch, year, age, range)])
+full_grid <- CJ(branch = branch_levels, year = year_levels, age = age_levels, range = cause_levels)
+
+key_cols <- c("geo_id", "label", "ssp", "gcm", "branch", "year", "age", "range")
+duplicate_rows <- master[duplicated(master, by = key_cols) | duplicated(master, by = key_cols, fromLast = TRUE)]
+observed_grid <- unique(master[, .(branch, year, age, range)])
+missing_grid <- fsetdiff(full_grid, observed_grid)
+extra_grid <- fsetdiff(observed_grid, full_grid)
 dem_branch_cmp <- master[, .(
   pop = unique(pop),
   death = unique(death),
@@ -126,35 +177,41 @@ branch_delta <- dem_branch_cmp[, .(
   grouped_death_delta = max(grouped_death) - min(grouped_death)
 ), by = .(year, age)]
 
-required_cols <- c("pop", "death", "grouped_pop", "grouped_death", "an", "temp_deaths", "rest")
-na_rows <- master[!complete.cases(master[, ..required_cols])]
+required_cols <- c("pop", "death", "grouped_pop", "grouped_death", "an", "temp_deaths", "rest", "deaths_component")
+nonfinite_rows <- master[!apply(master[, ..required_cols], 1L, function(x) all(is.finite(x)))]
+conservation <- master[, .(component_sum = sum(deaths_component), death = unique(death)), by = .(branch, year, age)]
+conservation[, abs_diff := abs(component_sum - death)]
 
 checks <- data.table(
   check_name = c(
     "primary_keys_unique",
     "complete_grid",
     "required_columns_finite",
+    "mortality_components_conserve_total",
     "rest_mortality_nonnegative",
     "demographics_identical_across_branches"
   ),
   status = c(
-    if (nrow(unique_keys) == nrow(master)) "PASS" else "FAIL",
-    if (nrow(unique(master, by = c("branch", "year", "age", "range"))) == nrow(full_grid)) "PASS" else "FAIL",
-    if (nrow(na_rows) == 0L) "PASS" else "FAIL",
+    if (!nrow(duplicate_rows)) "PASS" else "FAIL",
+    if (!nrow(missing_grid) && !nrow(extra_grid)) "PASS" else "FAIL",
+    if (!nrow(nonfinite_rows)) "PASS" else "FAIL",
+    if (max(conservation$abs_diff) <= 1e-9) "PASS" else "FAIL",
     if (min(master$rest) >= -1e-9) "PASS" else "FAIL",
     if (max(branch_delta$pop_delta) == 0 && max(branch_delta$death_delta) == 0 && max(branch_delta$grouped_pop_delta) == 0 && max(branch_delta$grouped_death_delta) == 0) "PASS" else "FAIL"
   ),
   value = c(
-    nrow(unique_keys),
-    nrow(full_grid),
-    nrow(na_rows),
+    nrow(duplicate_rows),
+    sprintf("missing=%d; extra=%d", nrow(missing_grid), nrow(extra_grid)),
+    nrow(nonfinite_rows),
+    sprintf("max_abs_diff=%0.3e", max(conservation$abs_diff)),
     sprintf("min_rest=%g", min(master$rest)),
     sprintf("max_pop_delta=%g; max_death_delta=%g", max(branch_delta$pop_delta), max(branch_delta$death_delta))
   ),
   threshold = c(
-    sprintf("%d rows", nrow(master)),
-    sprintf("%d rows", nrow(full_grid)),
+    "0 duplicate rows",
+    sprintf("exactly %d keys", nrow(full_grid)),
     "0 rows with NA/NaN/Inf",
+    "<= 1e-9",
     ">= -1e-9",
     "zero difference across branches"
   )
@@ -164,7 +221,7 @@ failures <- data.table()
 if (any(checks$status == "FAIL")) {
   failures <- rbindlist(list(
     if (checks$status[checks$check_name == "primary_keys_unique"] == "FAIL") {
-      unique_keys[duplicated(unique_keys) | duplicated(unique_keys, fromLast = TRUE), .(
+      duplicate_rows[, .(
         geo_id, label, ssp, gcm, branch, year, age, range,
         failing_check = "primary_keys_unique",
         observed_value = "duplicate row",
@@ -172,8 +229,7 @@ if (any(checks$status == "FAIL")) {
       )]
     } else NULL,
     if (checks$status[checks$check_name == "complete_grid"] == "FAIL") {
-      merged_grid <- merge(full_grid, unique(master[, .(branch, year, age, range)]), by = c("branch", "year", "age", "range"), all.x = TRUE, sort = FALSE)
-      merged_grid[is.na(V1), .(
+      missing_grid[, .(
         branch, year, age, range,
         failing_check = "complete_grid",
         observed_value = "missing row",
@@ -181,11 +237,19 @@ if (any(checks$status == "FAIL")) {
       )]
     } else NULL,
     if (checks$status[checks$check_name == "required_columns_finite"] == "FAIL") {
-      na_rows[, .(
+      nonfinite_rows[, .(
         geo_id, label, ssp, gcm, branch, year, age, range,
         failing_check = "required_columns_finite",
         observed_value = "NA/NaN/Inf present",
         expected_bound = "all required fields finite"
+      )]
+    } else NULL,
+    if (checks$status[checks$check_name == "mortality_components_conserve_total"] == "FAIL") {
+      conservation[abs_diff > 1e-9, .(
+        branch, year, age,
+        failing_check = "mortality_components_conserve_total",
+        observed_value = component_sum,
+        expected_bound = death
       )]
     } else NULL,
     if (checks$status[checks$check_name == "rest_mortality_nonnegative"] == "FAIL") {
@@ -207,19 +271,23 @@ if (any(checks$status == "FAIL")) {
   ), fill = TRUE)
 }
 
-fwrite(master, master_file)
+#----- Persist checks before exposing primary outputs
+
 fwrite(checks, checks_file)
 if (nrow(failures)) {
   fwrite(failures, failures_file)
+  stop(sprintf("03_master_table.R failed %d invariant(s); see %s", nrow(failures), failures_file), call. = FALSE)
 } else {
   if (file.exists(failures_file)) file.remove(failures_file)
   invisible(file.create(failures_file))
 }
 
+fwrite(master, master_file)
+
 plot_totals <- master[, .(
   deaths = unique(death),
   temp_deaths = unique(temp_deaths),
-  rest = unique(rest)
+  rest = sum(rest)
 ), by = .(branch, year, age)]
 plot_totals <- plot_totals[, .(
   deaths = sum(deaths),
@@ -241,10 +309,6 @@ p <- ggplot(plot_dt, aes(x = year, y = value, color = measure)) +
   theme_minimal(base_size = 11)
 
 ggsave(fig_file, p, width = 11, height = 6, dpi = 160)
-
-if (nrow(failures)) {
-  stop(sprintf("03_master_table.R failed %d invariant(s); see %s", nrow(failures), failures_file), call. = FALSE)
-}
 
 message("Saved master table to ", master_file)
 message("Saved checks to ", checks_file)
