@@ -54,7 +54,11 @@ cause_dt <- master[, .(
 
 setorder(cause_dt, branch, year, cause, age)
 cause_dt[, mx_cause := deaths_cause / pop]
-cause_dt[, mx_total := total_deaths / pop]
+# Total mortality must equal the sum of cause-specific rates so the LE/LI
+# closure target matches what the Horiuchi decomposition of mx_cause measures.
+# Using raw `death` here would disagree with `deaths_cause` for the with_cc
+# branch, whose components sum to `adjusted_death`, not `death`.
+cause_dt[, mx_total := sum(mx_cause), by = .(branch, year, age)]
 
 if (any(!cause_dt$cause %in% cause_levels)) {
   stop("Unexpected cause labels in decomposition input.", call. = FALSE)
