@@ -1,0 +1,6 @@
+metric,observed
+abs_diff_total,3.5527136788005e-15
+rel_diff_total,3.98505783440229e-16
+raw_annual_ratio_1990,365
+threshold,1e-10
+source,year-days weighted annual mean

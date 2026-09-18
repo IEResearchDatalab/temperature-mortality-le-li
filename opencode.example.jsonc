@@ -1,0 +1,53 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  "model": "openrouter/openai/gpt-5.4-mini",
+  "share": "disabled",
+  "snapshot": true,
+
+  "references": {
+    "lloyd": {
+      "path": "./references/2024-lloyd-reciprocal",
+      "description": "Lloyd and Aburto reference code, decomposition outputs, and regression fixtures"
+    },
+    "masselot": {
+      "path": "./references/2025-masselot-zenodo",
+      "description": "Masselot historical ERA5 inputs, city-age results, and validation fixtures"
+    },
+    "data-sources": {
+      "path": "./data",
+      "description": "Data sources used for analysis, including ERA5 and other datasets"
+    },
+    "reference-papers": {
+      "path": "./references",
+      "description": "Reference papers used for context and validation"
+    },
+    "pipeline-results": {
+      "path": "./results",
+      "description": "Existing analysis results, figures, tables, and validation targets"
+    }
+  },
+
+  "permission": "allow",
+
+  "agent": {
+    "phase0": {
+      "description": "Autonomously completes Phase 0 scientific investigations and obtains independent review",
+      "mode": "primary",
+      "model": "openrouter/openai/gpt-5.4-mini",
+      "variant": "medium",
+      "temperature": 0.1,
+      "steps": 300,
+      "prompt": "{file:./.opencode/prompts/phase0.md}"
+    },
+    "phase1": {
+  "description": "Implements the bounded Madrid SSP3 diagnostic pipeline",
+  "mode": "primary",
+  "model": "openrouter/openai/gpt-5.4-mini",
+  "variant": "medium",
+  "temperature": 0.1,
+  "steps": 120,
+  "prompt": "{file:./.opencode/prompts/phase1.md}"
+}
+  }
+}

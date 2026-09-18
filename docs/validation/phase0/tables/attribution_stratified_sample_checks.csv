@@ -1,0 +1,10 @@
+metric,observed
+max_abs_total,1.53477230924182e-12
+max_abs_cold,1.08002495835535e-12
+max_abs_heat,1.59872115546023e-13
+max_rel_total,3.94941431483029e-15
+max_rel_cold,6.0981569166502e-15
+max_rel_heat,5.46043255742599e-15
+sign_agreement_total,20
+cells,20
+threshold,1e-10
