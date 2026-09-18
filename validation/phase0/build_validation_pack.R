@@ -96,24 +96,75 @@ write_manifest <- function(paths, manifest_path, base_dir, producer = producer_s
 
 # Canonical LE/LI functions from the Lloyd reference implementation.
 cond_surv <- 65
-life_expectancy_from_mx_fun_65plus <- function(mx, x, nx = c(rep(1, 100 - cond_surv), Inf), age = 0) {
+life_table_components_65plus <- function(mx, x, nx = c(rep(1, 100 - cond_surv), Inf), context = NULL) {
+  context <- if (is.null(context) || !nzchar(context)) "life_table_65plus" else context
+  if (!is.numeric(mx) || anyNA(mx) || any(!is.finite(mx))) {
+    stop(sprintf("%s: mortality must be finite numeric values.", context), call. = FALSE)
+  }
+  if (any(mx < 0)) {
+    stop(sprintf("%s: mortality must be nonnegative; min=%.16g.", context, min(mx)), call. = FALSE)
+  }
+  if (length(mx) != length(x)) {
+    stop(sprintf("%s: length mismatch between mortality (%d) and age grid (%d).", context, length(mx), length(x)), call. = FALSE)
+  }
+  if (length(nx) != length(mx)) {
+    stop(sprintf("%s: length mismatch between mortality (%d) and interval widths (%d).", context, length(mx), length(nx)), call. = FALSE)
+  }
+
+  terminal_idx <- length(mx)
+  if (is.infinite(nx[terminal_idx]) && (!is.finite(mx[terminal_idx]) || mx[terminal_idx] <= 0)) {
+    stop(sprintf("%s: terminal open-interval mortality must be finite and strictly positive; observed %.16g.", context, mx[terminal_idx]), call. = FALSE)
+  }
+
   px <- exp(-mx * nx)
+  if (any(!is.finite(px))) {
+    stop(sprintf("%s: non-finite survival probabilities encountered after validation.", context), call. = FALSE)
+  }
+
   lx <- head(cumprod(c(1, px)), -1)
+  if (any(!is.finite(lx)) || any(lx <= 0)) {
+    stop(sprintf("%s: life-table survivors became non-finite or nonpositive.", context), call. = FALSE)
+  }
+
   dx <- c(-diff(lx), tail(lx, 1))
-  Lx <- ifelse(mx == 0, lx * nx, dx / mx)
+  Lx <- numeric(length(mx))
+  positive_mx <- mx > 0
+  Lx[positive_mx] <- dx[positive_mx] / mx[positive_mx]
+  Lx[!positive_mx] <- lx[!positive_mx] * nx[!positive_mx]
   Tx <- rev(cumsum(rev(Lx)))
   ex <- Tx / lx
-  ex[age + 1]
+  list(px = px, lx = lx, dx = dx, Lx = Lx, Tx = Tx, ex = ex)
 }
-sd_from_mx_fun_65_plus <- function(mx, x, nx = c(rep(1, 100 - cond_surv), Inf), age = 0) {
+
+life_expectancy_from_mx_fun_65plus <- function(mx, x, nx = c(rep(1, 100 - cond_surv), Inf), age = 0, context = NULL) {
+  comps <- life_table_components_65plus(mx = mx, x = x, nx = nx, context = context)
+  comps$ex[age + 1]
+}
+sd_from_mx_fun_65_plus <- function(mx, x, nx = c(rep(1, 100 - cond_surv), Inf), age = 0, context = NULL, variance_tol = 1e-12) {
+  comps <- life_table_components_65plus(mx = mx, x = x, nx = nx, context = context)
   x_conditional <- x - cond_surv
-  px <- exp(-mx * nx)
-  lx <- head(cumprod(c(1, px)), -1)
-  dx <- c(-diff(lx), tail(lx, 1))
-  Lx <- ifelse(mx == 0, lx * nx, dx / mx)
-  Tx <- rev(cumsum(rev(Lx)))
-  ex <- Tx / lx
-  sqrt(sum(dx * (x_conditional + 0.5 - ex[age + 1])^2))
+  variance_terms <- comps$dx * (x_conditional + 0.5 - comps$ex[age + 1])^2
+  variance <- sum(variance_terms)
+  variance_abs_sum <- sum(abs(variance_terms))
+  context_label <- if (is.null(context) || !nzchar(context)) "life_table_65plus" else context
+  if (!is.finite(variance) || !is.finite(variance_abs_sum)) {
+    stop(sprintf("%s: LI variance became non-finite before sqrt(); raw variance=%s; abs-term-sum=%s.",
+      context_label,
+      format(variance, scientific = TRUE),
+      format(variance_abs_sum, scientific = TRUE)
+    ), call. = FALSE)
+  }
+  if (variance < 0) {
+    tolerance_bound <- variance_tol * max(variance_abs_sum, 1)
+    if (variance < -tolerance_bound) {
+      stop(sprintf("%s: LI variance is materially negative before sqrt(); raw variance=%.16e; abs-term-sum=%.16e; tolerance=%.1e.",
+        context_label,
+        variance, variance_abs_sum, variance_tol
+      ), call. = FALSE)
+    }
+    variance <- 0
+  }
+  sqrt(variance)
 }
 
 life.expectancy.cod.fun.65plus <- function(mx.cod, x, nx = c(rep(1, 100 - cond_surv), Inf), cond_age = 0) {
@@ -217,14 +268,16 @@ scale_tbl <- scale_check[, .(
   max_growth_diff = max(scale_cmp$growth_diff)
 )]
 scale_failures <- scale_check[share_diff > 1e-12 | coverage_diff > 1e-12]
+scale_zero_coord_points <- sum(scale_check$share_diff <= 0 | scale_check$coverage_diff <= 0)
 scale_plot <- ggplot(scale_check, aes(x = share_diff, y = coverage_diff)) +
   geom_point(alpha = 0.25, size = 0.7, color = "#2c7fb8") +
-  scale_x_log10() + scale_y_log10() +
+  scale_x_continuous(trans = scales::pseudo_log_trans(base = 10, sigma = 1e-15)) +
+  scale_y_continuous(trans = scales::pseudo_log_trans(base = 10, sigma = 1e-15)) +
   geom_vline(xintercept = 1e-12, linetype = 2, color = "#d95f0e") +
   geom_hline(yintercept = 1e-12, linetype = 2, color = "#d95f0e") +
   labs(
     title = "Demographic scaling validation",
-    subtitle = sprintf("City share and sample coverage deltas vs anchor year %d; threshold 1e-12", anchor_year),
+    subtitle = sprintf("Pseudo-log10 scale (sigma=1e-15); %d/%d points include a zero-valued coordinate; threshold 1e-12", scale_zero_coord_points, nrow(scale_check)),
     x = "|share_future - share_anchor|",
     y = "|coverage_future - coverage_anchor|"
   ) + theme_minimal(base_size = 11)
@@ -515,16 +568,33 @@ for (i in seq_len(nrow(rep_key))) {
   mxPop <- restPop / w$pop
   mxUni <- restUni / w$pop
   x <- w$age
-  leA <- life_expectancy_from_mx_fun_65plus(mxA, x)
-  leB <- life_expectancy_from_mx_fun_65plus(mxB, x)
-  leC <- life_expectancy_from_mx_fun_65plus(mxC, x)
-  lePop <- life_expectancy_from_mx_fun_65plus(mxPop, x)
-  leUni <- life_expectancy_from_mx_fun_65plus(mxUni, x)
-  liA <- sd_from_mx_fun_65_plus(mxA, x)
-  liB <- sd_from_mx_fun_65_plus(mxB, x)
-  liC <- sd_from_mx_fun_65_plus(mxC, x)
-  liPop <- sd_from_mx_fun_65_plus(mxPop, x)
-  liUni <- sd_from_mx_fun_65_plus(mxUni, x)
+  cell_context <- sprintf("%s/%s/%s/%s", row$city, row$year, row$agegroup, row$range)
+  leA <- life_expectancy_from_mx_fun_65plus(mxA, x, context = paste0(cell_context, "/A_death"))
+  leB <- life_expectancy_from_mx_fun_65plus(mxB, x, context = paste0(cell_context, "/B_split"))
+  leC <- life_expectancy_from_mx_fun_65plus(mxC, x, context = paste0(cell_context, "/C_clamp"))
+  liA <- sd_from_mx_fun_65_plus(mxA, x, context = paste0(cell_context, "/A_death"))
+  liB <- sd_from_mx_fun_65_plus(mxB, x, context = paste0(cell_context, "/B_split"))
+  liC <- sd_from_mx_fun_65_plus(mxC, x, context = paste0(cell_context, "/C_clamp"))
+  pop_status <- if (!all(is.finite(mxPop))) {
+    "blocked_nonfinite_mortality"
+  } else if (!all(mxPop >= 0)) {
+    "blocked_negative_mortality"
+  } else {
+    "valid"
+  }
+  uni_status <- if (!all(is.finite(mxUni))) {
+    "blocked_nonfinite_mortality"
+  } else if (!all(mxUni >= 0)) {
+    "blocked_negative_mortality"
+  } else {
+    "valid"
+  }
+  pop_valid <- identical(pop_status, "valid")
+  uni_valid <- identical(uni_status, "valid")
+  lePop <- if (pop_valid) life_expectancy_from_mx_fun_65plus(mxPop, x, context = paste0(cell_context, "/A_pop")) else NA_real_
+  leUni <- if (uni_valid) life_expectancy_from_mx_fun_65plus(mxUni, x, context = paste0(cell_context, "/A_uniform")) else NA_real_
+  liPop <- if (pop_valid) sd_from_mx_fun_65_plus(mxPop, x, context = paste0(cell_context, "/A_pop")) else NA_real_
+  liUni <- if (uni_valid) sd_from_mx_fun_65_plus(mxUni, x, context = paste0(cell_context, "/A_uniform")) else NA_real_
   alloc_results[[i]] <- data.table(
     label = row$label, city = row$city, year = row$year, agegroup = row$agegroup, range = row$range,
     grouped_an = row$grouped_an,
@@ -533,16 +603,21 @@ for (i in seq_len(nrow(rep_key))) {
     grouped_total_error = c(sum(allocA) - row$grouped_an, sum(allocB) - row$grouped_an, sum(allocC) - row$grouped_an, sum(allocPop) - row$grouped_an, sum(allocUni) - row$grouped_an),
     sign_preserved = c(all(sign(allocA[allocA != 0]) == sign(row$grouped_an) | sign(row$grouped_an) == 0), all(sign(allocB[allocB != 0]) == sign(row$grouped_an) | sign(row$grouped_an) == 0), all(sign(allocC[allocC != 0]) == sign(row$grouped_an) | sign(row$grouped_an) == 0), all(sign(allocPop[allocPop != 0]) == sign(row$grouped_an) | sign(row$grouped_an) == 0), all(sign(allocUni[allocUni != 0]) == sign(row$grouped_an) | sign(row$grouped_an) == 0)),
     rest_nonnegative = c(all(restA >= 0), all(restB >= 0), all(restC >= 0), all(restPop >= 0), all(restUni >= 0)),
+    method_status = c("valid", "valid", "valid", pop_status, uni_status),
     le65 = c(leA, leB, leC, lePop, leUni),
     li65 = c(liA, liB, liC, liPop, liUni),
-    delta_le_from_A = c(0, leB - leA, leC - leA, lePop - leA, leUni - leA),
-    delta_li_from_A = c(0, liB - liA, liC - liA, liPop - liA, liUni - liA),
+    delta_le_from_A = c(0, leB - leA, leC - leA, if (pop_valid) lePop - leA else NA_real_, if (uni_valid) leUni - leA else NA_real_),
+    delta_li_from_A = c(0, liB - liA, liC - liA, if (pop_valid) liPop - liA else NA_real_, if (uni_valid) liUni - liA else NA_real_),
+    abs_alloc_diff_A_B = c(0, max(abs(allocB - allocA)), max(abs(allocC - allocA)), NA_real_, NA_real_),
+    abs_le_diff_A_B = c(0, abs(leB - leA), abs(leC - leA), NA_real_, NA_real_),
+    abs_li_diff_A_B = c(0, abs(liB - liA), abs(liC - liA), NA_real_, NA_real_),
     age_weight_basis = c("death", "death", "death", "population", "uniform")
   )
 }
 signed_proto <- rbindlist(alloc_results)
 write_csv(signed_proto, file.path(table_dir, "signed_method_prototype.csv"))
-signed_plot <- ggplot(signed_proto, aes(x = method, y = delta_le_from_A, fill = method)) +
+signed_plot_dt <- signed_proto[!is.na(delta_le_from_A)]
+signed_plot <- ggplot(signed_plot_dt, aes(x = method, y = delta_le_from_A, fill = method)) +
   geom_col() +
   facet_wrap(~label, scales = "free_y") +
   labs(
@@ -552,9 +627,9 @@ signed_plot <- ggplot(signed_proto, aes(x = method, y = delta_le_from_A, fill = 
   ) + theme_minimal(base_size = 11)
 write_contract(
   "signed_allocation_method",
-  checks = data.table(metric = c("A_equals_B", "A_vs_pop_le_range", "A_vs_uniform_le_range"), value = c(all(abs(signed_proto[method == "B_split", grouped_total_error]) < 1e-12), max(abs(signed_proto[method == "A_pop", delta_le_from_A])), max(abs(signed_proto[method == "A_uniform", delta_le_from_A])))),
+  checks = data.table(metric = c("A_equals_B_alloc", "A_equals_B_le", "A_equals_B_li", "A_pop_blocked_rows", "A_uniform_blocked_rows"), value = c(max(signed_proto[method == "B_split", abs_alloc_diff_A_B], na.rm = TRUE) < 1e-12, max(signed_proto[method == "B_split", abs_le_diff_A_B], na.rm = TRUE) < 1e-12, max(signed_proto[method == "B_split", abs_li_diff_A_B], na.rm = TRUE) < 1e-12, sum(signed_proto[method == "A_pop", method_status != "valid"]), sum(signed_proto[method == "A_uniform", method_status != "valid"]))),
   failures = signed_proto[abs(grouped_total_error) > 1e-12 & method != "C_clamp"],
-  summary_text = "Method A is algebraically equivalent to B under the current linear rule; rest/LE/LI differences are driven by age weights rather than total mass.",
+  summary_text = "Method A is algebraically equivalent to B under the current linear rule; sensitivity alternatives are carried only when mortality remains valid, and blocked rows are recorded explicitly.",
   overview_plot = signed_plot
 )
 save_png(signed_plot, file.path(fig_dir, "signed_allocation_method_comparison.png"), 10, 6)
