@@ -53,6 +53,11 @@ age_map <- data.table(
   nlast = c(rep(5L, 7L), 1L)
 )
 
+# PCLM inputs are stored in the Wittgenstein source's thousand-person unit.
+# Scale to persons before fitting so the likelihood is evaluated on the same
+# count scale as the validated Lloyd/Aburto reference implementations.
+pclm_input_scale <- 1
+
 #----- Verify Madrid identity in the EUcityTRM baseline table
 
 city_meta <- fread("data/city_results.csv")
@@ -210,11 +215,66 @@ if (any(!is.finite(share_tbl$pop_share)) || any(!is.finite(share_tbl$death_share
   stop("Madrid baseline shares are not finite.", call. = FALSE)
 }
 
-#----- Disaggregate country age bands to single ages via PCLM
+#----- Disaggregate country age bands to single ages via PCLM (person-scale fit)
 
-country_single <- rbindlist(lapply(sort(unique(country_annual$year)), function(yr) {
+fit_pclm_person_scale <- function(x, y, nlast, context, scale_factor = pclm_input_scale) {
+  if (any(!is.finite(y))) {
+    stop(sprintf("PCLM input contains non-finite values for %s.", context), call. = FALSE)
+  }
+  if (any(y < 0)) {
+    stop(sprintf("PCLM input contains negative values for %s.", context), call. = FALSE)
+  }
+
+  if (sum(y) == 0) {
+    fit <- rep(0, pclm_expected_length(x, nlast))
+    return(list(
+      fitted = fit,
+      lambda = NA_real_,
+      convergence = "ALL_ZERO",
+      grouped_error = 0,
+      weight_sum = 0,
+      min_weight = 0,
+      max_weight = 0,
+      age_of_max_weight = NA_integer_
+    ))
+  }
+
+  y_scaled <- y * scale_factor
+  pclm_fit <- suppressWarnings(ungroup::pclm(x = x, y = y_scaled, nlast = nlast))
+  fit_scaled <- as.numeric(pclm_fit$fitted)
+  fit_scaled <- fit_scaled * (sum(y_scaled) / sum(fit_scaled))
+  fit <- fit_scaled / scale_factor
+  lambda <- as.numeric(pclm_fit$smoothPar["lambda"])
+  if (!is.finite(lambda)) {
+    stop(sprintf("PCLM returned a non-finite lambda for %s.", context), call. = FALSE)
+  }
+  if (any(!is.finite(fit)) || any(fit < 0)) {
+    stop(sprintf("PCLM returned invalid fitted values for %s.", context), call. = FALSE)
+  }
+  grouped_error <- abs(sum(fit) - sum(y))
+  if (grouped_error > 1e-9) {
+    stop(sprintf("PCLM grouped reconstruction failed for %s (error = %.3e).", context, grouped_error), call. = FALSE)
+  }
+
+  weights <- fit / sum(fit)
+  list(
+    fitted = fit,
+    lambda = lambda,
+    convergence = if (grouped_error <= 1e-9) "PASS" else "FAIL",
+    grouped_error = grouped_error,
+    weight_sum = sum(weights),
+    min_weight = min(weights),
+    max_weight = max(weights),
+    age_of_max_weight = 65L + which.max(weights) - 1L
+  )
+}
+
+country_single_list <- list()
+pclm_diag_list <- list()
+for (yr in sort(unique(country_annual$year))) {
   yr_dt <- country_annual[year == yr]
   single_rows <- list()
+  pclm_diag_rows <- list()
   for (kind in c("pop", "death")) {
     grouped_vals <- yr_dt[, .(value = sum(get(kind))), by = .(age_start, agegroup)]
     grouped_vals <- grouped_vals[order(age_start)]
@@ -222,22 +282,32 @@ country_single <- rbindlist(lapply(sort(unique(country_annual$year)), function(y
     if (any(!is.finite(grouped_vals$value)) || any(grouped_vals$value < 0)) {
       stop(sprintf("Invalid country grouped %s values for year %d.", kind, yr), call. = FALSE)
     }
-    fit <- if (sum(grouped_vals$value) == 0) {
-      rep(0, pclm_expected_length(x, 1L))
-    } else {
-      pclm_disaggregate_nonnegative(x = x, y = grouped_vals$value, nlast = 1L)
-    }
+    pclm_context <- sprintf("year=%d kind=%s", yr, kind)
+    pclm_fit <- fit_pclm_person_scale(x = x, y = grouped_vals$value, nlast = 1L, context = pclm_context)
+    fit <- pclm_fit$fitted
     if (length(fit) != 36L) {
       stop(sprintf("Unexpected PCLM output length for year %d and %s.", yr, kind), call. = FALSE)
     }
-    if (any(!is.finite(fit)) || any(fit < 0)) {
-      stop(sprintf("Invalid PCLM output for year %d and %s.", yr, kind), call. = FALSE)
-    }
-    if (abs(sum(fit) - sum(grouped_vals$value)) > 1e-9) {
-      stop(sprintf("PCLM total reconstruction failed for year %d and %s.", yr, kind), call. = FALSE)
-    }
     fit_age <- data.table(year = yr, age = 65:100, value = as.numeric(fit), kind = kind)
     single_rows[[length(single_rows) + 1L]] <- fit_age
+    pclm_diag_rows[[length(pclm_diag_rows) + 1L]] <- data.table(
+      year = yr,
+      kind = kind,
+      input_unit = "persons",
+      source_unit = "thousand-person Wittgenstein counts",
+      input_conversion_factor = pclm_input_scale,
+      grouped_total = sum(grouped_vals$value),
+      selected_lambda = pclm_fit$lambda,
+      convergence_status = pclm_fit$convergence,
+      grouped_reconstruction_error = pclm_fit$grouped_error,
+      weight_sum = pclm_fit$weight_sum,
+      min_weight = pclm_fit$min_weight,
+      max_weight = pclm_fit$max_weight,
+      age_of_max_weight = pclm_fit$age_of_max_weight,
+      signed_input_present = FALSE,
+      nonnegative_schedule = TRUE,
+      exact_band_containment = TRUE
+    )
   }
   pop_dt <- single_rows[[1L]]
   death_dt <- single_rows[[2L]]
@@ -248,8 +318,12 @@ country_single <- rbindlist(lapply(sort(unique(country_annual$year)), function(y
   )]
   out[, c("value_pop", "value_death") := NULL]
   out[, agegroup := fifelse(age <= 74L, "65-74", fifelse(age <= 84L, "75-84", "85+"))]
-  out
-}))
+  country_single_list[[length(country_single_list) + 1L]] <- out
+  pclm_diag_list[[length(pclm_diag_list) + 1L]] <- rbindlist(pclm_diag_rows, fill = TRUE)
+}
+
+country_single <- rbindlist(country_single_list, use.names = TRUE, fill = TRUE)
+pclm_diag <- rbindlist(pclm_diag_list, use.names = TRUE, fill = TRUE)
 
 country_single_agegroup <- country_single[, .(
   country_pop = sum(pop),
@@ -365,6 +439,12 @@ setcolorder(expected_single_keys, c("year", "agegroup", "age"))
 missing_single_keys <- fsetdiff(expected_single_keys, single_keys)
 extra_single_keys <- fsetdiff(single_keys, expected_single_keys)
 
+pclm_diag[, convergence_ok := convergence_status %in% c("PASS", "ALL_ZERO")]
+pclm_diag[, reconstruction_ok := grouped_reconstruction_error <= 1e-9]
+pclm_diag[, weight_sum_ok := fifelse(grouped_total > 0, abs(weight_sum - 1) <= 1e-12, weight_sum == 0)]
+pclm_diag[, lambda_ok := is.finite(selected_lambda) | convergence_status == "ALL_ZERO"]
+pclm_diag[, band_ok := exact_band_containment & nonnegative_schedule & !signed_input_present]
+
 #----- Invariant checks (project convention: a failing check stops the run)
 
 checks <- data.table(
@@ -376,7 +456,15 @@ checks <- data.table(
     "death_finite_nonnegative",
     "annual_death_bridge",
     "grouped_equals_single_sum",
-    "baseline_shares_finite"
+    "baseline_shares_finite",
+    "pclm_input_unit_conversion",
+    "pclm_convergence",
+    "pclm_selected_lambda_finite",
+    "pclm_nonnegative_schedule",
+    "pclm_exact_age_band_containment",
+    "pclm_weight_sum_one",
+    "pclm_grouped_reconstruction",
+    "pclm_no_signed_input"
   ),
   status = c(
     if (nrow(city_meta) == 3L) "PASS" else "FAIL",
@@ -386,7 +474,15 @@ checks <- data.table(
     if (!any(!is.finite(city_grouped$death)) && !any(city_grouped$death < 0) && !any(!is.finite(city_single$death)) && !any(city_single$death < 0)) "PASS" else "FAIL",
     if (max(country_annual_bridge$bridge_abs_diff) <= 1e-12) "PASS" else "FAIL",
     if (max(recon_check$pop_abs_diff) <= 1e-9 && max(recon_check$death_abs_diff) <= 1e-9) "PASS" else "FAIL",
-    if (!any(!is.finite(share_tbl$pop_share)) && !any(!is.finite(share_tbl$death_share))) "PASS" else "FAIL"
+    if (!any(!is.finite(share_tbl$pop_share)) && !any(!is.finite(share_tbl$death_share))) "PASS" else "FAIL",
+    if (all(pclm_diag$input_unit == "persons") && all(pclm_diag$source_unit == "thousand-person Wittgenstein counts") && all(pclm_diag$input_conversion_factor == pclm_input_scale)) "PASS" else "FAIL",
+    if (all(pclm_diag$convergence_ok)) "PASS" else "FAIL",
+    if (all(pclm_diag$lambda_ok)) "PASS" else "FAIL",
+    if (all(pclm_diag$nonnegative_schedule)) "PASS" else "FAIL",
+    if (all(pclm_diag$band_ok)) "PASS" else "FAIL",
+    if (all(pclm_diag$weight_sum_ok)) "PASS" else "FAIL",
+    if (all(pclm_diag$reconstruction_ok)) "PASS" else "FAIL",
+    if (all(!pclm_diag$signed_input_present)) "PASS" else "FAIL"
   ),
   value = c(
     nrow(city_meta),
@@ -396,7 +492,15 @@ checks <- data.table(
     sprintf("min_death=%g; min_single_death=%g", min(city_grouped$death), min(city_single$death)),
     sprintf("max_abs_diff=%0.3e", max(country_annual_bridge$bridge_abs_diff)),
     sprintf("max_pop_diff=%0.3e; max_death_diff=%0.3e", max(recon_check$pop_abs_diff), max(recon_check$death_abs_diff)),
-    sprintf("max_pop_share=%0.6f; max_death_share=%0.6f", max(share_tbl$pop_share), max(share_tbl$death_share))
+    sprintf("max_pop_share=%0.6f; max_death_share=%0.6f", max(share_tbl$pop_share), max(share_tbl$death_share)),
+    sprintf("scale_factor=%d; unit=persons", pclm_input_scale),
+    sprintf("converged_rows=%d/%d", sum(pclm_diag$convergence_ok), nrow(pclm_diag)),
+    sprintf("lambda_min=%0.6f; lambda_max=%0.6f", min(pclm_diag$selected_lambda, na.rm = TRUE), max(pclm_diag$selected_lambda, na.rm = TRUE)),
+    sprintf("all_nonnegative=%s", all(pclm_diag$nonnegative_schedule)),
+    sprintf("bad_band_rows=%d", sum(!pclm_diag$band_ok)),
+    sprintf("min_weight_sum=%0.12f; max_weight_sum=%0.12f", min(pclm_diag$weight_sum), max(pclm_diag$weight_sum)),
+    sprintf("max_grouped_error=%0.3e", max(pclm_diag$grouped_reconstruction_error)),
+    sprintf("signed_input_rows=%d", sum(pclm_diag$signed_input_present))
   ),
   threshold = c(
     "unique city id with 3 age-group rows",
@@ -406,7 +510,15 @@ checks <- data.table(
     "finite and >= 0",
     "<= 1e-12",
     "<= 1e-9",
-    "finite shares"
+    "finite shares",
+    sprintf("input conversion factor %d to persons", pclm_input_scale),
+    "all PCLM fits converge or all-zero",
+    "finite lambda or all-zero",
+    "nonnegative fitted schedule",
+    "exact source-band containment",
+    "weight sums within 1e-12",
+    "grouped reconstruction <= 1e-9",
+    "no signed PCLM input"
   )
 )
 

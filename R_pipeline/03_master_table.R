@@ -116,8 +116,13 @@ if (anyNA(master$source_agegroup) || anyNA(master$agegroup) || any(master$source
   stop("Step 00 and Step 02 age-band mappings disagree.", call. = FALSE)
 }
 
+without_cc_temp <- master[branch == "without_cc", .(without_cc_temp_deaths = sum(an)), by = .(year, age)]
+master <- merge(master, without_cc_temp, by = c("year", "age"), all.x = TRUE, sort = FALSE)
+
 master[, age_temp_deaths := sum(an), by = .(year, branch, age)]
-master[, rest := death - age_temp_deaths]
+master[, rest := death - without_cc_temp_deaths]
+master[branch == "with_cc", adjusted_death := death + (age_temp_deaths - without_cc_temp_deaths)]
+master[branch == "without_cc", adjusted_death := death]
 
 #----- Attach identifying columns
 master[, `:=`(
@@ -132,7 +137,7 @@ master[, deaths_component := an]
 rest_rows <- unique(master[, .(
   geo_id, label, ssp, gcm, branch, year, age, agegroup, source_agegroup,
   pop, death, grouped_pop, grouped_death, country_pop, country_death,
-  pop_share, death_share, pop_weight, death_weight, temp_deaths, rest
+  pop_share, death_share, pop_weight, death_weight, temp_deaths, rest, adjusted_death, without_cc_temp_deaths
 )])
 rest_rows[, `:=`(
   range = "rest",
@@ -141,7 +146,6 @@ rest_rows[, `:=`(
   an = 0,
   deaths_component = rest
 )]
-master[, rest := 0]
 master <- rbindlist(list(master, rest_rows), use.names = TRUE, fill = TRUE)
 
 setcolorder(master, c(
@@ -187,33 +191,41 @@ checks <- data.table(
     "primary_keys_unique",
     "complete_grid",
     "required_columns_finite",
-    "mortality_components_conserve_total",
+    "without_cc_components_conserve_death",
+    "with_cc_components_conserve_adjusted_death",
     "rest_mortality_nonnegative",
-    "demographics_identical_across_branches"
+    "demographics_identical_across_branches",
+    "rest_identical_across_branches"
   ),
   status = c(
     if (!nrow(duplicate_rows)) "PASS" else "FAIL",
     if (!nrow(missing_grid) && !nrow(extra_grid)) "PASS" else "FAIL",
     if (!nrow(nonfinite_rows)) "PASS" else "FAIL",
-    if (max(conservation$abs_diff) <= 1e-9) "PASS" else "FAIL",
+    if (max(conservation[branch == "without_cc", abs(abs_diff)], na.rm = TRUE) <= 1e-9) "PASS" else "FAIL",
+    if (max(master[, .(component_sum = sum(deaths_component), adjusted_death = unique(adjusted_death)), by = .(branch, year, age)][branch == "with_cc", abs(component_sum - adjusted_death)], na.rm = TRUE) <= 1e-9) "PASS" else "FAIL",
     if (min(master$rest) >= -1e-9) "PASS" else "FAIL",
-    if (max(branch_delta$pop_delta) == 0 && max(branch_delta$death_delta) == 0 && max(branch_delta$grouped_pop_delta) == 0 && max(branch_delta$grouped_death_delta) == 0) "PASS" else "FAIL"
+    if (max(branch_delta$pop_delta) == 0 && max(branch_delta$death_delta) == 0 && max(branch_delta$grouped_pop_delta) == 0 && max(branch_delta$grouped_death_delta) == 0) "PASS" else "FAIL",
+    if (max(master[branch == "with_cc", abs(rest - without_cc_temp_deaths)], na.rm = TRUE) <= 1e-12) "PASS" else "FAIL"
   ),
   value = c(
     nrow(duplicate_rows),
     sprintf("missing=%d; extra=%d", nrow(missing_grid), nrow(extra_grid)),
     nrow(nonfinite_rows),
-    sprintf("max_abs_diff=%0.3e", max(conservation$abs_diff)),
+    sprintf("max_abs_diff=%0.3e", max(conservation[branch == "without_cc", abs_diff], na.rm = TRUE)),
+    sprintf("max_abs_diff=%0.3e", max(master[, .(component_sum = sum(deaths_component), adjusted_death = unique(adjusted_death)), by = .(branch, year, age)][branch == "with_cc", abs(component_sum - adjusted_death)], na.rm = TRUE)),
     sprintf("min_rest=%g", min(master$rest)),
-    sprintf("max_pop_delta=%g; max_death_delta=%g", max(branch_delta$pop_delta), max(branch_delta$death_delta))
+    sprintf("max_pop_delta=%g; max_death_delta=%g", max(branch_delta$pop_delta), max(branch_delta$death_delta)),
+    sprintf("max_abs_diff=%0.3e", max(master[, abs(rest - without_cc_temp_deaths)], na.rm = TRUE))
   ),
   threshold = c(
     "0 duplicate rows",
     sprintf("exactly %d keys", nrow(full_grid)),
     "0 rows with NA/NaN/Inf",
-    "<= 1e-9",
+    "<= 1e-9 for without_cc",
+    "<= 1e-9 for with_cc",
     ">= -1e-9",
-    "zero difference across branches"
+    "zero difference across branches",
+    "<= 1e-12 across branches"
   )
 )
 
@@ -244,12 +256,20 @@ if (any(checks$status == "FAIL")) {
         expected_bound = "all required fields finite"
       )]
     } else NULL,
-    if (checks$status[checks$check_name == "mortality_components_conserve_total"] == "FAIL") {
-      conservation[abs_diff > 1e-9, .(
+    if (checks$status[checks$check_name == "without_cc_components_conserve_death"] == "FAIL") {
+      conservation[branch == "without_cc" & abs(component_sum - death) > 1e-9, .(
         branch, year, age,
-        failing_check = "mortality_components_conserve_total",
+        failing_check = "without_cc_components_conserve_death",
         observed_value = component_sum,
         expected_bound = death
+      )]
+    } else NULL,
+    if (checks$status[checks$check_name == "with_cc_components_conserve_adjusted_death"] == "FAIL") {
+      master[branch == "with_cc", .(component_sum = sum(deaths_component), adjusted_death = unique(adjusted_death)), by = .(branch, year, age)][abs(component_sum - adjusted_death) > 1e-9, .(
+        branch, year, age,
+        failing_check = "with_cc_components_conserve_adjusted_death",
+        observed_value = component_sum,
+        expected_bound = adjusted_death
       )]
     } else NULL,
     if (checks$status[checks$check_name == "rest_mortality_nonnegative"] == "FAIL") {
@@ -265,6 +285,14 @@ if (any(checks$status == "FAIL")) {
         year, age,
         failing_check = "demographics_identical_across_branches",
         observed_value = sprintf("pop_delta=%g; death_delta=%g; grouped_pop_delta=%g; grouped_death_delta=%g", pop_delta, death_delta, grouped_pop_delta, grouped_death_delta),
+        expected_bound = "zero difference"
+      )]
+    } else NULL,
+    if (checks$status[checks$check_name == "rest_identical_across_branches"] == "FAIL") {
+      master[, .(rest_delta = max(rest) - min(rest)), by = .(year, age)][abs(rest_delta) > 1e-12, .(
+        year, age,
+        failing_check = "rest_identical_across_branches",
+        observed_value = rest_delta,
         expected_bound = "zero difference"
       )]
     } else NULL

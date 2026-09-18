@@ -87,6 +87,8 @@ sd_from_mx_fun_65_plus <- function(mx, x, nx = c(rep(1, 100 - 65), Inf), age = 0
   sqrt(sum(dx * (x_conditional + 0.5 - ex[age + 1])^2))
 }
 
+contrib_closure <- function(contrib, target) sum(contrib) - target
+
 life_expectancy_cod <- function(mx.cod, x, nx = c(rep(1, 100 - 65), Inf), cond_age = 0) {
   dim(mx.cod) <- c(length(x), length(mx.cod) / length(x))
   mx <- rowSums(mx.cod)
@@ -179,8 +181,8 @@ decompose_branch <- function(branch_name) {
       li_change = li1 - li0,
       le_contrib_sum = sum(le_df$contribution),
       li_contrib_sum = sum(li_df$contribution),
-      le_closure_error = sum(le_df$contribution) - (le1 - le0),
-      li_closure_error = sum(li_df$contribution) - (li1 - li0),
+      le_closure_error = contrib_closure(le_df$contribution, le1 - le0),
+      li_closure_error = contrib_closure(li_df$contribution, li1 - li0),
       le_sign_plausible = abs(le1 - le0) < 1e-12 || any(sign(le_df$contribution[abs(le_df$contribution) > 0]) == sign(le1 - le0)),
       li_sign_plausible = abs(li1 - li0) < 1e-12 || any(sign(li_df$contribution[abs(li_df$contribution) > 0]) == sign(li1 - li0))
     )
