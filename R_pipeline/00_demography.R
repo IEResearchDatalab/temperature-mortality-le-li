@@ -19,7 +19,10 @@ suppressPackageStartupMessages({
   library(ggplot2)
 })
 
-source("R_pipeline/functions/pclm_utils.R")
+# Expected single-age output length for a PCLM fit over grouped age bands x.
+pclm_expected_length <- function(x, nlast) {
+  sum(diff(x)) + nlast
+}
 
 message("\n[00] Building Madrid SSP3-7.0 demographic tables...")
 
@@ -56,7 +59,7 @@ age_map <- data.table(
 # PCLM inputs are stored in the Wittgenstein source's thousand-person unit.
 # Scale to persons before fitting so the likelihood is evaluated on the same
 # count scale as the validated Lloyd/Aburto reference implementations.
-pclm_input_scale <- 1
+pclm_input_scale <- 1000
 
 #----- Verify Madrid identity in the EUcityTRM baseline table
 
@@ -231,6 +234,7 @@ fit_pclm_person_scale <- function(x, y, nlast, context, scale_factor = pclm_inpu
       fitted = fit,
       lambda = NA_real_,
       convergence = "ALL_ZERO",
+      reconstruction = "ALL_ZERO",
       grouped_error = 0,
       weight_sum = 0,
       min_weight = 0,
@@ -251,6 +255,17 @@ fit_pclm_person_scale <- function(x, y, nlast, context, scale_factor = pclm_inpu
   if (any(!is.finite(fit)) || any(fit < 0)) {
     stop(sprintf("PCLM returned invalid fitted values for %s.", context), call. = FALSE)
   }
+  # Genuine solver-convergence signal from ungroup::pclm's IRLS iteration count,
+  # kept distinct from the grouped-reconstruction accuracy check below.
+  iterations_used <- as.numeric(pclm_fit$deep$trace)
+  max_iterations <- as.numeric(pclm_fit$deep$max.iter)
+  if (!is.finite(iterations_used) || !is.finite(max_iterations)) {
+    stop(sprintf("PCLM did not expose an iteration count for %s.", context), call. = FALSE)
+  }
+  solver_converged <- iterations_used < max_iterations
+  if (!solver_converged) {
+    stop(sprintf("PCLM solver did not converge for %s (iterations = %.0f/%.0f).", context, iterations_used, max_iterations), call. = FALSE)
+  }
   grouped_error <- abs(sum(fit) - sum(y))
   if (grouped_error > 1e-9) {
     stop(sprintf("PCLM grouped reconstruction failed for %s (error = %.3e).", context, grouped_error), call. = FALSE)
@@ -260,7 +275,8 @@ fit_pclm_person_scale <- function(x, y, nlast, context, scale_factor = pclm_inpu
   list(
     fitted = fit,
     lambda = lambda,
-    convergence = if (grouped_error <= 1e-9) "PASS" else "FAIL",
+    convergence = if (solver_converged) "PASS" else "FAIL",
+    reconstruction = if (grouped_error <= 1e-9) "PASS" else "FAIL",
     grouped_error = grouped_error,
     weight_sum = sum(weights),
     min_weight = min(weights),
@@ -299,6 +315,7 @@ for (yr in sort(unique(country_annual$year))) {
       grouped_total = sum(grouped_vals$value),
       selected_lambda = pclm_fit$lambda,
       convergence_status = pclm_fit$convergence,
+      reconstruction_status = pclm_fit$reconstruction,
       grouped_reconstruction_error = pclm_fit$grouped_error,
       weight_sum = pclm_fit$weight_sum,
       min_weight = pclm_fit$min_weight,
@@ -440,7 +457,7 @@ missing_single_keys <- fsetdiff(expected_single_keys, single_keys)
 extra_single_keys <- fsetdiff(single_keys, expected_single_keys)
 
 pclm_diag[, convergence_ok := convergence_status %in% c("PASS", "ALL_ZERO")]
-pclm_diag[, reconstruction_ok := grouped_reconstruction_error <= 1e-9]
+pclm_diag[, reconstruction_ok := reconstruction_status %in% c("PASS", "ALL_ZERO") & grouped_reconstruction_error <= 1e-9]
 pclm_diag[, weight_sum_ok := fifelse(grouped_total > 0, abs(weight_sum - 1) <= 1e-12, weight_sum == 0)]
 pclm_diag[, lambda_ok := is.finite(selected_lambda) | convergence_status == "ALL_ZERO"]
 pclm_diag[, band_ok := exact_band_containment & nonnegative_schedule & !signed_input_present]

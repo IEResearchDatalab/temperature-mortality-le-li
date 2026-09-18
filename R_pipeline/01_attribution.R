@@ -24,7 +24,17 @@ suppressPackageStartupMessages({
   library(ggplot2)
 })
 
-source("R_pipeline/01_initialize.R")
+#----- Global parameters and paths (inlined from Masselot & Gasparrini R Code Part 1;
+# only the subset this point-estimate, single-GCM script actually uses)
+
+# DLNM basis function: Masselot uses bs (B-spline, degree 2); our original used ns
+varfun <- "bs"
+vardegree <- 2
+
+# Internal knots for the natural cubic spline cross-basis
+knots_percentiles <- c(10, 75, 90)
+
+path_tmean <- "data/tmeanproj.gz.parquet"
 
 message("\n[01] Building Madrid SSP3-7.0 grouped attributable numbers...")
 
