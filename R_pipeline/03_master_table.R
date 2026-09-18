@@ -185,6 +185,7 @@ required_cols <- c("pop", "death", "grouped_pop", "grouped_death", "an", "temp_d
 nonfinite_rows <- master[!apply(master[, ..required_cols], 1L, function(x) all(is.finite(x)))]
 conservation <- master[, .(component_sum = sum(deaths_component), death = unique(death)), by = .(branch, year, age)]
 conservation[, abs_diff := abs(component_sum - death)]
+rest_delta_tbl <- master[, .(rest_delta = max(rest) - min(rest)), by = .(year, age)]
 
 checks <- data.table(
   check_name = c(
@@ -205,7 +206,7 @@ checks <- data.table(
     if (max(master[, .(component_sum = sum(deaths_component), adjusted_death = unique(adjusted_death)), by = .(branch, year, age)][branch == "with_cc", abs(component_sum - adjusted_death)], na.rm = TRUE) <= 1e-9) "PASS" else "FAIL",
     if (min(master$rest) >= -1e-9) "PASS" else "FAIL",
     if (max(branch_delta$pop_delta) == 0 && max(branch_delta$death_delta) == 0 && max(branch_delta$grouped_pop_delta) == 0 && max(branch_delta$grouped_death_delta) == 0) "PASS" else "FAIL",
-    if (max(master[branch == "with_cc", abs(rest - without_cc_temp_deaths)], na.rm = TRUE) <= 1e-12) "PASS" else "FAIL"
+    if (max(abs(rest_delta_tbl$rest_delta)) <= 1e-12) "PASS" else "FAIL"
   ),
   value = c(
     nrow(duplicate_rows),
@@ -215,7 +216,7 @@ checks <- data.table(
     sprintf("max_abs_diff=%0.3e", max(master[, .(component_sum = sum(deaths_component), adjusted_death = unique(adjusted_death)), by = .(branch, year, age)][branch == "with_cc", abs(component_sum - adjusted_death)], na.rm = TRUE)),
     sprintf("min_rest=%g", min(master$rest)),
     sprintf("max_pop_delta=%g; max_death_delta=%g", max(branch_delta$pop_delta), max(branch_delta$death_delta)),
-    sprintf("max_abs_diff=%0.3e", max(master[, abs(rest - without_cc_temp_deaths)], na.rm = TRUE))
+    sprintf("max_abs_diff=%0.3e", max(abs(rest_delta_tbl$rest_delta)))
   ),
   threshold = c(
     "0 duplicate rows",
@@ -289,7 +290,7 @@ if (any(checks$status == "FAIL")) {
       )]
     } else NULL,
     if (checks$status[checks$check_name == "rest_identical_across_branches"] == "FAIL") {
-      master[, .(rest_delta = max(rest) - min(rest)), by = .(year, age)][abs(rest_delta) > 1e-12, .(
+      rest_delta_tbl[abs(rest_delta) > 1e-12, .(
         year, age,
         failing_check = "rest_identical_across_branches",
         observed_value = rest_delta,
