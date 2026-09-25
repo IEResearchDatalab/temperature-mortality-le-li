@@ -7,7 +7,7 @@ The design follows two reference studies:
 1. **Masselot et al. (2025, Nat Med)** for the temperature-attributable deaths (ANs): same data, same code logic. The only change is that heat and cold are each split into moderate and extreme.
 2. **Lloyd et al. (2024, Environ Int)**, using the Aburto et al. (2022) code, for the life tables and the Horiuchi decomposition of LE65 and LI65+.
 
-Current stage: **single-city validation (Madrid, ES001C, SSP3-7.0, one GCM, central ERF coefficients)**. After that, the pipeline extends to all 854 cities.
+Current stage: **batch runs for all 854 cities × 19 GCMs** (SSP3-7.0 first; central ERF coefficients). The pipeline was validated on Madrid (ES001C) first; that single-city stage is tagged `phase1-madrid-diagnostic`.
 
 ## Pipeline (`R_pipeline/`)
 
@@ -38,8 +38,9 @@ Rscript R_pipeline/05_figures.R
 | `05_figures.R` | Summary figures: (1) LE65/LI65+ trajectories with vs without CC and their gap (dual axis); (2) contributions by temperature range, 5-year age band and ~20-year block, from changes between 5-year-period means (Lloyd 2024 Figs 3–4 layout); (3) age profile of the climate-change effect, ~2050 vs ~2090. Also `05_summary.csv` with headline numbers, including the CC effect as a % of the LE65 gain |
 | `06_collect.R` | Collects batch results into the three data objects (parquet) |
 | `run_batch.sh` | Batch runner: cities × 19 GCMs × one SSP, parallel and resumable |
+| `run_figures.sh` | Figure runner: Part 05 for every city whose ensemble finished, parallel and resumable |
 
-Each script stops with an error if any of its invariant checks fails. Check results are written to `results/checks/`, outputs to `results/phase1_madrid/`, and diagnostic figures to `results/figures/`.
+Each script stops with an error if any of its invariant checks fails. Run on its own, a script writes checks to `results/checks/`, outputs to `results/phase1_madrid/` and figures to `results/figures/` (defaults in `00_pkg_params.R`). The batch runners write to per-city folders instead (see below).
 
 ## Batch runs: all cities × 19 GCMs × SSPs
 
@@ -48,6 +49,7 @@ Rscript R_pipeline/00a_prep_temperature.R            # once
 R_pipeline/run_batch.sh 3 all 32                     # SSP3-7.0, all 854 cities, 32 cores
 R_pipeline/run_batch.sh 3 my_cities.txt 8            # or a list of URAU codes (first column)
 Rscript R_pipeline/06_collect.R                      # objects 1-3 as parquet
+nohup R_pipeline/run_figures.sh 3 32 > figures_ssp3.log 2>&1 &   # Part 05 per city, in the background
 ```
 
 `run_batch.sh` works through three stages. Scripts take their settings from environment variables (`CITY_ID`, `SSP`, `GCM`, `OUT_DIR`, `DEMOG_DIR`, …) that override the defaults in `00_pkg_params.R`.
@@ -60,6 +62,7 @@ Other behaviour:
 
 - Output goes to `results/europe/ssp<k>/<city>/{demography,<GCM>,ENSEMBLE}/`.
 - Finished jobs leave a `.done` marker, so a run can be restarted and resumes. Failures are listed in `failed.txt`.
+- `run_figures.sh` writes `ENSEMBLE/figures/05_fig*.png` and `ENSEMBLE/05_summary.csv` per city, skips cities that already have all three figures (`FORCE=1` redoes them) and lists failures in `figures_failed.txt`.
 - Part 04 runs only the 5-year-period decompositions (`DECOMP_ANNUAL=0`) with N = 50. On Madrid these give the same result as N = 400 to 6 decimals.
 
 `06_collect.R` writes the three data objects agreed on 10 Sep, at the most disaggregated level:
@@ -144,7 +147,7 @@ Runtime for one city, one GCM and one SSP on 2 cores: steps 00a–03 take about 
 
 ## Legacy code
 
-`notebook/`, `scripts/` and `R/` hold an earlier implementation. It used EUROPOP2019/Eurostat demography downloaded on the fly with the `eurostat` package, and it was used for the July–August Europe runs. That implementation is superseded by `R_pipeline/` and is kept only for reference.
+An earlier implementation (`notebook/`, `scripts/`, `R/`), which used EUROPOP2019/Eurostat demography and produced the July–August Europe runs, has been removed; it is superseded by `R_pipeline/`. It is kept in git history under the tag `legacy-v1` (`git checkout legacy-v1 -- scripts` restores it).
 
 ## References
 
