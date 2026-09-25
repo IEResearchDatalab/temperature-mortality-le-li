@@ -1,118 +1,75 @@
 # Temperature-Mortality → Life Expectancy & Lifespan Inequality
 
-A pipeline that computes **temperature-attributable mortality** from climate projections and decomposes its impact on **life expectancy (LE)** and **lifespan inequality (LI)** by age and temperature range.
+This pipeline estimates **temperature-attributable deaths** from climate projections and decomposes their effect on **remaining life expectancy at 65 (LE65)** and **lifespan inequality among people aged 65+ (LI65+, SD of age at death)**. The decomposition is by single year of age and by temperature range (extreme cold, moderate cold, moderate heat, extreme heat).
 
-## Pipeline
+The design follows two reference studies:
 
-| Notebook | Step |
-|---|---|
-| `notebook/LI1_AN.Rmd` | Attributable numbers (ANs) by age group and temperature range |
-| `notebook/LI2_disaggregate.Rmd` | PCLM disaggregation of ANs from wide groups to single ages |
-| `notebook/LI3_analysis.Rmd` | Combine ANs with population and all-cause mortality; period life tables |
-| `notebook/LI4_decomposition.Rmd` | Decompose ΔLE and ΔLI by age and temperature range |
+1. **Masselot et al. (2025, Nat Med)** for the temperature-attributable deaths (ANs): same data, same code logic. The only change is that heat and cold are each split into moderate and extreme.
+2. **Lloyd et al. (2024, Environ Int)**, using the Aburto et al. (2022) code, for the life tables and the Horiuchi decomposition of LE65 and LI65+.
 
-## Quick start
+Current stage: **single-city validation (Madrid, ES001C, SSP3-7.0, one GCM, central ERF coefficients)**. After that, the pipeline extends to all 854 cities.
 
-```r
-# 1. Install dependencies
-install.packages(c("data.table", "arrow", "dlnm", "splines",
-                   "ggplot2", "scales", "ungroup", "MASS", "eurostat"))
+## Pipeline (`R_pipeline/`)
 
-# 2. Render all notebooks (data is downloaded on the fly via Eurostat API)
-notebooks <- c("LI1_AN", "LI2_disaggregate", "LI3_analysis", "LI4_decomposition")
-for (nb in notebooks) {
-  rmarkdown::render(file.path("notebook", paste0(nb, ".Rmd")),
-                    output_dir = "results/demo",
-                    knit_root_dir = ".")
-}
-```
-
-## Configuration
-
-Each notebook has a config block at the top. Change `city`, `city_code`, `ssp_label`, and `demo_gcm` to run for a different European city or scenario. All outputs are written to `results/demo/` with filenames derived from the city name.
-
-## Production pipeline (multi-city, multi-GCM, multi-SSP)
-
-After validating with the notebooks, run the full pipeline for all 854 cities:
+Run the scripts in order from the repository root:
 
 ```bash
-Rscript scripts/00_RunAll.R
+Rscript R_pipeline/00a_prep_temperature.R
+Rscript R_pipeline/00_demography.R
+Rscript R_pipeline/01_attribution.R
+Rscript R_pipeline/02_single_age.R
+Rscript R_pipeline/03_master_table.R
+Rscript R_pipeline/04_le_li_decomposition.R
 ```
 
-This uses a cascading source chain (Masselot-style) and parallel `foreach` loops over cities. See `scripts/` for the individual numbered scripts.
+| Script | Step |
+|---|---|
+| `00a_prep_temperature.R` | Builds `data/prep_data.RData`: the observed ERA5-Land series and per-city thresholds (MMT, 2.5th/97.5th percentiles of 1990–2019) |
+| `00_demography.R` | Wittgenstein Centre population and deaths (SSP-specific), scaled to the city, disaggregated to single ages 65–100+ |
+| `01_attribution.R` | Daily ANs by age group (65–74, 75–84, 85+) and temperature range, with and without climate change |
+| `02_single_age.R` | Grouped ANs allocated to single ages 65–100+ |
+| `03_master_table.R` | The "dataset for analysis" (Lloyd et al. 2024, Fig S1): population and deaths by cause (4 ranges + rest) by single age |
+| `04_le_li_decomposition.R` | Period life tables, LE65, LI65+, and Horiuchi decomposition by age × cause |
 
-## Method
+Each script stops with an error if any of its invariant checks fails. Check results are written to `results/checks/`, outputs to `results/phase1_madrid/`, and diagnostic figures to `results/figures/`.
 
-Implements the standard attributable-risk framework (Gasparrini & Leone 2014, Masselot et al. 2023) using city-specific exposure-response functions from the MCC study, daily CMIP6 temperature projections, and EUROPOP2019 mortality projections. Life tables follow standard demographic methods. Lifespan inequality is measured via the standard deviation of age at death. Decomposition uses a stepwise replacement approach attributable by age and cause.
+## Data
 
-## Data sources
+Every input is read from `data/`. Large or third-party files are **not committed**: download them and place them in `data/` yourself (they are listed in `.gitignore`).
 
-### Files committed to git (in `data/`)
+### Committed (in `data/`)
 
 | File | Source | Description |
 |---|---|---|
-| `coefs.csv` | [Masselot et al. 2023 — Zenodo](https://doi.org/10.5281/zenodo.8320789) | B-spline coefficients (b1–b5) per city × age group for reconstructing ERFs |
-| `vcov.csv` | Same Zenodo record | Lower-triangle 5×5 variance–covariance per city × age group |
-| `city_results.csv` | Same Zenodo record | City metadata, population, deaths, MMT, MMP, RR, historical attributable fractions |
+| `coefs.csv` | Masselot et al. 2023, Zenodo [10.5281/zenodo.10288665](https://doi.org/10.5281/zenodo.10288665) | B-spline ERF coefficients (b1–b5) per city × age group |
+| `vcov.csv` | Same record | Variance–covariance of the coefficients |
+| `city_results.csv` | Same record (`results/cityage.csv`) | City metadata, baseline population and deaths, MMT, historical excess deaths (used for calibration and as a validation fixture) |
 
-### Files that must be downloaded separately (in `data/`, ignored by git)
+### Not committed: download into `data/`
 
-| File | Size | Source | Description |
+All of these come from the Masselot et al. (2025) data archive, Zenodo [10.5281/zenodo.14004322](https://doi.org/10.5281/zenodo.14004322) (`data.zip`). Unzip it and copy the files below into `data/`. The archive's `00_download_data.R` and `codebook.md` document how each file was produced.
+
+| File | Size | Used by | Description |
 |---|---|---|---|
-| `tmeanproj.gz.parquet` | 3.2 GB | ISIMIP3b CMIP6 (see Masselot et al. 2023 data notice) | Daily mean temperature for 854 cities, 21 GCMs, 3 SSPs, 1990–2099 |
-| `coef_simu.csv` | 470 MB | Same Zenodo record as `coefs.csv` | 1000 simulated coefficient vectors per city × age group for empirical CIs |
+| `tmeanproj.gz.parquet` | 3.2 GB | 01 | Daily mean temperature, 854 cities × 21 GCMs × {hist, SSP1-3}, 1990–2099 |
+| `era5series.gz.parquet` | 31 MB | 01 | Observed ERA5-Land daily mean temperature per city, 1990–2019 (the series used to estimate the ERFs) |
+| `wittgenstein_pop.csv` | 7 MB | 00 | Wittgenstein Centre population by country × sex × 5-year age group × SSP |
+| `wittgenstein_assr.csv` | 5 MB | 00 | Wittgenstein Centre age-specific survival ratios, same breakdown |
+| `coef_simu.csv` | 470 MB | (uncertainty, not yet used) | Monte Carlo draws of the ERF coefficients (Masselot et al. 2023 record, 10.5281/zenodo.10288665) |
 
-### Data downloaded on the fly via Eurostat API (no file needed)
+`data/prep_data.RData` is a derived file built by `R_pipeline/00a_prep_temperature.R` from `era5series.gz.parquet` and `city_results.csv`. It is also not committed.
 
-| Dataset | API code | Source | Description |
-|---|---|---|---|
-| Population projections | `proj_19np` | [Eurostat EUROPOP2019](https://ec.europa.eu/eurostat/web/population-demography/population-projections/database) | Single-age population by sex, country, year (2019–2100). Used to derive mortality improvement trends. |
-| Life tables | `demo_mlifetable` | [Eurostat](https://ec.europa.eu/eurostat/data/database) | Historical age-specific death rates (DEATHRATE) by sex and country (1960–2024). Used as baseline mx. |
+## Legacy code
 
-The notebooks call `load_eurostat_mortality(country_code, sex)` in `R/load_data.R`, which downloads both datasets via `get_eurostat()` and combines them into a projected mx time series for any European country and gender.
-
-### Repository structure
-
-```
-.
-├── data/                          # Input data (see table above)
-│   ├── coefs.csv
-│   ├── vcov.csv
-│   ├── city_results.csv
-│   ├── tmeanproj.gz.parquet       (download)
-│   └── coef_simu.csv              (download)
-├── notebook/                      # Validation notebooks (R Markdown)
-│   ├── LI1_AN.Rmd
-│   ├── LI2_disaggregate.Rmd
-│   ├── LI3_analysis.Rmd
-│   └── LI4_decomposition.Rmd
-├── scripts/                       # Production pipeline (R scripts, Masselot-style)
-│   ├── 00_Packages_Parameters.R
-│   ├── 01_PrepData.R
-│   ├── 02_ComputeAN.R
-│   ├── 03_Disaggregate.R
-│   ├── 04_AnalysisDataset.R
-│   ├── 05_LifeTables.R
-│   ├── 06_Decomposition.R
-│   └── 00_RunAll.R               # Cascading master
-├── R/                             # Shared helper functions
-│   ├── rr_basis.R
-│   ├── impact.R
-│   ├── simulation.R
-│   ├── load_data.R
-│   ├── load_coefficients.R
-│   ├── period_lifetable.R
-│   ├── cohort_lifetable.R
-│   ├── epv.R
-│   ├── isimip3.R
-│   └── utils.R
-├── references/                    # Original reference code (Gasparrini, Masselot)
-├── results/                       # Outputs (gitignored, except .gitkeep)
-└── README.md
-```
+`notebook/`, `scripts/` and `R/` hold an earlier implementation. It used EUROPOP2019/Eurostat demography downloaded on the fly with the `eurostat` package, and it was used for the July–August Europe runs. That implementation is superseded by `R_pipeline/` and is kept only for reference.
 
 ## References
 
-- Gasparrini A, Leone M. "Attributable risk from distributed lag models." *BMC Medical Research Methodology* 14:55, 2014. [DOI: 10.1186/1471-2288-14-55](https://doi.org/10.1186/1471-2288-14-55)
-- Masselot P et al. "Excess mortality attributed to heat and cold: a health impact assessment study in 854 cities in Europe." *The Lancet Planetary Health* 7(4):e271–e281, 2023. [DOI: 10.1016/S2542-5196(23)00023-2](https://doi.org/10.1016/S2542-5196(23)00023-2)
-- Rizzi S, Gampe J, van der Gaag N. "An estimator for the pairwise score function." *Demographic Research* 32:625–656, 2015. [DOI: 10.4054/DemRes.2015.32.21](https://doi.org/10.4054/DemRes.2015.32.21)
+- Gasparrini A, Leone M. Attributable risk from distributed lag models. *BMC Med Res Methodol* 14:55, 2014. doi:10.1186/1471-2288-14-55
+- Masselot P et al. Excess mortality attributed to heat and cold: a health impact assessment study in 854 cities in Europe. *Lancet Planet Health* 7:e271–e281, 2023. doi:10.1016/S2542-5196(23)00023-2
+- Masselot P et al. Estimating future heat-related and cold-related mortality under climate change, demographic and adaptation scenarios in 854 European cities. *Nat Med* 31:1294–1302, 2025.
+- Lloyd SJ et al. The reciprocal relation between rising longevity and temperature-related mortality risk in older people, Spain 1980–2018. *Environ Int* 193:109050, 2024. doi:10.1016/j.envint.2024.109050
+- Aburto JM et al. Significant impacts of the COVID-19 pandemic on race/ethnic differences in US mortality. *PNAS* 119:e2205813119, 2022.
+- Horiuchi S, Wilmoth JR, Pletcher SD. A decomposition method based on a model of continuous change. *Demography* 45:785–801, 2008.
+- Rizzi S, Gampe J, Eilers PHC. Efficient estimation of smooth distributions from coarsely grouped data. *Am J Epidemiol* 182:138–147, 2015.
+- Pascariu MD et al. ungroup: An R package for efficient estimation of smooth distributions from coarsely binned data. *JOSS* 3:937, 2018.
