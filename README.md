@@ -84,6 +84,27 @@ All of these come from the Masselot et al. (2025) data archive, Zenodo [10.5281/
 
 `data/prep_data.RData` is a derived file built by `R_pipeline/00a_prep_temperature.R` from `era5series.gz.parquet` and `city_results.csv`. It is also not committed.
 
+## Environment
+
+Validated on 2026-09-23 with R 4.4.3 and these packages:
+
+| Package | Version |
+|---|---|
+| data.table | 1.18.6.1 |
+| arrow | 25.0.0 |
+| dplyr | 1.2.1 |
+| dlnm | 2.4.10 |
+| ungroup | 1.4.4 |
+| DemoDecomp | 1.14.1 |
+| ggplot2 | 4.0.3 |
+| patchwork | 1.3.2 |
+
+```r
+install.packages(c("data.table", "arrow", "dplyr", "dlnm", "ungroup", "DemoDecomp", "ggplot2", "patchwork"))
+```
+
+Runtime for one city, one GCM and one SSP on 2 cores: steps 00a–03 take about 2 minutes, and 04 about 30 minutes (Horiuchi, N = 400). Step 04 caches every Horiuchi step, so an interrupted run resumes.
+
 ## Legacy code
 
 `notebook/`, `scripts/` and `R/` hold an earlier implementation. It used EUROPOP2019/Eurostat demography downloaded on the fly with the `eurostat` package, and it was used for the July–August Europe runs. That implementation is superseded by `R_pipeline/` and is kept only for reference.
