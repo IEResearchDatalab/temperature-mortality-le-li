@@ -1,143 +1,6 @@
 # Paper references
 references/
 
-# Temporal files
-scripts/temp/
-
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[codz]
-*$py.class
-
-# C extensions
-*.so
-
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-# PyInstaller
-*.manifest
-*.spec
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py.cover
-.hypothesis/
-.pytest_cache/
-cover/
-
-# Translations
-*.mo
-*.pot
-
-# Django stuff:
-*.log
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
-
-# Flask stuff:
-instance/
-.webassets-cache
-
-# Scrapy stuff:
-.scrapy
-
-# Sphinx documentation
-docs/_build/
-
-# PyBuilder
-.pybuilder/
-target/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# IPython
-profile_default/
-ipython_config.py
-
-# Environments
-.env
-.envrc
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# Spyder project settings
-.spyderproject
-.spyproject
-
-# Rope project settings
-.ropeproject
-
-# mkdocs documentation
-/site
-
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Pyre type checker
-.pyre/
-
-# pytype static type analyzer
-.pytype/
-
-# Cython debug symbols
-cython_debug/
-
-# PyCharm / VS Code
-.idea/
-.vscode/
-
-# Ruff
-.ruff_cache/
-
-# PyPI configuration file
-.pypirc
-
-# Marimo
-marimo/_static/
-marimo/_lsp/
-__marimo__/
-
-# Streamlit
-.streamlit/secrets.toml
-
 # ─── R ───────────────────────────────────────────────
 .Rhistory
 .RData
@@ -147,10 +10,16 @@ __marimo__/
 # ─── Generated output ────────────────────────────────
 results/
 !results/.gitkeep
+*.log
+nohup.out
 
-# ─── External data (too big for git; see data/README.md for sources) ─
+# ─── External data (too big for git; see README "Data" for sources) ─
 data/tmeanproj.gz.parquet
 data/coef_simu.csv
+data/wittgenstein_pop.csv
+data/wittgenstein_assr.csv
+data/era5series.gz.parquet
+data/prep_data.RData
 *.parquet
 *.gz.parquet
 *.gpkg
@@ -159,6 +28,8 @@ data/coef_simu.csv
 *.nc
 *.RData
 
-# ─── OS ──────────────────────────────────────────────
+# ─── Editors / OS ────────────────────────────────────
+.idea/
+.vscode/
 .DS_Store
 Thumbs.db
