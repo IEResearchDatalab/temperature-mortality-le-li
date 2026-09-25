@@ -1,9 +1,26 @@
 #!/usr/bin/env Rscript
 
+################################################################################
+#
+# Temperature-related mortality / life expectancy pipeline -- Madrid pilot
+#
+# R Pipeline Step 04: Life tables, LE65 / LI65+ levels and decompositions
+#   Life-table, LE and SD functions are those of Lloyd et al. (2024) Code_1.R /
+#   Code_2.R (modified from Aburto et al. 2022). Outputs (the three data objects
+#   agreed at the 10 Sep 2026 meeting, Objects 2 and 3 written here):
+#     04_le_li_levels.csv                LE65 and LI65+ by branch x year   (Object 3)
+#     04_le_decomposition.csv            Horiuchi contributions to year-on-year
+#     04_li_decomposition.csv              change, by branch x age x cause (Object 2)
+#     04_between_branch_decomposition.csv  with-CC minus without-CC difference,
+#                                        by 5-year period x age x cause
+#   Horiuchi steps are cached in results/phase1_madrid/04_cache/<md5 of the
+#   master table>/ so an interrupted run resumes where it stopped.
+#
+################################################################################
+
 suppressPackageStartupMessages({
   library(data.table)
   library(DemoDecomp)
-  library(parallel)
   library(ggplot2)
 })
 
@@ -12,13 +29,19 @@ message("\n[04] Running Madrid LE/LI decomposition (N = 400)...")
 out_dir <- "results/phase1_madrid"
 check_dir <- "results/checks"
 fig_dir <- "results/figures"
-dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
-dir.create(check_dir, recursive = TRUE, showWarnings = FALSE)
-dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
+for (d in c(out_dir, check_dir, fig_dir)) dir.create(d, recursive = TRUE, showWarnings = FALSE)
+# The cache is keyed on the md5 of the master table, so any upstream change
+# starts a fresh cache instead of reusing stale contributions.
+master_file <- file.path(out_dir, "03_master_table.csv")
+cache_dir <- file.path(out_dir, "04_cache", unname(tools::md5sum(master_file)))
+dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
 
 le_file <- file.path(out_dir, "04_le_decomposition.csv")
 li_file <- file.path(out_dir, "04_li_decomposition.csv")
+levels_file <- file.path(out_dir, "04_le_li_levels.csv")
+between_file <- file.path(out_dir, "04_between_branch_decomposition.csv")
 checks_file <- file.path(check_dir, "04_le_li_decomposition_checks.csv")
+steps_file <- file.path(check_dir, "04_le_li_decomposition_steps.csv")
 failures_file <- file.path(check_dir, "04_le_li_decomposition_failures.csv")
 fig_file <- file.path(fig_dir, "04_le_li_decomposition_diagnostic.png")
 
@@ -30,8 +53,13 @@ cause_levels <- c("ExtrCold", "ModCold", "ModHeat", "ExtrHeat", "rest")
 age_levels <- 65:100
 nx <- c(rep(1, 100 - 65), Inf)
 N_HORIUCHI <- 400L
+# Between-branch decomposition is run on mean mortality rates over the 5-year
+# periods of the demographic projections (annual with - without differences
+# mix the climate signal with single-year weather).
+period_len <- 5L
+closure_tol <- 1e-6
 
-master <- fread(file.path(out_dir, "03_master_table.csv"))
+master <- fread(master_file)
 master <- master[geo_id == city_id & gcm == gcm_target]
 
 if (!nrow(master)) stop("Master table for Madrid is missing; run 03_master_table.R first.", call. = FALSE)
@@ -70,6 +98,8 @@ if (nrow(cause_dt) != length(branch_levels) * length(sort(unique(master$year))) 
   stop("Decomposition input grid is incomplete or oversized.", call. = FALSE)
 }
 
+#----- Lloyd et al. (2024) / Aburto et al. (2022) functions (unchanged)
+
 life_expectancy_from_mx_65plus <- function(mx, x, nx = c(rep(1, 100 - 65), Inf), age = 0) {
   px <- exp(-mx * nx)
   lx <- head(cumprod(c(1, px)), -1)
@@ -91,8 +121,6 @@ sd_from_mx_fun_65_plus <- function(mx, x, nx = c(rep(1, 100 - 65), Inf), age = 0
   sqrt(sum(dx * (x_conditional + 0.5 - ex[age + 1])^2))
 }
 
-contrib_closure <- function(contrib, target) sum(contrib) - target
-
 life_expectancy_cod <- function(mx.cod, x, nx = c(rep(1, 100 - 65), Inf), cond_age = 0) {
   dim(mx.cod) <- c(length(x), length(mx.cod) / length(x))
   mx <- rowSums(mx.cod)
@@ -105,213 +133,155 @@ sd.cod.fun.65plus <- function(mx.cod, x, nx, cond_age = 0) {
   sd_from_mx_fun_65_plus(mx, x, nx, cond_age)
 }
 
-build_year_matrix <- function(dt, year_value) {
-  x <- sort(unique(dt$age))
-  if (!all(x == age_levels)) stop(sprintf("Age grid mismatch for year %s.", year_value), call. = FALSE)
+# mx vector ordered cause-major, age-minor (as in Lloyd Code_1.R)
+cause_vector <- function(dt) {
   ordered <- dt[order(match(cause, cause_levels), age)]
-  list(x = x, mx = ordered$mx_cause, mx_total = ordered$mx_total[match(x, ordered$age)])
+  if (!identical(as.integer(unique(ordered$age)), age_levels)) stop("Age grid mismatch.", call. = FALSE)
+  ordered$mx_cause
 }
 
-decompose_branch <- function(branch_name) {
-  branch_dt <- cause_dt[branch == branch_name]
-  years <- sort(unique(branch_dt$year))
-  results_le <- list()
-  results_li <- list()
-  checks <- list()
-
-  for (i in seq_len(length(years) - 1L)) {
-    y0 <- years[i]
-    y1 <- years[i + 1L]
-    dt0 <- branch_dt[year == y0]
-    dt1 <- branch_dt[year == y1]
-
-    mat0 <- build_year_matrix(dt0, y0)
-    mat1 <- build_year_matrix(dt1, y1)
-
-    le0 <- life_expectancy_from_mx_65plus(mat0$mx_total, x = age_levels, nx = nx, age = 0)
-    le1 <- life_expectancy_from_mx_65plus(mat1$mx_total, x = age_levels, nx = nx, age = 0)
-    li0 <- sd_from_mx_fun_65_plus(mat0$mx_total, x = age_levels, nx = nx, age = 0)
-    li1 <- sd_from_mx_fun_65_plus(mat1$mx_total, x = age_levels, nx = nx, age = 0)
-
-    hor_le <- horiuchi(
-      func = life_expectancy_cod,
-      pars1 = mat0$mx,
-      pars2 = mat1$mx,
-      N = N_HORIUCHI,
-      x = age_levels,
-      nx = nx,
-      cond_age = 0
-    )
-    hor_li <- horiuchi(
-      func = sd.cod.fun.65plus,
-      pars1 = mat0$mx,
-      pars2 = mat1$mx,
-      N = N_HORIUCHI,
-      x = age_levels,
-      nx = nx,
-      cond_age = 0
-    )
-
-    dim(hor_le) <- c(length(age_levels), length(cause_levels))
-    dim(hor_li) <- c(length(age_levels), length(cause_levels))
-
-    le_df <- data.table(
-      geo_id = city_id,
-      label = city_name,
-      gcm = gcm_target,
-      branch = branch_name,
-      year_from = y0,
-      year_to = y1,
-      age = rep(age_levels, length(cause_levels)),
-      cause = rep(cause_levels, each = length(age_levels)),
-      contribution = as.vector(hor_le)
-    )
-    li_df <- copy(le_df)
-    li_df[, contribution := as.vector(hor_li)]
-
-    results_le[[length(results_le) + 1L]] <- le_df
-    results_li[[length(results_li) + 1L]] <- li_df
-
-    checks[[length(checks) + 1L]] <- data.table(
-      geo_id = city_id,
-      branch = branch_name,
-      year_from = y0,
-      year_to = y1,
-      le_from = le0,
-      le_to = le1,
-      li_from = li0,
-      li_to = li1,
-      le_change = le1 - le0,
-      li_change = li1 - li0,
-      le_contrib_sum = sum(le_df$contribution),
-      li_contrib_sum = sum(li_df$contribution),
-      le_closure_error = contrib_closure(le_df$contribution, le1 - le0),
-      li_closure_error = contrib_closure(li_df$contribution, li1 - li0),
-      le_sign_plausible = abs(le1 - le0) < 1e-12 || any(sign(le_df$contribution[abs(le_df$contribution) > 0]) == sign(le1 - le0)),
-      li_sign_plausible = abs(li1 - li0) < 1e-12 || any(sign(li_df$contribution[abs(li_df$contribution) > 0]) == sign(li1 - li0))
-    )
-  }
-
-  list(
-    le = rbindlist(results_le, use.names = TRUE),
-    li = rbindlist(results_li, use.names = TRUE),
-    checks = rbindlist(checks, use.names = TRUE)
-  )
+horiuchi_pair <- function(mx1, mx2) {
+  hor_le <- horiuchi(func = life_expectancy_cod, pars1 = mx1, pars2 = mx2, N = N_HORIUCHI, x = age_levels, nx = nx, cond_age = 0)
+  hor_li <- horiuchi(func = sd.cod.fun.65plus, pars1 = mx1, pars2 = mx2, N = N_HORIUCHI, x = age_levels, nx = nx, cond_age = 0)
+  list(le = as.vector(hor_le), li = as.vector(hor_li))
 }
 
-branch_results <- lapply(branch_levels, decompose_branch)
+cached <- function(key, expr) {
+  f <- file.path(cache_dir, paste0(key, ".rds"))
+  if (file.exists(f)) return(readRDS(f))
+  val <- force(expr)
+  saveRDS(val, f)
+  val
+}
 
-decomp_le <- rbindlist(lapply(branch_results, `[[`, "le"), use.names = TRUE)
-decomp_li <- rbindlist(lapply(branch_results, `[[`, "li"), use.names = TRUE)
-checks <- rbindlist(lapply(branch_results, `[[`, "checks"), use.names = TRUE)
-
-setorder(decomp_le, branch, year_from, cause, age)
-setorder(decomp_li, branch, year_from, cause, age)
-setorder(checks, branch, year_from)
-
-checks[, `:=`(
-  le_closure_pass = abs(le_closure_error) <= 1e-6,
-  li_closure_pass = abs(li_closure_error) <= 1e-6,
-  sign_plausible = le_sign_plausible & li_sign_plausible
-)]
-
-summary_checks <- data.table(
-  check_name = c("le_closure", "li_closure", "sign_plausibility", "branch_consistency"),
-  status = c(
-    if (all(checks$le_closure_pass)) "PASS" else "FAIL",
-    if (all(checks$li_closure_pass)) "PASS" else "FAIL",
-    if (all(checks$sign_plausible)) "PASS" else "FAIL",
-    if (length(unique(c(unique(decomp_le$branch), unique(decomp_li$branch)))) == length(branch_levels)) "PASS" else "FAIL"
-  ),
-  value = c(
-    sprintf("max_abs_error=%0.3e", max(abs(checks$le_closure_error))),
-    sprintf("max_abs_error=%0.3e", max(abs(checks$li_closure_error))),
-    sprintf("plausible_rows=%d/%d", sum(checks$sign_plausible), nrow(checks)),
-    paste(branch_levels, collapse = ",")
-  ),
-  threshold = c(
-    "<= 1e-6",
-    "<= 1e-6",
-    "all rows plausible",
-    "both branches present"
-  )
+grid_dt <- function(values) data.table(
+  age = rep(age_levels, length(cause_levels)),
+  cause = rep(cause_levels, each = length(age_levels)),
+  contribution = values
 )
 
-failures <- data.table()
-if (any(summary_checks$status == "FAIL")) {
-  failures <- rbindlist(list(
-    if (summary_checks$status[summary_checks$check_name == "le_closure"] == "FAIL") {
-      checks[le_closure_pass == FALSE, .(
-        geo_id = city_id,
-        branch,
-        year_from,
-        year_to,
-        failing_check = "le_closure",
-        observed_value = le_closure_error,
-        expected_bound = "<= 1e-6"
-      )]
-    } else NULL,
-    if (summary_checks$status[summary_checks$check_name == "li_closure"] == "FAIL") {
-      checks[li_closure_pass == FALSE, .(
-        geo_id = city_id,
-        branch,
-        year_from,
-        year_to,
-        failing_check = "li_closure",
-        observed_value = li_closure_error,
-        expected_bound = "<= 1e-6"
-      )]
-    } else NULL,
-    if (summary_checks$status[summary_checks$check_name == "sign_plausibility"] == "FAIL") {
-      checks[sign_plausible == FALSE, .(
-        geo_id = city_id,
-        branch,
-        year_from,
-        year_to,
-        failing_check = "sign_plausibility",
-        observed_value = sprintf("le_plausible=%s; li_plausible=%s", le_sign_plausible, li_sign_plausible),
-        expected_bound = "at least one same-signed contribution exists for each measure"
-      )]
-    } else NULL
-  ), fill = TRUE)
-}
+#----- Object 3: LE65 and LI65+ levels
 
-fwrite(decomp_le, le_file)
-fwrite(decomp_li, li_file)
-fwrite(summary_checks, checks_file)
-if (nrow(failures)) {
-  fwrite(failures, failures_file)
+levels_dt <- cause_dt[cause == cause_levels[1], .(
+  LE65 = life_expectancy_from_mx_65plus(mx_total[order(age)], x = age_levels, nx = nx, age = 0),
+  LI65 = sd_from_mx_fun_65_plus(mx_total[order(age)], x = age_levels, nx = nx, age = 0)
+), by = .(branch, year)]
+levels_dt[, `:=`(geo_id = city_id, label = city_name, gcm = gcm_target)]
+setcolorder(levels_dt, c("geo_id", "label", "gcm", "branch", "year", "LE65", "LI65"))
+setorder(levels_dt, branch, year)
+
+#----- Object 2: year-on-year decomposition within each branch
+
+decomp_le <- list(); decomp_li <- list(); step_checks <- list()
+for (b in branch_levels) {
+  years <- sort(unique(cause_dt[branch == b]$year))
+  for (i in seq_len(length(years) - 1L)) {
+    y0 <- years[i]; y1 <- years[i + 1L]
+    h <- cached(sprintf("within_%s_%d_%d_N%d", b, y0, y1, N_HORIUCHI),
+      horiuchi_pair(cause_vector(cause_dt[branch == b & year == y0]), cause_vector(cause_dt[branch == b & year == y1])))
+    le0 <- levels_dt[branch == b & year == y0]; le1 <- levels_dt[branch == b & year == y1]
+    base <- data.table(geo_id = city_id, label = city_name, gcm = gcm_target, branch = b, year_from = y0, year_to = y1)
+    decomp_le[[length(decomp_le) + 1L]] <- cbind(base, grid_dt(h$le))
+    decomp_li[[length(decomp_li) + 1L]] <- cbind(base, grid_dt(h$li))
+    step_checks[[length(step_checks) + 1L]] <- data.table(
+      branch = b, year_from = y0, year_to = y1,
+      le_change = le1$LE65 - le0$LE65, li_change = le1$LI65 - le0$LI65,
+      le_closure_error = sum(h$le) - (le1$LE65 - le0$LE65),
+      li_closure_error = sum(h$li) - (le1$LI65 - le0$LI65)
+    )
+  }
+}
+decomp_le <- rbindlist(decomp_le); decomp_li <- rbindlist(decomp_li); step_checks <- rbindlist(step_checks)
+
+# Simon's test (11 Sep): life-table change over the whole period must equal the
+# sum of all age x cause contributions
+period_checks <- rbindlist(lapply(branch_levels, function(b) {
+  l <- levels_dt[branch == b]
+  data.table(branch = b,
+    le_error = decomp_le[branch == b, sum(contribution)] - (l[year == max(year)]$LE65 - l[year == min(year)]$LE65),
+    li_error = decomp_li[branch == b, sum(contribution)] - (l[year == max(year)]$LI65 - l[year == min(year)]$LI65))
+}))
+
+#----- Between-branch decomposition: with-CC vs without-CC, by 5-year period
+
+cause_dt[, period := (year %/% period_len) * period_len]
+period_mx <- cause_dt[, .(mx_cause = mean(mx_cause)), by = .(branch, period, age, cause)]
+between <- list(); between_checks <- list()
+for (p in sort(unique(period_mx$period))) {
+  mx_wo <- cause_vector(period_mx[branch == "without_cc" & period == p])
+  mx_w <- cause_vector(period_mx[branch == "with_cc" & period == p])
+  h <- cached(sprintf("between_%d_N%d", p, N_HORIUCHI), horiuchi_pair(mx_wo, mx_w))
+  f_le <- function(v) life_expectancy_cod(v, x = age_levels, nx = nx)
+  f_li <- function(v) sd.cod.fun.65plus(v, x = age_levels, nx = nx)
+  g <- grid_dt(h$le); setnames(g, "contribution", "le_contribution"); g[, li_contribution := h$li]
+  between[[length(between) + 1L]] <- cbind(data.table(geo_id = city_id, label = city_name, gcm = gcm_target,
+    period = sprintf("%d-%d", p, p + period_len - 1L)), g)
+  between_checks[[length(between_checks) + 1L]] <- data.table(period = p,
+    LE65_without = f_le(mx_wo), LE65_with = f_le(mx_w), LI65_without = f_li(mx_wo), LI65_with = f_li(mx_w),
+    le_closure_error = sum(h$le) - (f_le(mx_w) - f_le(mx_wo)),
+    li_closure_error = sum(h$li) - (f_li(mx_w) - f_li(mx_wo)),
+    max_abs_rest = max(abs(g[cause == "rest", c(le_contribution, li_contribution)])))
+}
+between <- rbindlist(between); between_checks <- rbindlist(between_checks)
+
+#----- Invariant checks
+
+checks <- data.table(
+  check_name = c("le_step_closure", "li_step_closure", "le_whole_period_closure", "li_whole_period_closure",
+                 "between_branch_closure", "between_branch_rest_zero", "levels_complete"),
+  status = c(
+    if (max(abs(step_checks$le_closure_error)) <= closure_tol) "PASS" else "FAIL",
+    if (max(abs(step_checks$li_closure_error)) <= closure_tol) "PASS" else "FAIL",
+    if (max(abs(period_checks$le_error)) <= closure_tol) "PASS" else "FAIL",
+    if (max(abs(period_checks$li_error)) <= closure_tol) "PASS" else "FAIL",
+    if (max(abs(c(between_checks$le_closure_error, between_checks$li_closure_error))) <= closure_tol) "PASS" else "FAIL",
+    if (max(between_checks$max_abs_rest) <= 1e-12) "PASS" else "FAIL",
+    if (nrow(levels_dt) == length(branch_levels) * uniqueN(cause_dt$year) && all(is.finite(c(levels_dt$LE65, levels_dt$LI65)))) "PASS" else "FAIL"
+  ),
+  value = c(
+    sprintf("max_abs_error=%0.3e", max(abs(step_checks$le_closure_error))),
+    sprintf("max_abs_error=%0.3e", max(abs(step_checks$li_closure_error))),
+    sprintf("max_abs_error=%0.3e", max(abs(period_checks$le_error))),
+    sprintf("max_abs_error=%0.3e", max(abs(period_checks$li_error))),
+    sprintf("max_abs_error=%0.3e", max(abs(c(between_checks$le_closure_error, between_checks$li_closure_error)))),
+    sprintf("max_abs_rest=%0.3e", max(between_checks$max_abs_rest)),
+    sprintf("%d rows", nrow(levels_dt))
+  ),
+  threshold = c(rep(sprintf("<= %g", closure_tol), 5), "<= 1e-12 (rest identical in both branches)", "branch x year, finite")
+)
+
+fwrite(checks, checks_file)
+fwrite(rbind(step_checks, fill = TRUE), steps_file)
+failed <- checks[status == "FAIL"]
+if (nrow(failed)) {
+  fwrite(failed, failures_file)
+  stop(sprintf("04_le_li_decomposition.R failed %d invariant(s); see %s", nrow(failed), failures_file), call. = FALSE)
 } else {
   if (file.exists(failures_file)) file.remove(failures_file)
   invisible(file.create(failures_file))
 }
 
-plot_checks <- melt(
-  checks[, .(branch, year_from, le_closure_error, li_closure_error)],
-  id.vars = c("branch", "year_from"),
-  variable.name = "measure",
-  value.name = "error"
-)
+# fwrite keeps 15 significant digits, so small single-age contributions (~1e-4)
+# are not rounded to zero (10 Sep meeting, "small numbers")
+fwrite(levels_dt, levels_file)
+fwrite(decomp_le, le_file)
+fwrite(decomp_li, li_file)
+fwrite(between, between_file)
 
+plot_checks <- melt(step_checks[, .(branch, year_from, le_closure_error, li_closure_error)],
+  id.vars = c("branch", "year_from"), variable.name = "measure", value.name = "error")
 p <- ggplot(plot_checks, aes(x = year_from, y = error, color = measure)) +
   geom_hline(yintercept = 0, linetype = 2, color = "grey50") +
   geom_line(linewidth = 0.7) +
   facet_wrap(~branch, scales = "free_y") +
-  labs(
-    title = "Madrid LE/LI decomposition closure diagnostics",
-    subtitle = sprintf("Horiuchi N = %d; closure tolerance 1e-6", N_HORIUCHI),
-    x = "Year from",
-    y = "Closure error"
-  ) +
+  labs(title = "Madrid LE/LI decomposition closure diagnostics",
+       subtitle = sprintf("Horiuchi N = %d; closure tolerance %g", N_HORIUCHI, closure_tol),
+       x = "Year from", y = "Closure error") +
   theme_minimal(base_size = 11)
-
 ggsave(fig_file, p, width = 11, height = 6, dpi = 160)
 
-if (nrow(failures)) {
-  stop(sprintf("04_le_li_decomposition.R failed %d invariant(s); see %s", nrow(failures), failures_file), call. = FALSE)
-}
-
+message("Saved LE/LI levels to ", levels_file)
 message("Saved LE decomposition to ", le_file)
 message("Saved LI decomposition to ", li_file)
+message("Saved between-branch decomposition to ", between_file)
 message("Saved checks to ", checks_file)
-message("Saved diagnostic figure to ", fig_file)

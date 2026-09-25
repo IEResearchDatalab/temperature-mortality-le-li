@@ -20,6 +20,7 @@ Rscript R_pipeline/01_attribution.R
 Rscript R_pipeline/02_single_age.R
 Rscript R_pipeline/03_master_table.R
 Rscript R_pipeline/04_le_li_decomposition.R
+Rscript R_pipeline/05_figures.R
 ```
 
 | Script | Step |
@@ -29,7 +30,8 @@ Rscript R_pipeline/04_le_li_decomposition.R
 | `01_attribution.R` | Daily ANs by age group (65–74, 75–84, 85+) and temperature range, with and without climate change |
 | `02_single_age.R` | Grouped ANs allocated to single ages 65–100+ |
 | `03_master_table.R` | The "dataset for analysis" (Lloyd et al. 2024, Fig S1): population and deaths by cause (4 ranges + rest) by single age |
-| `04_le_li_decomposition.R` | Period life tables, LE65, LI65+, and Horiuchi decomposition by age × cause |
+| `04_le_li_decomposition.R` | Period life tables and LE65/LI65+ levels (`04_le_li_levels.csv`). Horiuchi decomposition by age × cause of the year-on-year change within each branch (`04_le/li_decomposition.csv`), and of the with − without CC difference per 5-year period (`04_between_branch_decomposition.csv`). Steps are cached, so a run can be resumed |
+| `05_figures.R` | Summary figures: (1) LE65/LI65+ trajectories with vs without CC and their gap (dual axis); (2) contributions by temperature range, 5-year age band and 20-year block (Lloyd 2024 Figs 3–4 layout); (3) age profile of the climate-change effect, ~2050 vs ~2090. Also `05_summary.csv` with headline numbers, including the CC effect as a % of the LE65 gain |
 
 Each script stops with an error if any of its invariant checks fails. Check results are written to `results/checks/`, outputs to `results/phase1_madrid/`, and diagnostic figures to `results/figures/`.
 
@@ -43,6 +45,8 @@ Every choice below follows a reference implementation. If something deviates, it
 | City calibration | Age-group-specific factor = EUcityTRM city baseline (`city_results.csv`) ÷ **mean national Wittgenstein value over 2000–2014**, fixed over time | Masselot 2025 `02_prep_data.R` |
 | Single ages (population, deaths) | PCLM (`ungroup::pclm`, BIC λ, person-scale counts) on the national 5-year bands 65–69 … 95–99, 100+. The open group is spread over 100–110 (`nlast = 11`) and collapsed back into 100+. Checked against observed Eurostat single-age data (LE65 error 0.007 y) | Rizzi et al. 2015; Simon's methods draft 2.5; meeting 10 Sep §2.4 |
 | Single-age ANs | Each group's attributable fraction applied to the PCLM single-age deaths, so AN ≤ deaths at every age | Simon's methods draft 2.5, option (b) (confirmed by Daniel 23 Sep) |
+| Life tables | Period life tables 65–100+, piecewise-constant hazard; LE65; LI65+ = SD of age at death conditional on reaching 65 | Lloyd 2024 `Code_1.R`, `Code_2.R` (Aburto 2022) |
+| Decomposition | Horiuchi (`DemoDecomp`, N = 400) by single age × cause (4 ranges + rest): (i) consecutive years within each branch, summable over periods and ages; (ii) with vs without CC on 5-year-period mean rates, where rest contributes 0 by construction | Lloyd 2024; Simon's methods draft 2.7 |
 | ERF basis | `bs`, degree 2; knots at the 10/75/90th percentiles and boundaries at the range of the city's **full ERA5-Land series 1990–2019** (the series the ERFs were estimated on) | Masselot 2025 `03_attribution.R` (`tper`) |
 | Temperature projections (with climate change) | ISIMIP3BASD trend-preserving bias correction against ERA5 2000–2014, applied **by month × calibration period** (2015–29, 2030–39, …, 2090–99) | Masselot 2025 `03_attribution.R`, `functions/isimip3.R` |
 | Without-climate-change counterfactual | Masselot's `demo` series: each 5-year block of the calibrated GCM series is re-mapped with ISIMIP3 onto the calibrated 2010–2014 distribution. Day-to-day weather is kept and the warming trend removed. Option `counterfactual = "era5_cycle"` (observed 2000–2019 repeated) is kept for sensitivity analysis | Masselot 2025 `03_attribution.R`; Simon's methods draft 2.4.3; Simon 23 Sep ("do whatever Masselot did") |
@@ -51,7 +55,7 @@ Every choice below follows a reference implementation. If something deviates, it
 | Temperature ranges | Split at the MMT first, then at the 2.5th/97.5th percentiles of ERA5 1990–2019, fixed over time. MMT > p97.5 means all heat is extreme | Lloyd 2024 `09_0_Attr_Number.R`; Simon's methods draft 2.4.2 (**open point:** the draft says 2000–2014) |
 | Calendar | 29 February removed from all daily series; 365-day years | Masselot 2025 `01_pkg_params.R` (`dayvec`) |
 
-Validation fixture: `01_attribution.R` reproduces the Masselot et al. (2023) published historical heat and cold excess deaths (`city_results.csv`) for the city's 65+ age groups, and stops if the relative error exceeds 0.1%.
+Checks built into the scripts: `04` verifies each step's closure, the whole-period closure (Simon's 11 Sep test: the life-table ΔLE65/ΔLI65+ equals the sum of all contributions), between-branch closure, and zero rest contribution. Validation fixture: `01_attribution.R` reproduces the Masselot et al. (2023) published historical heat and cold excess deaths (`city_results.csv`) for the city's 65+ age groups, and stops if the relative error exceeds 0.1%.
 
 ## Data
 
