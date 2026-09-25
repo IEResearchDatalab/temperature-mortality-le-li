@@ -53,6 +53,10 @@ fig_file <- file.path(fig_dir, "01_attribution_diagnostic.png")
 city_id <- "ES001C"
 city_name <- "Madrid"
 gcm_name <- "GFDL_ESM4"
+# Masselot (2025) 01_pkg_params.R: these two GCMs are excluded, leaving 19 of
+# the 21 in tmeanproj.gz.parquet
+gcm_excluded <- c("CMCC_CM2_SR5", "TaiESM1")
+if (gcm_name %in% gcm_excluded) stop(sprintf("GCM %s is excluded in Masselot (2025).", gcm_name), call. = FALSE)
 ssp_name <- "3"
 variant_levels <- c("with_cc", "without_cc")
 range_levels <- c("ExtrCold", "ModCold", "ModHeat", "ExtrHeat")
@@ -141,6 +145,15 @@ tmean_all[, `:=`(
 )]
 
 tmean_all <- tmean_all[month_day != "02-29"]
+# Masselot (2025) 03_attribution.R: IITM_ESM has no SSP3 values for 2099; they
+# are filled with the 2098 series.
+if (gcm_name == "IITM_ESM" && ssp_name == "3") {
+  fill_2098 <- tmean_all[ssp == ssp_name & year == 2098L, .(month_day, fill = tmean)]
+  tmean_all <- merge(tmean_all, fill_2098, by = "month_day", all.x = TRUE, sort = FALSE)
+  tmean_all[ssp == ssp_name & year == 2099L, tmean := fill]
+  tmean_all[, fill := NULL]
+  setorder(tmean_all, date)
+}
 tmean_future <- tmean_all[ssp == ssp_name & year %in% future_years]
 hist_sim <- tmean_all[ssp == "hist" & year %in% hist_years_bias]
 if (!nrow(tmean_future)) stop("Projected future temperature data are empty after city/GCM/year filtering.", call. = FALSE)

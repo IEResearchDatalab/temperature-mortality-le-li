@@ -54,6 +54,7 @@ Every choice below follows a reference implementation. If something deviates, it
 | MMT | Recomputed with the Masselot 2025 rule: the argmin of the ERF over percentiles 25–99 of the full ERA5 series. The Masselot 2023 value is kept as `mmt_2023`, and the fixture uses it | Masselot 2025 `03_attribution.R` |
 | Temperature ranges | Split at the MMT first, then at the 2.5th/97.5th percentiles of ERA5 1990–2019, fixed over time. MMT > p97.5 means all heat is extreme | Lloyd 2024 `09_0_Attr_Number.R`; Simon's methods draft 2.4.2 (**open point:** the draft says 2000–2014) |
 | Calendar | 29 February removed from all daily series; 365-day years | Masselot 2025 `01_pkg_params.R` (`dayvec`) |
+| GCM ensemble | 19 of the 21 GCMs in `tmeanproj` (CMCC_CM2_SR5 and TaiESM1 excluded; `01` refuses them). IITM_ESM SSP3 2099 is filled with its 2098 series. The pilot uses GFDL_ESM4 only | Masselot 2025 `01_pkg_params.R`, `03_attribution.R` |
 
 Checks built into the scripts: `04` verifies each step's closure, the whole-period closure (Simon's 11 Sep test: the life-table ΔLE65/ΔLI65+ equals the sum of all contributions), between-branch closure, and zero rest contribution. Validation fixture: `01_attribution.R` reproduces the Masselot et al. (2023) published historical heat and cold excess deaths (`city_results.csv`) for the city's 65+ age groups, and stops if the relative error exceeds 0.1%.
 
