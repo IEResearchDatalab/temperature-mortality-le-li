@@ -5,7 +5,7 @@
 # Temperature-related mortality and its impact on life expectancy and
 # lifespan inequality at older ages in European cities
 #
-# R Pipeline Part 01: Attributable numbers by age group and temperature range
+# Pipeline Part 01: Attributable numbers by age group and temperature range
 #   Follows Masselot & Gasparrini (2025) 03_attribution.R for one city, one
 #   SSP, one GCM and the central ERF coefficients:
 #     - ISIMIP3BASD calibration of the GCM series by month x calibration period
@@ -17,7 +17,7 @@
 #
 ################################################################################
 
-source("R_pipeline/00_pkg_params.R")
+source("pipeline/00_pkg_params.R")
 
 path_tmean <- "data/tmeanproj.gz.parquet"
 if (!gcm_name %in% gcmlist) stop(sprintf("Part 01 runs one GCM of gcmlist; got %s.", gcm_name), call. = FALSE)

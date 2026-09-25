@@ -4,7 +4,7 @@
 # Batch runner: many cities x 19 GCMs x one SSP
 #
 #   Usage (from the repository root, after 00a_prep_temperature.R):
-#     R_pipeline/run_batch.sh <SSP> <cities.txt | all> [NCORES]
+#     pipeline/run_batch.sh <SSP> <cities.txt | all> [NCORES]
 #
 #   Stage 1  Part 00 (demography), one job per city     -> <city>/demography/
 #   Stage 2  Parts 01, 02, 03, 04 (levels only), one job per city x GCM
@@ -17,7 +17,7 @@
 #   cities and GCMs. Each finished job leaves a `.done` file, so an interrupted
 #   run resumes where it stopped; failures are listed in <root>/failed.txt.
 #   Part 04 skips the year-on-year decomposition unless DECOMP_ANNUAL=1, and
-#   uses N_HORIUCHI=50 unless set. Collect results with R_pipeline/06_collect.R.
+#   uses N_HORIUCHI=50 unless set. Collect results with pipeline/06_collect.R.
 #
 ################################################################################
 set -uo pipefail
@@ -43,16 +43,16 @@ for f in data/city_results.csv data/coefs.csv data/wittgenstein_pop.csv data/wit
          data/tmeanproj.gz.parquet data/era5series.gz.parquet data/prep_data.RData; do
   [ -s "$f" ] || { echo "ERROR: missing $f (see README 'Data'; prep_data.RData comes from 00a_prep_temperature.R)"; exit 1; }
 done
-Rscript -e 'suppressMessages(source("R_pipeline/00_pkg_params.R")); invisible(arrow::open_dataset("data/tmeanproj.gz.parquet")$schema)' \
+Rscript -e 'suppressMessages(source("pipeline/00_pkg_params.R")); invisible(arrow::open_dataset("data/tmeanproj.gz.parquet")$schema)' \
   > "$ROOT/preflight.log" 2>&1 || { echo "ERROR: R packages or tmeanproj.gz.parquet not readable; see $ROOT/preflight.log"; cat "$ROOT/preflight.log"; exit 1; }
-GCMS=$(Rscript -e 'suppressMessages(source("R_pipeline/00_pkg_params.R")); cat(gcmlist, sep = "\n")')
+GCMS=$(Rscript -e 'suppressMessages(source("pipeline/00_pkg_params.R")); cat(gcmlist, sep = "\n")')
 
 run_part() {  # run_part <city> <dir name> <gcm> <part> [ENV=value ...]
   local c=$1 dn=$2 g=$3 part=$4; shift 4
   local d=$ROOT/$c/$dn
   mkdir -p "$d/checks" "$d/figures"
   env CITY_ID="$c" SSP="$SSP" GCM="$g" OUT_DIR="$d" CHECK_DIR="$d/checks" FIG_DIR="$d/figures" \
-      DEMOG_DIR="$ROOT/$c/demography" "$@" Rscript "R_pipeline/$part.R" >> "$d/log.txt" 2>&1
+      DEMOG_DIR="$ROOT/$c/demography" "$@" Rscript "pipeline/$part.R" >> "$d/log.txt" 2>&1
 }
 
 dem_job() {  # dem_job <city>

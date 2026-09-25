@@ -5,7 +5,7 @@
 # Temperature-related mortality and its impact on life expectancy and
 # lifespan inequality at older ages in European cities
 #
-# R Pipeline Part 06: Collect batch results into the three data objects
+# Pipeline Part 06: Collect batch results into the three data objects
 #   Reads results/europe/ssp<k>/<city>/ written by run_batch.sh and stores,
 #   at the most disaggregated level (meeting 10 Sep 2026, §6), as parquet:
 #     object1_dataset.parquet  city x ssp x scenario x year x age x cause:
@@ -22,7 +22,7 @@
 #
 ################################################################################
 
-source("R_pipeline/00_pkg_params.R")
+source("pipeline/00_pkg_params.R")
 
 root <- Sys.getenv("BATCH_ROOT", "results/europe")
 out <- file.path(root, "collected")

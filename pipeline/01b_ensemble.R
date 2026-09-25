@@ -5,17 +5,17 @@
 # Temperature-related mortality and its impact on life expectancy and
 # lifespan inequality at older ages in European cities
 #
-# R Pipeline Part 01b: Ensemble-mean attributable numbers across GCMs
+# Pipeline Part 01b: Ensemble-mean attributable numbers across GCMs
 #   Averages the Part 01 grouped ANs of the 19 GCMs (gcmlist) for one city and
 #   SSP, as the GCM ensemble mean of point estimates in Masselot & Gasparrini
 #   (2025) (functions/impact.R), and writes them with gcm = "ENSEMBLE" so that
 #   Parts 02-04 can run on the ensemble (Simon's methods draft 2.4.5).
-#   Expected layout (R_pipeline/run_batch.sh): <city dir>/<GCM>/ for each GCM
+#   Expected layout (pipeline/run_batch.sh): <city dir>/<GCM>/ for each GCM
 #   and <city dir>/ENSEMBLE/ = OUT_DIR, with GCM = "ENSEMBLE".
 #
 ################################################################################
 
-source("R_pipeline/00_pkg_params.R")
+source("pipeline/00_pkg_params.R")
 
 if (gcm_name != "ENSEMBLE") stop("Run Part 01b with GCM=ENSEMBLE.", call. = FALSE)
 message(sprintf("\n[01b] Ensemble-mean ANs for %s %s...", city_name, ssplabs[ssp_name]))

@@ -5,7 +5,7 @@
 # Temperature-related mortality and its impact on life expectancy and
 # lifespan inequality at older ages in European cities
 #
-# R Pipeline Part 02: Single-age attributable numbers
+# Pipeline Part 02: Single-age attributable numbers
 #   Each age group's attributable fraction (Part 01) is applied to the
 #   single-age all-cause deaths from Part 00, so that ANs follow the age
 #   profile of mortality within the group and never exceed deaths (option b,
@@ -13,7 +13,7 @@
 #
 ################################################################################
 
-source("R_pipeline/00_pkg_params.R")
+source("pipeline/00_pkg_params.R")
 
 message(sprintf("\n[02] Allocating %s grouped AN to single ages...", city_name))
 

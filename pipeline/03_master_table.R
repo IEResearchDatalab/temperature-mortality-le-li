@@ -5,7 +5,7 @@
 # Temperature-related mortality and its impact on life expectancy and
 # lifespan inequality at older ages in European cities
 #
-# R Pipeline Part 03: Dataset for analysis (Lloyd et al. 2024, Fig S1)
+# Pipeline Part 03: Dataset for analysis (Lloyd et al. 2024, Fig S1)
 #   Population and deaths by cause (4 temperature ranges + rest) by single age,
 #   year and branch. Rest = deaths - AN(without CC), identical in both branches;
 #   with CC, deaths = projected deaths + AN(with CC) - AN(without CC)
@@ -13,7 +13,7 @@
 #
 ################################################################################
 
-source("R_pipeline/00_pkg_params.R")
+source("pipeline/00_pkg_params.R")
 
 message(sprintf("\n[03] Assembling %s master analysis table...", city_name))
 

@@ -5,7 +5,7 @@
 # Temperature-related mortality and its impact on life expectancy and
 # lifespan inequality at older ages in European cities
 #
-# R Pipeline Part 00: Demographic projections, grouped and single-age
+# Pipeline Part 00: Demographic projections, grouped and single-age
 #   Follows Masselot & Gasparrini (2025) 02_prep_data.R: Wittgenstein
 #   population and survival ratios (SSP-specific, both sexes), annual deaths
 #   = pop x (1 - ASSR) / 5, scaled to the city by age-group factors computed
@@ -14,7 +14,7 @@
 #
 ################################################################################
 
-source("R_pipeline/00_pkg_params.R")
+source("pipeline/00_pkg_params.R")
 
 message(sprintf("\n[00] Building %s %s demographic tables...", city_name, ssplabs[ssp_name]))
 

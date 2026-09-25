@@ -5,7 +5,7 @@
 # Temperature-related mortality and its impact on life expectancy and
 # lifespan inequality at older ages in European cities
 #
-# R Pipeline Part 05: Summary figures and headline numbers
+# Pipeline Part 05: Summary figures and headline numbers
 #   Built only from Part 04 outputs. The figures Simon asked for:
 #     Fig 1  LE65 and LI65+ trajectories, with vs without CC, plus the gap
 #            (Delta LE65 and Delta LI65+ on a dual axis)      [10 Sep §3.3, §8]
@@ -20,7 +20,7 @@
 #
 ################################################################################
 
-source("R_pipeline/00_pkg_params.R")
+source("pipeline/00_pkg_params.R")
 
 message("\n[05] Building summary figures...")
 

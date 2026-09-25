@@ -9,20 +9,20 @@ The design follows two reference studies:
 
 Current stage: **batch runs for all 854 cities × 19 GCMs** (SSP3-7.0 first; central ERF coefficients). The pipeline was validated on Madrid (ES001C) first; that single-city stage is tagged `phase1-madrid-diagnostic`.
 
-## Pipeline (`R_pipeline/`)
+## Pipeline (`pipeline/`)
 
-All packages and analysis parameters (city, SSP, GCM, periods, ERF specification, temperature ranges, counterfactual, PCLM and decomposition settings, output folders) are set in `R_pipeline/00_pkg_params.R`. Every script sources that file, so a different city, SSP or GCM only needs changing there. The structure and parameter names follow Masselot & Gasparrini (2025) `01_pkg_params.R` (`histrange`, `projrange`, `perlen`, `varfun`, `varper`, `predper`, `agelabs`, `gcmexcl`, …).
+All packages and analysis parameters (city, SSP, GCM, periods, ERF specification, temperature ranges, counterfactual, PCLM and decomposition settings, output folders) are set in `pipeline/00_pkg_params.R`. Every script sources that file, so a different city, SSP or GCM only needs changing there. The structure and parameter names follow Masselot & Gasparrini (2025) `01_pkg_params.R` (`histrange`, `projrange`, `perlen`, `varfun`, `varper`, `predper`, `agelabs`, `gcmexcl`, …).
 
 Run the scripts in order from the repository root:
 
 ```bash
-Rscript R_pipeline/00a_prep_temperature.R
-Rscript R_pipeline/00_demography.R
-Rscript R_pipeline/01_attribution.R
-Rscript R_pipeline/02_single_age.R
-Rscript R_pipeline/03_master_table.R
-Rscript R_pipeline/04_le_li_decomposition.R
-Rscript R_pipeline/05_figures.R
+Rscript pipeline/00a_prep_temperature.R
+Rscript pipeline/00_demography.R
+Rscript pipeline/01_attribution.R
+Rscript pipeline/02_single_age.R
+Rscript pipeline/03_master_table.R
+Rscript pipeline/04_le_li_decomposition.R
+Rscript pipeline/05_figures.R
 ```
 
 | Script | Step |
@@ -45,11 +45,11 @@ Each script stops with an error if any of its invariant checks fails. Run on its
 ## Batch runs: all cities × 19 GCMs × SSPs
 
 ```bash
-Rscript R_pipeline/00a_prep_temperature.R            # once
-R_pipeline/run_batch.sh 3 all 32                     # SSP3-7.0, all 854 cities, 32 cores
-R_pipeline/run_batch.sh 3 my_cities.txt 8            # or a list of URAU codes (first column)
-Rscript R_pipeline/06_collect.R                      # objects 1-3 as parquet
-nohup R_pipeline/run_figures.sh 3 32 > figures_ssp3.log 2>&1 &   # Part 05 per city, in the background
+Rscript pipeline/00a_prep_temperature.R            # once
+pipeline/run_batch.sh 3 all 32                     # SSP3-7.0, all 854 cities, 32 cores
+pipeline/run_batch.sh 3 my_cities.txt 8            # or a list of URAU codes (first column)
+Rscript pipeline/06_collect.R                      # objects 1-3 as parquet
+nohup pipeline/run_figures.sh 3 32 > figures_ssp3.log 2>&1 &   # Part 05 per city, in the background
 ```
 
 `run_batch.sh` works through three stages. Scripts take their settings from environment variables (`CITY_ID`, `SSP`, `GCM`, `OUT_DIR`, `DEMOG_DIR`, …) that override the defaults in `00_pkg_params.R`.
@@ -122,7 +122,7 @@ All of these come from the Masselot et al. (2025) data archive, Zenodo [10.5281/
 | `wittgenstein_assr.csv` | 5 MB | 00 | Wittgenstein Centre age-specific survival ratios, same breakdown |
 | `coef_simu.csv` | 470 MB | (uncertainty, not yet used) | Monte Carlo draws of the ERF coefficients (Masselot et al. 2023 record, 10.5281/zenodo.10288665) |
 
-`data/prep_data.RData` is a derived file built by `R_pipeline/00a_prep_temperature.R` from `era5series.gz.parquet` and `city_results.csv`. It is also not committed.
+`data/prep_data.RData` is a derived file built by `pipeline/00a_prep_temperature.R` from `era5series.gz.parquet` and `city_results.csv`. It is also not committed.
 
 ## Environment
 
@@ -147,7 +147,7 @@ Runtime for one city, one GCM and one SSP on 2 cores: steps 00a–03 take about 
 
 ## Legacy code
 
-An earlier implementation (`notebook/`, `scripts/`, `R/`), which used EUROPOP2019/Eurostat demography and produced the July–August Europe runs, has been removed; it is superseded by `R_pipeline/`. It is kept in git history under the tag `legacy-v1` (`git checkout legacy-v1 -- scripts` restores it).
+An earlier implementation (`notebook/`, `scripts/`, `R/`), which used EUROPOP2019/Eurostat demography and produced the July–August Europe runs, has been removed; it is superseded by `pipeline/`. It is kept in git history under the tag `legacy-v1` (`git checkout legacy-v1 -- scripts` restores it).
 
 ## References
 

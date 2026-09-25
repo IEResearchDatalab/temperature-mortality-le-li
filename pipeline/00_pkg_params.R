@@ -3,7 +3,7 @@
 # Temperature-related mortality and its impact on life expectancy and
 # lifespan inequality at older ages in European cities
 #
-# R Pipeline Part 0: Packages and analysis parameters
+# Pipeline Part 0: Packages and analysis parameters
 #   Sourced at the top of every other script. Structure and parameter names
 #   follow Masselot & Gasparrini (2025) 01_pkg_params.R wherever the same
 #   quantity is used.
@@ -37,7 +37,7 @@ suppressPackageStartupMessages({
 
 #----- Study unit
 # Defaults run the single-city validation (Madrid, SSP3-7.0, GFDL-ESM4). Batch
-# runs (R_pipeline/run_batch.sh) override them through environment variables.
+# runs (pipeline/run_batch.sh) override them through environment variables.
 
 city_id <- Sys.getenv("CITY_ID", "ES001C") # URAU code
 ssp_name <- Sys.getenv("SSP", "3") # as in the `ssp` column of tmeanproj / Wittgenstein

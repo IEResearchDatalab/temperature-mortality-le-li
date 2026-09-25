@@ -5,7 +5,7 @@
 # Temperature-related mortality and its impact on life expectancy and
 # lifespan inequality at older ages in European cities
 #
-# R Pipeline Part 00a: Observed temperature series and per-city thresholds
+# Pipeline Part 00a: Observed temperature series and per-city thresholds
 #   Builds data/prep_data.RData, used by 01_attribution.R:
 #     - obs_data:   ERA5-Land daily mean temperature per city, 1990-2019 (the
 #                   series used by Masselot et al. 2023 to estimate the ERFs)
@@ -18,7 +18,7 @@
 #
 ################################################################################
 
-source("R_pipeline/00_pkg_params.R")
+source("pipeline/00_pkg_params.R")
 
 message("\n[00a] Building observed temperature series and thresholds...")
 

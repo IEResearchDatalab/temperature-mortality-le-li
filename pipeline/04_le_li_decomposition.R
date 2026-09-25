@@ -5,7 +5,7 @@
 # Temperature-related mortality and its impact on life expectancy and
 # lifespan inequality at older ages in European cities
 #
-# R Pipeline Part 04: Life tables, LE65 / LI65+ levels and decompositions
+# Pipeline Part 04: Life tables, LE65 / LI65+ levels and decompositions
 #   Life-table, LE and SD functions are those of Lloyd et al. (2024) Code_1.R /
 #   Code_2.R (modified from Aburto et al. 2022). Outputs (the three data objects
 #   agreed at the 10 Sep 2026 meeting, Objects 2 and 3 written here):
@@ -21,7 +21,7 @@
 #
 ################################################################################
 
-source("R_pipeline/00_pkg_params.R")
+source("pipeline/00_pkg_params.R")
 
 message(sprintf("\n[04] Running %s LE/LI decomposition (N = %d)...", city_name, N_HORIUCHI))
 
