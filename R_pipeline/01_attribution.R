@@ -58,7 +58,7 @@ variant_levels <- c("with_cc", "without_cc")
 range_levels <- c("ExtrCold", "ModCold", "ModHeat", "ExtrHeat")
 branch_labels <- c(
   with_cc = "Projected climate change",
-  without_cc = "No additional warming"
+  without_cc = "No additional warming (Masselot recalibration to 2010-2014)"
 )
 range_labels <- c(
   ExtrCold = "Extreme cold",
@@ -73,9 +73,19 @@ range_colors <- c(
   ExtrHeat = "#b2182b"
 )
 hist_years_bias <- 2000:2014
+# Calibration periods for the projections (Masselot 2025 `projrange`)
+calib_breaks <- c(2015, seq(2030, 2100, by = 10))
+# Without-climate-change counterfactual. Default follows Masselot (2025) and
+# Simon's methods draft 2.4.3: each 5-year block of the calibrated GCM series is
+# re-mapped (ISIMIP3) onto the calibrated 2010-2014 distribution, preserving the
+# GCM's day-to-day weather but removing the warming trend.
+# "era5_cycle" (observed 2000-2019 repeated forward) is kept as a sensitivity option.
+counterfactual <- "masselot_demo"   # or "era5_cycle"
+counterfactual_ref_year5 <- 2010L
 hist_years_counterfactual <- 2000:2019
 future_years <- 2020:2099
-annualization_rule_text <- "sum(daily AN) / actual days in year"
+# Masselot (2025) removes 29 February from all daily series and uses 365-day years.
+annualization_rule_text <- "sum(daily AN) / 365 (29 Feb removed)"
 
 #----- Load prepared thresholds/observations and verify Madrid identity
 
@@ -130,6 +140,7 @@ tmean_all[, `:=`(
   month_day = format(date, "%m-%d")
 )]
 
+tmean_all <- tmean_all[month_day != "02-29"]
 tmean_future <- tmean_all[ssp == ssp_name & year %in% future_years]
 hist_sim <- tmean_all[ssp == "hist" & year %in% hist_years_bias]
 if (!nrow(tmean_future)) stop("Projected future temperature data are empty after city/GCM/year filtering.", call. = FALSE)
@@ -160,7 +171,7 @@ isimip3 <- function(obshist, simhist, simfut, yearobshist, yearsimhist, yearsimf
 
 #----- Exposure-response basis (bs, shared across variants and age groups)
 
-obs_hist <- obs_city[year %in% hist_years_bias]
+obs_hist <- obs_city[year %in% hist_years_bias & month_day != "02-29"]
 obs_repeat <- obs_city[year %in% hist_years_counterfactual, .(
   source_year = year,
   month_day,
@@ -173,9 +184,39 @@ if (any(!is.finite(obs_repeat$tmean_hist))) {
   stop("Historical observed temperatures contain non-finite values.", call. = FALSE)
 }
 
-obs_temp_vals <- obs_hist$tmean_obs
-knots <- quantile(obs_temp_vals, knots_percentiles / 100, na.rm = TRUE)
-bound <- range(obs_temp_vals, na.rm = TRUE)
+# ERF basis: knots and boundaries must be those used to estimate the ERFs, i.e.
+# percentiles of the city's FULL observed ERA5-Land series (1990-2019), as in
+# Masselot & Gasparrini (2025) 03_attribution.R (`tper`). Using any other window
+# changes the shape of the published exposure-response function.
+predper <- c(seq(0, 1, 0.1), 2:98, seq(99, 100, 0.1))
+tper <- quantile(obs_city$tmean_obs, predper / 100, na.rm = TRUE)
+knots <- tper[paste0(knots_percentiles, ".0%")]
+bound <- range(tper)
+
+#----- Validation fixture: reproduce Masselot et al. (2023) published historical
+# excess deaths (city_results.csv) for this city's 65+ age groups from ERA5,
+# the published coefficients and MMT. Checks the ERF reconstruction end to end.
+fixture_rows <- list()
+coef_fix <- fread("data/coefs.csv")[URAU_CODE == city_id]
+for (agegrp in c("65-74", "75-84", "85+")) {
+  cm <- city_meta[agegroup == agegrp]
+  bfix <- as.matrix(coef_fix[agegroup == agegrp, .(b1, b2, b3, b4, b5)])
+  bx <- suppressWarnings(onebasis(obs_city$tmean_obs, fun = varfun, degree = vardegree, knots = knots, Bound = bound))
+  bc <- scale(bx, center = onebasis(cm$mmt, fun = varfun, degree = vardegree, knots = knots, Bound = bound), scale = FALSE)
+  rr_fix <- exp(as.numeric(bc %*% t(bfix)))
+  an_fix <- (1 - 1 / rr_fix) * cm$death / 365.25
+  n_years <- uniqueN(obs_city$year)
+  fixture_rows[[agegrp]] <- data.table(
+    agegroup = agegrp,
+    heat = sum(an_fix[obs_city$tmean_obs > cm$mmt]) / n_years,
+    cold = sum(an_fix[obs_city$tmean_obs <= cm$mmt]) / n_years,
+    pub_heat = cm$excess_heat_est,
+    pub_cold = cm$excess_cold_est
+  )
+}
+fixture <- rbindlist(fixture_rows)
+fixture[, max_rel_error := pmax(abs(heat / pub_heat - 1), abs(cold / pub_cold - 1))]
+fixture_tolerance <- 1e-3
 
 coef_dt <- fread("data/coefs.csv")[URAU_CODE == city_id & agegroup %in% c("65-74", "75-84", "85+")]
 
@@ -183,36 +224,65 @@ city_results <- list()
 
 #----- Build the two temperature variants, then loop age groups within each
 
+#----- Calibrated series (Masselot 2025): "full" = with climate change,
+# "demo" = recalibrated without additional warming
+
+cal_src <- rbind(
+  tmean_all[ssp == "hist" & year %in% hist_years_bias],
+  tmean_all[ssp == ssp_name & year >= min(calib_breaks)]
+)
+cal_src[, calperiod := cut(year, c(min(hist_years_bias), calib_breaks), right = FALSE)]
+if (anyNA(cal_src$calperiod)) stop("Temperature years fall outside the calibration periods.", call. = FALSE)
+cal_src[, full := {
+  m <- .BY$month
+  obs_m <- obs_hist[month == m]
+  sim_h_m <- hist_sim[month == m]
+  isimip3(
+    obshist = obs_m$tmean_obs, simhist = sim_h_m$tmean, simfut = tmean,
+    yearobshist = obs_m$year, yearsimhist = sim_h_m$year, yearsimfut = year
+  )
+}, by = .(month, calperiod)]
+cal_src[, year5 := (year %/% 5L) * 5L]
+cal_src[, demo := {
+  m <- .BY$month
+  ref <- cal_src[month == m & year5 == counterfactual_ref_year5]
+  isimip3(
+    obshist = ref$full, simhist = full, simfut = full,
+    yearobshist = ref$year, yearsimhist = year, yearsimfut = year
+  )
+}, by = .(month, year5)]
+
+# Diagnostic: warming signal by decade in each branch (vs the 2010-2014 reference)
+ref_mean <- cal_src[year5 == counterfactual_ref_year5, mean(full)]
+warming_tbl <- cal_src[year >= min(future_years), .(
+  full_minus_ref = mean(full) - ref_mean,
+  demo_minus_ref = mean(demo) - ref_mean
+), by = .(decade = (year %/% 10L) * 10L)]
+max_demo_drift <- max(abs(warming_tbl$demo_minus_ref))
+
 for (variant in variant_levels) {
   t_work <- copy(tmean_future)
-  t_work[, days_in_year := as.integer(as.Date(sprintf("%d-12-31", year)) - as.Date(sprintf("%d-01-01", year)) + 1L)]
+  t_work[, days_in_year := 365L]
   coverage <- t_work[, .(rows = .N, unique_dates = uniqueN(date), expected_days = unique(days_in_year)), by = year]
   if (any(coverage$rows != coverage$expected_days) || any(coverage$unique_dates != coverage$expected_days)) {
     bad <- coverage[rows != expected_days | unique_dates != expected_days][1L]
     stop(sprintf("Incomplete daily temperature coverage for %s: year=%d, rows=%d, unique_dates=%d, expected=%d.", variant, bad$year, bad$rows, bad$unique_dates, bad$expected_days), call. = FALSE)
   }
   if (variant == "with_cc") {
-    t_work[, tmean_variant := {
-      m <- .BY$month
-      obs_m <- obs_hist[month == m]
-      sim_h_m <- hist_sim[month == m]
-      if (nrow(obs_m) < 10L || nrow(sim_h_m) < 10L) return(as.numeric(NA))
-      isimip3(
-        obshist = obs_m$tmean_obs,
-        simhist = sim_h_m$tmean,
-        simfut = tmean,
-        yearobshist = obs_m$year,
-        yearsimhist = sim_h_m$year,
-        yearsimfut = year
-      )
-    }, by = month]
+    # Masselot (2025): calibrated by month x calibration period against ERA5 2000-2014
+    t_work <- merge(t_work, cal_src[, .(date, tmean_variant = full)], by = "date", all.x = TRUE, sort = FALSE)
     t_work[, temp_branch := "with_cc"]
-  } else {
+  } else if (counterfactual == "masselot_demo") {
+    t_work <- merge(t_work, cal_src[, .(date, tmean_variant = demo)], by = "date", all.x = TRUE, sort = FALSE)
+    t_work[, temp_branch := "without_cc"]
+  } else if (counterfactual == "era5_cycle") {
     t_work[, source_year := min(hist_years_counterfactual) + ((year - min(future_years)) %% length(hist_years_counterfactual))]
     t_work <- merge(t_work, obs_repeat, by = c("source_year", "month_day"), all.x = TRUE, sort = FALSE)
     t_work[, tmean_variant := tmean_hist]
     t_work[, temp_branch := "without_cc"]
     t_work[, c("source_year", "tmean_hist") := NULL]
+  } else {
+    stop(sprintf("Unknown counterfactual '%s'.", counterfactual), call. = FALSE)
   }
 
   if (anyNA(t_work$tmean_variant)) {
@@ -235,11 +305,14 @@ for (variant in variant_levels) {
     }
     if (anyNA(age_work$death)) stop(sprintf("Missing annual deaths for %s/%s.", city_id, agegrp), call. = FALSE)
 
-    range_idx <- fcase(
-      age_work$tmean_variant < p2_5, "ExtrCold",
-      age_work$tmean_variant < mmt, "ModCold",
-      age_work$tmean_variant < p97_5, "ModHeat",
-      default = "ExtrHeat"
+    # Split at the MMT first (cold vs heat), then at the fixed percentiles
+    # (Lloyd et al. 2024). If the MMT lies above p97.5, all heat is extreme;
+    # if below p2.5, all cold is extreme (Simon's methods draft 2.4.2).
+    tv <- age_work$tmean_variant
+    range_idx <- fifelse(
+      tv < mmt,
+      fifelse(tv < p2_5, "ExtrCold", "ModCold"),
+      fifelse(tv >= p97_5, "ExtrHeat", "ModHeat")
     )
 
     b_fut <- onebasis(age_work$tmean_variant, fun = varfun, degree = vardegree, knots = knots, Bound = bound)
@@ -250,7 +323,10 @@ for (variant in variant_levels) {
     if (nrow(age_coefs) != 1L) stop(sprintf("Missing central coefficients for %s/%s.", city_id, agegrp), call. = FALSE)
 
     log_rr <- as.numeric(b_centered %*% t(age_coefs))
-    af <- 1 - exp(-log_rr)
+    # Masselot (2025): RR not allowed below 1 (`rr <- pmax(exp(bcen %*% coef), 1)`),
+    # so extrapolated tails cannot produce negative ANs. Simon's methods draft 2.4.1.
+    rr <- pmax(exp(log_rr), 1)
+    af <- 1 - 1 / rr
     an_daily <- af * age_work$death
 
     annual <- data.table(
@@ -280,7 +356,7 @@ grouped[is.na(an), an := 0]
 grouped[, `:=`(geo_id = city_id, label = city_name, ssp = as.integer(ssp_name), gcm = gcm_name)]
 
 year_days_tbl <- data.table(year = sort(unique(grouped$year)))
-year_days_tbl[, days_in_year := as.integer(as.Date(sprintf("%d-12-31", year)) - as.Date(sprintf("%d-01-01", year)) + 1L)]
+year_days_tbl[, days_in_year := 365L]
 
 grouped <- merge(grouped, year_days_tbl, by = "year", all.x = TRUE, sort = FALSE)
 grouped[, annualization_rule := annualization_rule_text]
@@ -295,16 +371,20 @@ checks <- data.table(
     "year_specific_day_counts",
     "domain_complete_with_cc",
     "domain_complete_without_cc",
-    "finite_signed_an"
+    "finite_signed_an",
+    "masselot2023_fixture",
+    "counterfactual_no_warming"
   ),
   status = c(
     if (nrow(city_meta) == 3L) "PASS" else "FAIL",
     if (uniqueN(grouped$gcm) == 1L && unique(grouped$gcm) == gcm_name) "PASS" else "FAIL",
     if (all(grouped$annualization_rule == annualization_rule_text)) "PASS" else "FAIL",
-    if (length(unique(year_days_tbl$days_in_year)) > 1L && all(year_days_tbl$days_in_year %in% c(365L, 366L))) "PASS" else "FAIL",
+    if (all(year_days_tbl$days_in_year == 365L)) "PASS" else "FAIL",
     if (nrow(unique(grouped[branch == "with_cc"], by = c("year", "agegroup", "range"))) == nrow(full_domain[branch == "with_cc"]) ) "PASS" else "FAIL",
     if (nrow(unique(grouped[branch == "without_cc"], by = c("year", "agegroup", "range"))) == nrow(full_domain[branch == "without_cc"]) ) "PASS" else "FAIL",
-    if (!any(!is.finite(grouped$an))) "PASS" else "FAIL"
+    if (!any(!is.finite(grouped$an)) && all(grouped$an >= 0)) "PASS" else "FAIL",
+    if (all(fixture$max_rel_error <= fixture_tolerance)) "PASS" else "FAIL",
+    if (counterfactual != "masselot_demo" || max_demo_drift <= 0.25) "PASS" else "FAIL"
   ),
   value = c(
     nrow(city_meta),
@@ -313,16 +393,20 @@ checks <- data.table(
     paste(sort(unique(year_days_tbl$days_in_year)), collapse = ","),
     nrow(grouped[branch == "with_cc"]),
     nrow(grouped[branch == "without_cc"]),
-    sprintf("min_an=%g; max_an=%g", min(grouped$an), max(grouped$an))
+    sprintf("min_an=%g; max_an=%g", min(grouped$an), max(grouped$an)),
+    sprintf("max_rel_error=%.2e", max(fixture$max_rel_error)),
+    sprintf("%s; max |decadal mean - 2010-14 mean| = %.3f C (with_cc 2090s: %+.2f C)", counterfactual, max_demo_drift, warming_tbl[decade == 2090, full_minus_ref])
   ),
   threshold = c(
     "unique Madrid city identifier",
     gcm_name,
     annualization_rule_text,
-    "actual calendar days by year",
+    "365-day years (29 Feb removed)",
     sprintf("%d rows", nrow(full_domain[branch == "with_cc"])),
     sprintf("%d rows", nrow(full_domain[branch == "without_cc"])),
-    "finite signed AN"
+    "finite and non-negative AN (RR clamped at 1)",
+    sprintf("<= %g vs published heat/cold excess (Masselot 2023)", fixture_tolerance),
+    "<= 0.25 C decadal drift in the without-CC series"
   )
 )
 

@@ -33,6 +33,22 @@ Rscript R_pipeline/04_le_li_decomposition.R
 
 Each script stops with an error if any of its invariant checks fails. Check results are written to `results/checks/`, outputs to `results/phase1_madrid/`, and diagnostic figures to `results/figures/`.
 
+## Method choices and their source
+
+Every choice below follows a reference implementation. If something deviates, it is flagged here.
+
+| Step | Choice | Source |
+|---|---|---|
+| ERF basis | `bs`, degree 2; knots at the 10/75/90th percentiles and boundaries at the range of the city's **full ERA5-Land series 1990–2019** (the series the ERFs were estimated on) | Masselot 2025 `03_attribution.R` (`tper`) |
+| Temperature projections (with climate change) | ISIMIP3BASD trend-preserving bias correction against ERA5 2000–2014, applied **by month × calibration period** (2015–29, 2030–39, …, 2090–99) | Masselot 2025 `03_attribution.R`, `functions/isimip3.R` |
+| Without-climate-change counterfactual | Masselot's `demo` series: each 5-year block of the calibrated GCM series is re-mapped with ISIMIP3 onto the calibrated 2010–2014 distribution. Day-to-day weather is kept and the warming trend removed. Option `counterfactual = "era5_cycle"` (observed 2000–2019 repeated) is kept for sensitivity analysis | Masselot 2025 `03_attribution.R`; Simon's methods draft 2.4.3; Simon 23 Sep ("do whatever Masselot did") |
+| Attributable number | Daily AN = (1 − 1/RR) × daily deaths, with **RR clamped at ≥ 1**; the ERF is held constant (no adaptation) | Masselot 2025 `03_attribution.R`; Simon's methods draft 2.4.1 |
+| MMT | Recomputed with the Masselot 2025 rule: the argmin of the ERF over percentiles 25–99 of the full ERA5 series. The Masselot 2023 value is kept as `mmt_2023`, and the fixture uses it | Masselot 2025 `03_attribution.R` |
+| Temperature ranges | Split at the MMT first, then at the 2.5th/97.5th percentiles of ERA5 1990–2019, fixed over time. MMT > p97.5 means all heat is extreme | Lloyd 2024 `09_0_Attr_Number.R`; Simon's methods draft 2.4.2 (**open point:** the draft says 2000–2014) |
+| Calendar | 29 February removed from all daily series; 365-day years | Masselot 2025 `01_pkg_params.R` (`dayvec`) |
+
+Validation fixture: `01_attribution.R` reproduces the Masselot et al. (2023) published historical heat and cold excess deaths (`city_results.csv`) for the city's 65+ age groups, and stops if the relative error exceeds 0.1%.
+
 ## Data
 
 Every input is read from `data/`. Large or third-party files are **not committed**: download them and place them in `data/` yourself (they are listed in `.gitignore`).
