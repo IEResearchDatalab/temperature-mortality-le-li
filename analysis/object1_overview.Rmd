@@ -1,0 +1,167 @@
+---
+title: "Object 1: dataset for analysis (SSP3-7.0)"
+subtitle: "Temperature-attributable deaths and population, 65+, 854 European cities"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+---
+
+```{r setup, include = FALSE}
+# Knit from anywhere inside the repository: paths are relative to the repo root
+knitr::opts_knit$set(root.dir = normalizePath(".."))
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.width = 10, fig.height = 5.5)
+```
+
+```{r packages}
+library(data.table)
+library(arrow)
+library(ggplot2)
+
+# Object 1 from pipeline/06_collect.R; set OBJ1 to use another file
+# (e.g. the 10-capitals prototype VIG/data/260924_object1_10cities_ssp3_ensemble.parquet)
+obj1_file <- Sys.getenv("OBJ1", "results/europe/collected/object1_dataset.parquet")
+stopifnot(file.exists(obj1_file))
+
+range_levels <- c("ExtrCold", "ModCold", "ModHeat", "ExtrHeat")
+range_labels <- c(ExtrCold = "Extreme cold", ModCold = "Moderate cold", ModHeat = "Moderate heat", ExtrHeat = "Extreme heat")
+range_colors <- c(ExtrCold = "#2166ac", ModCold = "#67a9cf", ModHeat = "#ef8a62", ExtrHeat = "#b2182b")
+branch_labels <- c(with_cc = "With climate change", without_cc = "Without climate change")
+branch_colors <- c(with_cc = "#b2182b", without_cc = "#2166ac")
+
+o1 <- as.data.table(read_parquet(obj1_file))
+# Country and region from city_results.csv if the file does not carry them
+if (!all(c("country", "region") %in% names(o1))) {
+  meta <- unique(fread("data/city_results.csv")[, .(city = URAU_CODE, city_name = LABEL, country = CNTR_CODE, region)])
+  o1 <- merge(o1, meta, by = "city")
+}
+o1[, period := sprintf("%d-%d", year - (year - 2020) %% 5, year - (year - 2020) %% 5 + 4)]
+```
+
+File: ``r obj1_file``. Ensemble-mean ANs over the 19 GCMs, central ERF estimates. Deaths for the four temperature ranges are the attributable numbers (ANs); `rest` holds all other deaths.
+
+# 1. What the table contains
+
+One row per city × SSP × scenario × year × single age × cause (four temperature ranges and rest), with deaths and population. Country and region can be derived by summing cities; they are attached here for convenience (Masselot regions).
+
+```{r structure}
+o1[, .(rows = format(.N, big.mark = ","), cities = uniqueN(city), countries = uniqueN(country),
+       regions = uniqueN(region), ssp = paste(unique(ssp), collapse = ","),
+       years = paste(range(year), collapse = "-"), ages = paste(range(age), collapse = "-"))]
+head(o1[order(city, scenario, year, age, cause)], 10)
+```
+
+## Coverage
+
+```{r coverage}
+all_cities <- unique(fread("data/city_results.csv")[, .(city = URAU_CODE, city_name = LABEL, country = CNTR_CODE, region)])
+missing <- all_cities[!city %in% o1$city]
+cov <- merge(all_cities[, .(total = .N), by = region], unique(o1[, .(city, region)])[, .(included = .N), by = region], by = "region")
+cov
+if (nrow(missing)) missing else "All cities included"
+```
+
+# 2. Basic checks
+
+```{r checks}
+pop_scen <- dcast(unique(o1[cause == "rest", .(city, scenario, year, age, pop)]), city + year + age ~ scenario, value.var = "pop")
+rest_scen <- dcast(o1[cause == "rest", .(city, scenario, year, age, deaths)], city + year + age ~ scenario, value.var = "deaths")
+data.table(
+  check = c("No negative deaths", "No missing values",
+            "Population identical with / without CC", "Rest deaths identical with / without CC (Simon 18 Sep rule)"),
+  result = c(o1[, all(deaths >= 0)], !anyNA(o1[, .(deaths, pop)]),
+             pop_scen[, max(abs(with_cc - without_cc))] < 1e-6,
+             rest_scen[, max(abs(with_cc - without_cc))] < 1e-6)
+)
+```
+
+# 3. Europe: attributable deaths by temperature range
+
+Sum over all included cities, annual mean within each 5-year period.
+
+```{r europe-an}
+eu <- o1[cause %in% range_levels, .(AN = sum(deaths)), by = .(scenario, period, year, cause)][
+  , .(AN = mean(AN)), by = .(scenario, period, cause)]
+eu[, `:=`(mid = as.integer(substr(period, 1, 4)) + 2, cause = factor(cause, levels = range_levels))]
+ggplot(eu, aes(mid, AN / 1000, colour = scenario)) +
+  geom_line(linewidth = 0.8) + geom_point(size = 1) +
+  facet_wrap(~cause, scales = "free_y", labeller = labeller(cause = range_labels)) +
+  scale_colour_manual(values = branch_colors, labels = branch_labels, name = NULL) +
+  labs(x = "5-year period (midpoint)", y = "Attributable deaths per year (thousands)",
+       title = "Europe, 65+: temperature-attributable deaths, with vs without climate change") +
+  theme_minimal(base_size = 11) + theme(legend.position = "bottom")
+```
+
+```{r europe-an-table}
+eu_tab <- dcast(eu[period %in% c("2020-2024", "2045-2049", "2070-2074", "2095-2099")],
+                period + cause ~ scenario, value.var = "AN")
+eu_tab[, `:=`(extra = with_cc - without_cc)]
+eu_tab[, lapply(.SD, function(x) if (is.numeric(x)) round(x) else x)]
+```
+
+# 4. Extra deaths due to climate change, by region
+
+With − without CC, annual mean over 2095–2099, per 100,000 people aged 65+.
+
+```{r region}
+end <- o1[period == "2095-2099"]
+pop_reg <- unique(end[cause == "rest" & scenario == "with_cc", .(city, year, age, pop, region)])[
+  , .(pop = sum(pop)), by = .(region, year)][, .(pop = mean(pop)), by = region]
+reg <- dcast(end[cause %in% range_levels, .(AN = sum(deaths) / 5), by = .(region, cause, scenario)],
+             region + cause ~ scenario, value.var = "AN")
+reg <- merge(reg, pop_reg, by = "region")
+reg[, `:=`(extra = with_cc - without_cc, extra_per_100k = 1e5 * (with_cc - without_cc) / pop,
+           cause = factor(cause, levels = range_levels))]
+ggplot(reg, aes(region, extra_per_100k, fill = cause)) +
+  geom_col() + geom_hline(yintercept = 0, colour = "grey40") +
+  scale_fill_manual(values = range_colors, labels = range_labels, name = NULL) +
+  labs(x = NULL, y = "Extra deaths per 100,000 aged 65+ per year",
+       title = "Change in temperature-attributable deaths due to climate change, 2095-2099",
+       subtitle = "With - without climate change, SSP3-7.0") +
+  theme_minimal(base_size = 11) + theme(legend.position = "bottom")
+dcast(reg, region ~ cause, value.var = "extra_per_100k")[, lapply(.SD, function(x) if (is.numeric(x)) round(x, 1) else x)]
+```
+
+# 5. Countries
+
+Net extra deaths (all four ranges) per 100,000 aged 65+, 2095–2099.
+
+```{r country, fig.height = 7}
+pop_c <- unique(end[cause == "rest" & scenario == "with_cc", .(city, year, age, pop, country)])[
+  , .(pop = sum(pop)), by = .(country, year)][, .(pop = mean(pop)), by = country]
+ctry <- dcast(end[cause %in% range_levels, .(AN = sum(deaths) / 5), by = .(country, region, scenario)],
+              country + region ~ scenario, value.var = "AN")
+ctry <- merge(ctry, pop_c, by = "country")[, extra_per_100k := 1e5 * (with_cc - without_cc) / pop]
+ctry[, n_cities := o1[, uniqueN(city), by = country][ctry, on = "country", V1]]
+ggplot(ctry, aes(reorder(country, extra_per_100k), extra_per_100k, fill = region)) +
+  geom_col() + coord_flip() + geom_hline(yintercept = 0, colour = "grey40") +
+  labs(x = NULL, y = "Net extra deaths per 100,000 aged 65+ per year", fill = "Region",
+       title = "Net change in temperature-attributable deaths due to climate change, 2095-2099") +
+  theme_minimal(base_size = 10)
+```
+
+# 6. Age profile of the extra deaths (Europe)
+
+Extra deaths (with − without CC) per 100,000 at each single age, around 2050 and 2090.
+
+```{r age, fig.height = 5}
+snap <- o1[period %in% c("2045-2049", "2050-2054", "2085-2089", "2090-2094") & cause %in% range_levels]
+snap[, snapshot := ifelse(year < 2070, "2045-2054", "2085-2094")]
+ag <- snap[, .(AN = sum(deaths), pop = sum(pop)), by = .(snapshot, scenario, age, cause)]
+ag <- dcast(ag, snapshot + age + cause ~ scenario, value.var = c("AN", "pop"))
+ag[, `:=`(rate = 1e5 * (AN_with_cc - AN_without_cc) / pop_with_cc, cause = factor(cause, levels = range_levels))]
+ggplot(ag, aes(age, rate, colour = cause, linetype = snapshot)) +
+  geom_hline(yintercept = 0, colour = "grey60") + geom_line(linewidth = 0.7) +
+  scale_colour_manual(values = range_colors, labels = range_labels, name = NULL) +
+  labs(x = "Age", y = "Extra deaths per 100,000 per year", linetype = NULL,
+       title = "Europe: extra temperature-attributable deaths due to climate change, by age") +
+  theme_minimal(base_size = 11)
+```
+
+# Notes
+
+- These are attributable deaths only. LE65 / LI65+ for Europe, regions and countries need the pooled life tables and decompositions, which are the next step.
+- Cities missing from the table (Section 1) are those whose run failed; they are excluded from every sum.
+- 5-year periods start in 2020, as in the pipeline.
