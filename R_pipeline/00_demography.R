@@ -46,7 +46,10 @@ fig_file <- file.path(fig_dir, "00_demography_diagnostic.png")
 city_id <- "ES001C"
 city_name <- "Madrid"
 ssp_target <- "3"
-baseline_year <- 2020L
+# City calibration (Masselot 2025, 02_prep_data.R): city factor = EUcityTRM
+# baseline value / mean national Wittgenstein value over the historical period
+# 2000-2014 (5-year snapshots 2000, 2005, 2010), by age group, fixed over time.
+calib_years <- c(2000L, 2014L)
 future_years <- 2020:2099
 target_agegroups <- c("65-74", "75-84", "85+")
 age_map <- data.table(
@@ -60,6 +63,15 @@ age_map <- data.table(
 # Scale to persons before fitting so the likelihood is evaluated on the same
 # count scale as the validated Lloyd/Aburto reference implementations.
 pclm_input_scale <- 1000
+
+# Open age group 100+: PCLM spreads it over 100-110 (nlast = 11) and the fitted
+# values are then collapsed back into the single open interval 100+ used by the
+# life table. Fitting 100+ as one single year (nlast = 1) forced the smoother to
+# place the whole open group at age 100 and produced oscillating, non-monotone
+# mortality at 85-99. Benchmark against observed Eurostat single-age data
+# (6 countries x 2015-2019, references/fix_notes/260923_09_single_age_pclm.md):
+# LE65 error 0.007 y (nlast = 11) vs 0.167 y (nlast = 1).
+pclm_open_nlast <- 11L
 
 #----- Verify Madrid identity in the EUcityTRM baseline table
 
@@ -193,15 +205,19 @@ country_agegroup <- country_annual[, .(
   country_death = sum(death)
 ), by = .(year, agegroup)]
 
-#----- Calibrate the city-to-country ratio at the baseline anchor year
+#----- Calibrate the city-to-country ratio on the 2000-2014 national mean (Masselot 2025)
 
-country_agegroup_2020 <- country_agegroup[year == baseline_year]
-if (nrow(country_agegroup_2020) != length(target_agegroups)) {
-  stop("Baseline year 2020 is missing one or more required age groups in the SSP3 source.", call. = FALSE)
+country_agegroup_calib <- country_agegroup[year %between% calib_years, .(
+  country_pop = mean(country_pop),
+  country_death = mean(country_death),
+  n_years = .N
+), by = agegroup]
+if (nrow(country_agegroup_calib) != length(target_agegroups) || any(country_agegroup_calib$n_years != diff(calib_years) + 1L)) {
+  stop("Calibration period 2000-2014 is incomplete for one or more age groups in the SSP source.", call. = FALSE)
 }
 
 city_base <- unique(city_meta[, .(agegroup, city_pop = agepop, city_death = death)])
-share_tbl <- merge(city_base, country_agegroup_2020, by = "agegroup", all.x = TRUE, sort = FALSE)
+share_tbl <- merge(city_base, country_agegroup_calib, by = "agegroup", all.x = TRUE, sort = FALSE)
 if (anyNA(share_tbl$country_pop) || anyNA(share_tbl$country_death)) {
   stop("Could not compute Madrid baseline demographic shares from the SSP3 source.", call. = FALSE)
 }
@@ -229,7 +245,7 @@ fit_pclm_person_scale <- function(x, y, nlast, context, scale_factor = pclm_inpu
   }
 
   if (sum(y) == 0) {
-    fit <- rep(0, pclm_expected_length(x, nlast))
+    fit <- rep(0, sum(diff(x)) + 1L)
     return(list(
       fitted = fit,
       lambda = NA_real_,
@@ -246,6 +262,9 @@ fit_pclm_person_scale <- function(x, y, nlast, context, scale_factor = pclm_inpu
   y_scaled <- y * scale_factor
   pclm_fit <- suppressWarnings(ungroup::pclm(x = x, y = y_scaled, nlast = nlast))
   fit_scaled <- as.numeric(pclm_fit$fitted)
+  # Collapse the open-interval spread (ages 100..100+nlast-1) back into 100+
+  n_closed <- sum(diff(x))
+  fit_scaled <- c(fit_scaled[seq_len(n_closed)], sum(fit_scaled[-seq_len(n_closed)]))
   fit_scaled <- fit_scaled * (sum(y_scaled) / sum(fit_scaled))
   fit <- fit_scaled / scale_factor
   lambda <- as.numeric(pclm_fit$smoothPar["lambda"])
@@ -299,7 +318,7 @@ for (yr in sort(unique(country_annual$year))) {
       stop(sprintf("Invalid country grouped %s values for year %d.", kind, yr), call. = FALSE)
     }
     pclm_context <- sprintf("year=%d kind=%s", yr, kind)
-    pclm_fit <- fit_pclm_person_scale(x = x, y = grouped_vals$value, nlast = 1L, context = pclm_context)
+    pclm_fit <- fit_pclm_person_scale(x = x, y = grouped_vals$value, nlast = pclm_open_nlast, context = pclm_context)
     fit <- pclm_fit$fitted
     if (length(fit) != 36L) {
       stop(sprintf("Unexpected PCLM output length for year %d and %s.", yr, kind), call. = FALSE)
@@ -464,6 +483,19 @@ pclm_diag[, band_ok := exact_band_containment & nonnegative_schedule & !signed_i
 
 #----- Invariant checks (project convention: a failing check stops the run)
 
+# Plausibility of the single-age schedule: mortality should rise with age
+mx_chk <- city_single[order(year, age), .(age, mx = death / pop), by = year]
+mx_chk[, drop := shift(mx) / mx - 1, by = year]
+max_mx_drop <- max(0, mx_chk$drop, na.rm = TRUE)
+
+# Calibration invariant: applying the city factors to the national 2000-2014
+# mean must return the EUcityTRM baseline exactly (Masselot 2025 definition).
+calib_check <- merge(share_tbl, city_base, by = "agegroup", suffixes = c("", ".base"))
+calib_check[, rel_err := pmax(
+  abs(country_pop * pop_share * 1000 / city_pop.base - 1),
+  abs(country_death * death_share * 1000 / city_death.base - 1)
+)]
+
 checks <- data.table(
   check_name = c(
     "madrid_identifier_unique",
@@ -474,6 +506,8 @@ checks <- data.table(
     "annual_death_bridge",
     "grouped_equals_single_sum",
     "baseline_shares_finite",
+    "calibration_reproduces_city_baseline",
+    "single_age_mx_plausible",
     "pclm_input_unit_conversion",
     "pclm_convergence",
     "pclm_selected_lambda_finite",
@@ -492,6 +526,8 @@ checks <- data.table(
     if (max(country_annual_bridge$bridge_abs_diff) <= 1e-12) "PASS" else "FAIL",
     if (max(recon_check$pop_abs_diff) <= 1e-9 && max(recon_check$death_abs_diff) <= 1e-9) "PASS" else "FAIL",
     if (!any(!is.finite(share_tbl$pop_share)) && !any(!is.finite(share_tbl$death_share))) "PASS" else "FAIL",
+    if (max(calib_check$rel_err) <= 1e-12) "PASS" else "FAIL",
+    if (max_mx_drop <= 0.05) "PASS" else "FAIL",
     if (all(pclm_diag$input_unit == "persons") && all(pclm_diag$source_unit == "thousand-person Wittgenstein counts") && all(pclm_diag$input_conversion_factor == pclm_input_scale)) "PASS" else "FAIL",
     if (all(pclm_diag$convergence_ok)) "PASS" else "FAIL",
     if (all(pclm_diag$lambda_ok)) "PASS" else "FAIL",
@@ -510,6 +546,8 @@ checks <- data.table(
     sprintf("max_abs_diff=%0.3e", max(country_annual_bridge$bridge_abs_diff)),
     sprintf("max_pop_diff=%0.3e; max_death_diff=%0.3e", max(recon_check$pop_abs_diff), max(recon_check$death_abs_diff)),
     sprintf("max_pop_share=%0.6f; max_death_share=%0.6f", max(share_tbl$pop_share), max(share_tbl$death_share)),
+    sprintf("max_rel_err=%0.2e", max(calib_check$rel_err)),
+    sprintf("max relative decline in single-age mx between consecutive ages = %.4f", max_mx_drop),
     sprintf("scale_factor=%d; unit=persons", pclm_input_scale),
     sprintf("converged_rows=%d/%d", sum(pclm_diag$convergence_ok), nrow(pclm_diag)),
     sprintf("lambda_min=%0.6f; lambda_max=%0.6f", min(pclm_diag$selected_lambda, na.rm = TRUE), max(pclm_diag$selected_lambda, na.rm = TRUE)),
@@ -528,6 +566,8 @@ checks <- data.table(
     "<= 1e-12",
     "<= 1e-9",
     "finite shares",
+    "2000-2014 mean of calibrated city series equals EUcityTRM baseline (<= 1e-12)",
+    "mortality essentially increasing with age: no decline > 5% between consecutive ages 65-100",
     sprintf("input conversion factor %d to persons", pclm_input_scale),
     "all PCLM fits converge or all-zero",
     "finite lambda or all-zero",

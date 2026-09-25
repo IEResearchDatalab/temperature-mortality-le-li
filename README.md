@@ -39,6 +39,10 @@ Every choice below follows a reference implementation. If something deviates, it
 
 | Step | Choice | Source |
 |---|---|---|
+| Demography | Wittgenstein Centre population and survival ratios (SSP-specific), both sexes summed; annual deaths = pop × (1 − ASSR) / 5, constant within each 5-year period | Masselot 2025 `02_prep_data.R` |
+| City calibration | Age-group-specific factor = EUcityTRM city baseline (`city_results.csv`) ÷ **mean national Wittgenstein value over 2000–2014**, fixed over time | Masselot 2025 `02_prep_data.R` |
+| Single ages (population, deaths) | PCLM (`ungroup::pclm`, BIC λ, person-scale counts) on the national 5-year bands 65–69 … 95–99, 100+. The open group is spread over 100–110 (`nlast = 11`) and collapsed back into 100+. Checked against observed Eurostat single-age data (LE65 error 0.007 y) | Rizzi et al. 2015; Simon's methods draft 2.5; meeting 10 Sep §2.4 |
+| Single-age ANs | Each group's attributable fraction applied to the PCLM single-age deaths, so AN ≤ deaths at every age | Simon's methods draft 2.5, option (b) (confirmed by Daniel 23 Sep) |
 | ERF basis | `bs`, degree 2; knots at the 10/75/90th percentiles and boundaries at the range of the city's **full ERA5-Land series 1990–2019** (the series the ERFs were estimated on) | Masselot 2025 `03_attribution.R` (`tper`) |
 | Temperature projections (with climate change) | ISIMIP3BASD trend-preserving bias correction against ERA5 2000–2014, applied **by month × calibration period** (2015–29, 2030–39, …, 2090–99) | Masselot 2025 `03_attribution.R`, `functions/isimip3.R` |
 | Without-climate-change counterfactual | Masselot's `demo` series: each 5-year block of the calibrated GCM series is re-mapped with ISIMIP3 onto the calibrated 2010–2014 distribution. Day-to-day weather is kept and the warming trend removed. Option `counterfactual = "era5_cycle"` (observed 2000–2019 repeated) is kept for sensitivity analysis | Masselot 2025 `03_attribution.R`; Simon's methods draft 2.4.3; Simon 23 Sep ("do whatever Masselot did") |
