@@ -2,59 +2,43 @@
 
 ################################################################################
 #
-# Temperature-related mortality / life expectancy pipeline -- Madrid pilot
+# Temperature-related mortality and its impact on life expectancy and
+# lifespan inequality at older ages in European cities
 #
-# R Pipeline Step 02: Allocate grouped attributable numbers to single ages
-#   Allocates Step 01 grouped attributable numbers to ages 65:100 using the
-#   canonical single-age all-cause death schedule produced by Step 00.
+# R Pipeline Part 02: Single-age attributable numbers
+#   Each age group's attributable fraction (Part 01) is applied to the
+#   single-age all-cause deaths from Part 00, so that ANs follow the age
+#   profile of mortality within the group and never exceed deaths (option b,
+#   Simon's methods draft 2.5).
 #
 ################################################################################
 
-suppressPackageStartupMessages({
-  library(data.table)
-  library(ggplot2)
-  library(patchwork)
-})
+source("R_pipeline/00_pkg_params.R")
 
-message("\n[02] Allocating Madrid grouped AN to single ages...")
-
-out_dir <- "results/phase1_madrid"
-check_dir <- "results/checks"
-fig_dir <- "results/figures"
-dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
-dir.create(check_dir, recursive = TRUE, showWarnings = FALSE)
-dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
+message(sprintf("\n[02] Allocating %s grouped AN to single ages...", city_name))
 
 single_file <- file.path(out_dir, "02_single_age_an.csv")
 checks_file <- file.path(check_dir, "02_single_age_checks.csv")
 failures_file <- file.path(check_dir, "02_single_age_failures.csv")
 fig_file <- file.path(fig_dir, "02_single_age_diagnostic.png")
 
-city_id <- "ES001C"
-city_name <- "Madrid"
-future_years <- 2020:2099
-age_groups <- c("65-74", "75-84", "85+")
-age_slices <- list(
-  "65-74" = 65:74,
-  "75-84" = 75:84,
-  "85+" = 85:100
-)
-#----- Load Step 00/01 outputs and restrict to the Madrid/SSP3 domain
 
-grouped_dem <- fread(file.path(out_dir, "00_demography_grouped.csv"))
-single_dem <- fread(file.path(out_dir, "00_demography_single_age.csv"))
+#----- Load Part 00/01 outputs and restrict to the city/SSP domain
+
+grouped_dem <- fread(file.path(dem_dir, "00_demography_grouped.csv"))
+single_dem <- fread(file.path(dem_dir, "00_demography_single_age.csv"))
 grouped_an <- fread(file.path(out_dir, "01_attribution_grouped.csv"))
 
-grouped_dem <- grouped_dem[geo_id == city_id & ssp == 3]
+grouped_dem <- grouped_dem[geo_id == city_id & ssp == as.integer(ssp_name)]
 single_dem <- single_dem[geo_id == city_id & ssp == 3 & age %in% 65:100]
-grouped_an <- grouped_an[geo_id == city_id & ssp == 3]
+grouped_an <- grouped_an[geo_id == city_id & ssp == as.integer(ssp_name)]
 
-if (!nrow(grouped_dem)) stop("Grouped demography for Madrid is missing; run 00_demography.R first.", call. = FALSE)
-if (!nrow(single_dem)) stop("Single-age demography for Madrid is missing; run 00_demography.R first.", call. = FALSE)
-if (!nrow(grouped_an)) stop("Grouped AN for Madrid is missing; run 01_attribution.R first.", call. = FALSE)
+if (!nrow(grouped_dem)) stop("Grouped demography for the city is missing; run 00_demography.R first.", call. = FALSE)
+if (!nrow(single_dem)) stop("Single-age demography for the city is missing; run 00_demography.R first.", call. = FALSE)
+if (!nrow(grouped_an)) stop("Grouped AN for the city is missing; run 01_attribution.R first.", call. = FALSE)
 
-grouped_dem <- grouped_dem[agegroup %in% age_groups]
-grouped_an <- grouped_an[agegroup %in% age_groups]
+grouped_dem <- grouped_dem[agegroup %in% agelabs]
+grouped_an <- grouped_an[agegroup %in% agelabs]
 
 if (any(!is.finite(grouped_dem$death)) || any(grouped_dem$death < 0)) {
   stop("Invalid grouped demographic deaths detected.", call. = FALSE)
@@ -66,16 +50,16 @@ if (any(!is.finite(grouped_an$an))) {
   stop("Grouped AN contains non-finite values.", call. = FALSE)
 }
 
-full_dem_grid <- CJ(year = future_years, agegroup = age_groups)
-full_an_grid <- CJ(year = future_years, agegroup = age_groups, range = c("ExtrCold", "ModCold", "ModHeat", "ExtrHeat"), branch = c("with_cc", "without_cc"))
+full_dem_grid <- CJ(year = future_years, agegroup = agelabs)
+full_an_grid <- CJ(year = future_years, agegroup = agelabs, range = c("ExtrCold", "ModCold", "ModHeat", "ExtrHeat"), branch = c("with_cc", "without_cc"))
 
 dem_keys <- grouped_dem[, .(year, agegroup)]
 an_keys <- grouped_an[, .(year, agegroup, range, branch)]
 if (nrow(fsetdiff(full_dem_grid, unique(dem_keys))) || nrow(fsetdiff(unique(dem_keys), full_dem_grid)) || anyDuplicated(dem_keys)) {
-  stop("Grouped demographic domain is incomplete for Madrid.", call. = FALSE)
+  stop("Grouped demographic domain is incomplete for the city.", call. = FALSE)
 }
 if (nrow(fsetdiff(full_an_grid, unique(an_keys))) || nrow(fsetdiff(unique(an_keys), full_an_grid)) || anyDuplicated(an_keys)) {
-  stop("Grouped AN domain is incomplete for Madrid.", call. = FALSE)
+  stop("Grouped AN domain is incomplete for the city.", call. = FALSE)
 }
 
 grouped_dem <- merge(full_dem_grid, grouped_dem, by = c("year", "agegroup"), all.x = TRUE, sort = FALSE)
@@ -85,24 +69,24 @@ if (anyNA(grouped_dem$death) || anyNA(grouped_an$an)) {
   stop("Merged demographic or AN inputs contain NA values.", call. = FALSE)
 }
 
-#----- Derive Method A weights from Step 00's canonical single-age deaths
+#----- Within-group weights from Part 00's single-age all-cause deaths
 
 single_dem[, source_agegroup := fifelse(age <= 74L, "65-74", fifelse(age <= 84L, "75-84", "85+"))]
 if (any(single_dem$agegroup != single_dem$source_agegroup)) {
-  stop("Step 00 single-age rows do not match the required source age bands.", call. = FALSE)
+  stop("Part 00 single-age rows do not match the required source age bands.", call. = FALSE)
 }
 
 weights_dt <- single_dem[, .(death = sum(death)), by = .(year, source_agegroup, age)]
 weights_dt[, group_death := sum(death), by = .(year, source_agegroup)]
 weights_dt[, weight := fifelse(group_death > 0, death / group_death, 0)]
 
-expected_weight_grid <- rbindlist(lapply(age_groups, function(grp) {
+expected_weight_grid <- rbindlist(lapply(agelabs, function(grp) {
   CJ(year = future_years, source_agegroup = grp, age = age_slices[[grp]])
 }))
 if (nrow(fsetdiff(expected_weight_grid, weights_dt[, .(year, source_agegroup, age)])) ||
     nrow(fsetdiff(weights_dt[, .(year, source_agegroup, age)], expected_weight_grid)) ||
     anyDuplicated(weights_dt, by = c("year", "source_agegroup", "age"))) {
-  stop("Step 00 single-age demographic domain is incomplete or duplicated.", call. = FALSE)
+  stop("Part 00 single-age demographic domain is incomplete or duplicated.", call. = FALSE)
 }
 
 gcm_values <- unique(grouped_an$gcm)
@@ -116,7 +100,7 @@ reconstruction_rows <- list()
 #----- Loop years, then age groups, then branch/range to allocate AN to single ages
 
 for (yr in sort(unique(grouped_dem$year))) {
-  for (grp in age_groups) {
+  for (grp in agelabs) {
     weight_rows <- weights_dt[year == yr & source_agegroup == grp][order(age)]
     ages <- age_slices[[grp]]
     if (!identical(as.integer(weight_rows$age), as.integer(ages))) {
@@ -145,7 +129,7 @@ for (yr in sort(unique(grouped_dem$year))) {
         allocation_rows[[length(allocation_rows) + 1L]] <- data.table(
           geo_id = city_id,
           label = city_name,
-          ssp = 3L,
+          ssp = as.integer(ssp_name),
           gcm = gcm_values,
           branch = br,
           year = yr,
@@ -258,8 +242,8 @@ plot_weights <- ggplot(weights_plot, aes(x = age, y = weight)) +
   geom_line(linewidth = 0.6, color = "#2c7fb8") +
   facet_wrap(~source_agegroup, scales = "free_x") +
   labs(
-    title = "Madrid single-age demographic weights",
-    subtitle = "Method A weights from Step 00 single-age all-cause deaths",
+    title = sprintf("%s single-age demographic weights", city_name),
+    subtitle = "Within-group weights from the Part 00 single-age all-cause deaths",
     x = "Age",
     y = "Weight"
   ) +

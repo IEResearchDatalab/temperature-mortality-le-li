@@ -2,42 +2,27 @@
 
 ################################################################################
 #
-# Temperature-related mortality / life expectancy pipeline
+# Temperature-related mortality and its impact on life expectancy and
+# lifespan inequality at older ages in European cities
 #
-# R Pipeline Step 00a: Observed temperature series and per-city thresholds
-#   Builds data/prep_data.RData, consumed by 01_attribution.R:
-#     - obs_data:   ERA5-Land daily mean temperature per city (the series used
-#                   by Masselot et al. 2023 to estimate the ERFs), 1990-2019
-#     - thresholds: city_results.csv (one row per city x age group) plus the
-#                   2.5th / 97.5th percentiles of obs_data that delimit the
-#                   extreme temperature ranges (Lloyd et al. 2024 definitions)
-#                   The MMT is recomputed with the Masselot et al. (2025) rule
-#                   (argmin of the ERF between the 25th and 99th percentiles);
-#                   the Masselot 2023 value is kept as `mmt_2023`.
-#     - cities:     vector of URAU codes
-#   Inputs are read from data/ only (see README, "Data").
+# R Pipeline Part 00a: Observed temperature series and per-city thresholds
+#   Builds data/prep_data.RData, used by 01_attribution.R:
+#     - obs_data:   ERA5-Land daily mean temperature per city, 1990-2019 (the
+#                   series used by Masselot et al. 2023 to estimate the ERFs)
+#     - thresholds: city_results.csv (one row per city x age group) with
+#                   - p2_5 / p97_5: percentiles delimiting extreme cold / heat
+#                     (Lloyd et al. 2024), over `threshold_years`
+#                   - mmt: Masselot et al. (2025) rule, argmin of the ERF over
+#                     percentiles 25-99 (the 2023 value is kept as `mmt_2023`)
+#     - cities:     URAU codes
 #
 ################################################################################
 
-suppressPackageStartupMessages({
-  library(data.table)
-  library(arrow)
-  library(dlnm)
-})
+source("R_pipeline/00_pkg_params.R")
 
 message("\n[00a] Building observed temperature series and thresholds...")
 
-#----- Parameters
-
-# Reference period for the extreme-range percentiles. 1990-2019 is the full
-# ERA5-Land series used to estimate the ERFs (Masselot et al. 2023); it is the
-# same window that defines the ERF knots and boundaries in 01_attribution.R.
-threshold_years <- c(1990L, 2019L)
-extreme_probs <- c(p2_5 = 0.025, p97_5 = 0.975)
-
 out_file <- "data/prep_data.RData"
-check_dir <- "results/checks"
-dir.create(check_dir, recursive = TRUE, showWarnings = FALSE)
 checks_file <- file.path(check_dir, "00a_prep_temperature_checks.csv")
 
 #----- Load inputs
@@ -60,11 +45,10 @@ pct <- obs_data[year(date) %between% threshold_years, .(
 #   basis = bs(degree 2, knots at 10/75/90th percentiles, Bound = range(tper))
 #   mmt   = tper value minimising the ERF among percentiles 25-99
 
-predper <- c(seq(0, 1, 0.1), 2:98, seq(99, 100, 0.1))
 coefs <- fread("data/coefs.csv")
 mmt_tbl <- obs_data[, {
   tper <- quantile(tmean_obs, predper / 100)
-  argvar <- list(fun = "bs", degree = 2, knots = tper[paste0(c(10, 75, 90), ".0%")], Bound = range(tper))
+  argvar <- list(fun = varfun, degree = vardegree, knots = tper[paste0(varper, ".0%")], Bound = range(tper))
   bper <- suppressWarnings(do.call(onebasis, c(list(x = tper), argvar)))
   ind <- tper >= tper["25.0%"] & tper <= tper["99.0%"]
   cc <- coefs[URAU_CODE == .BY$URAU_CODE]
@@ -83,7 +67,6 @@ cities <- sort(unique(city_results$URAU_CODE))
 
 #----- Invariant checks
 
-n_days <- obs_data[, .N, by = URAU_CODE]
 checks <- data.table(
   check_name = c("all_cities_have_obs", "obs_finite", "thresholds_complete", "p2_5_below_p97_5", "obs_period", "mmt_within_25_99"),
   status = c(

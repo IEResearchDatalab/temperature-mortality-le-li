@@ -2,124 +2,65 @@
 
 ################################################################################
 #
-# Temperature-related mortality / life expectancy pipeline -- Madrid pilot
+# Temperature-related mortality and its impact on life expectancy and
+# lifespan inequality at older ages in European cities
 #
-# R Pipeline Step 01: Grouped attributable numbers under SSP3-7.0
-#   Follows the exposure-response and ISIMIP3 bias-correction logic of
-#   Masselot & Gasparrini (2025, R Code Part 3), narrowed to one city (Madrid),
-#   one GCM and central (point-estimate) coefficients only -- no simulation
-#   draws, so no empirical confidence interval is produced at this stage.
-#   Two branches are contrasted: `with_cc` (full climate-change signal, ISIMIP3
-#   bias-corrected) and `without_cc` (observed 2000-2019 daily sequences
-#   repeated without an additional warming trend).
+# R Pipeline Part 01: Attributable numbers by age group and temperature range
+#   Follows Masselot & Gasparrini (2025) 03_attribution.R for one city, one
+#   SSP, one GCM and the central ERF coefficients:
+#     - ISIMIP3BASD calibration of the GCM series by month x calibration period
+#     - `with_cc` = calibrated series; `without_cc` = Masselot's `demo` series
+#       (each 5-year block recalibrated to the 2010-2014 distribution)
+#     - AN = (1 - 1/RR) x daily deaths, RR >= 1, 29 February removed
+#   The only departure: heat and cold are split into moderate and extreme
+#   ranges (Lloyd et al. 2024).
 #
 ################################################################################
 
-suppressPackageStartupMessages({
-  library(data.table)
-  library(dplyr)
-  library(arrow)
-  library(dlnm)
-  library(splines)
-  library(ggplot2)
-})
-
-#----- Global parameters and paths (inlined from Masselot & Gasparrini R Code Part 1;
-# only the subset this point-estimate, single-GCM script actually uses)
-
-# DLNM basis function: Masselot uses bs (B-spline, degree 2); our original used ns
-varfun <- "bs"
-vardegree <- 2
-
-# Internal knots for the natural cubic spline cross-basis
-knots_percentiles <- c(10, 75, 90)
+source("R_pipeline/00_pkg_params.R")
 
 path_tmean <- "data/tmeanproj.gz.parquet"
+if (!gcm_name %in% gcmlist) stop(sprintf("Part 01 runs one GCM of gcmlist; got %s.", gcm_name), call. = FALSE)
 
-message("\n[01] Building Madrid SSP3-7.0 grouped attributable numbers...")
-
-out_dir <- "results/phase1_madrid"
-check_dir <- "results/checks"
-fig_dir <- "results/figures"
-dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
-dir.create(check_dir, recursive = TRUE, showWarnings = FALSE)
-dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
+message(sprintf("\n[01] Building %s %s grouped attributable numbers...", city_name, ssplabs[ssp_name]))
 
 grouped_file <- file.path(out_dir, "01_attribution_grouped.csv")
 checks_file <- file.path(check_dir, "01_attribution_checks.csv")
 failures_file <- file.path(check_dir, "01_attribution_failures.csv")
 fig_file <- file.path(fig_dir, "01_attribution_diagnostic.png")
 
-city_id <- "ES001C"
-city_name <- "Madrid"
-gcm_name <- "GFDL_ESM4"
-# Masselot (2025) 01_pkg_params.R: these two GCMs are excluded, leaving 19 of
-# the 21 in tmeanproj.gz.parquet
-gcm_excluded <- c("CMCC_CM2_SR5", "TaiESM1")
-if (gcm_name %in% gcm_excluded) stop(sprintf("GCM %s is excluded in Masselot (2025).", gcm_name), call. = FALSE)
-ssp_name <- "3"
-variant_levels <- c("with_cc", "without_cc")
-range_levels <- c("ExtrCold", "ModCold", "ModHeat", "ExtrHeat")
-branch_labels <- c(
-  with_cc = "Projected climate change",
-  without_cc = "No additional warming (Masselot recalibration to 2010-2014)"
-)
-range_labels <- c(
-  ExtrCold = "Extreme cold",
-  ModCold = "Moderate cold",
-  ModHeat = "Moderate heat",
-  ExtrHeat = "Extreme heat"
-)
-range_colors <- c(
-  ExtrCold = "#2166ac",
-  ModCold = "#67a9cf",
-  ModHeat = "#ef8a62",
-  ExtrHeat = "#b2182b"
-)
-hist_years_bias <- 2000:2014
-# Calibration periods for the projections (Masselot 2025 `projrange`)
-calib_breaks <- c(2015, seq(2030, 2100, by = 10))
-# Without-climate-change counterfactual. Default follows Masselot (2025) and
-# Simon's methods draft 2.4.3: each 5-year block of the calibrated GCM series is
-# re-mapped (ISIMIP3) onto the calibrated 2010-2014 distribution, preserving the
-# GCM's day-to-day weather but removing the warming trend.
-# "era5_cycle" (observed 2000-2019 repeated forward) is kept as a sensitivity option.
-counterfactual <- "masselot_demo"   # or "era5_cycle"
-counterfactual_ref_year5 <- 2010L
-hist_years_counterfactual <- 2000:2019
-future_years <- 2020:2099
 # Masselot (2025) removes 29 February from all daily series and uses 365-day years.
 annualization_rule_text <- "sum(daily AN) / 365 (29 Feb removed)"
 
-#----- Load prepared thresholds/observations and verify Madrid identity
+#----- Load prepared thresholds/observations and verify the city identity
 
 load("data/prep_data.RData")
 setDT(thresholds)
 setDT(obs_data)
 
 city_meta <- fread("data/city_results.csv")
-city_meta <- unique(city_meta[URAU_CODE == city_id & LABEL == city_name & agegroup %in% c("65-74", "75-84", "85+")])
+city_meta <- unique(city_meta[URAU_CODE == city_id & LABEL == city_name & agegroup %in% agelabs])
 if (nrow(city_meta) != 3L) {
-  stop(sprintf("Madrid identifier verification failed for %s.", city_id), call. = FALSE)
+  stop(sprintf("City identifier verification failed for %s.", city_id), call. = FALSE)
 }
-city_meta <- city_meta[match(c("65-74", "75-84", "85+"), agegroup)]
+city_meta <- city_meta[match(agelabs, agegroup)]
 
-#----- Load the demographic domain built in Step 00
+#----- Load the demographic domain built in Part 00
 
-demography <- fread(file.path(out_dir, "00_demography_grouped.csv"))
+demography <- fread(file.path(dem_dir, "00_demography_grouped.csv"))
 demography <- demography[geo_id == city_id & ssp == as.integer(ssp_name)]
 if (!nrow(demography)) {
-  stop("Demographic domain for Madrid is empty; run 00_demography.R first.", call. = FALSE)
+  stop("Demographic domain for the city is empty; run 00_demography.R first.", call. = FALSE)
 }
 
-city_thresholds <- thresholds[URAU_CODE == city_id & agegroup %in% c("65-74", "75-84", "85+")]
-if (nrow(city_thresholds) != 3L) stop(sprintf("Missing Madrid threshold rows in prep_data.RData for %s.", city_id), call. = FALSE)
-if (anyNA(city_thresholds)) stop("Madrid thresholds contain NA values.", call. = FALSE)
+city_thresholds <- thresholds[URAU_CODE == city_id & agegroup %in% agelabs]
+if (nrow(city_thresholds) != 3L) stop(sprintf("Missing city threshold rows in prep_data.RData for %s.", city_id), call. = FALSE)
+if (anyNA(city_thresholds)) stop("City thresholds contain NA values.", call. = FALSE)
 
-#----- Load Madrid's historical (ERA5) observed temperature series
+#----- Load the city's historical (ERA5) observed temperature series
 
 obs_city <- obs_data[URAU_CODE == city_id]
-if (!nrow(obs_city)) stop("Historical observed temperatures for Madrid are missing.", call. = FALSE)
+if (!nrow(obs_city)) stop("Historical observed temperatures for the city are missing.", call. = FALSE)
 obs_city[, `:=`(
   year = as.integer(format(date, "%Y")),
   month = as.integer(format(date, "%m")),
@@ -155,7 +96,7 @@ if (gcm_name == "IITM_ESM" && ssp_name == "3") {
   setorder(tmean_all, date)
 }
 tmean_future <- tmean_all[ssp == ssp_name & year %in% future_years]
-hist_sim <- tmean_all[ssp == "hist" & year %in% hist_years_bias]
+hist_sim <- tmean_all[ssp == "hist" & year %between% histrange]
 if (!nrow(tmean_future)) stop("Projected future temperature data are empty after city/GCM/year filtering.", call. = FALSE)
 if (!nrow(hist_sim)) stop("Historical model temperatures for bias correction are missing from the projection table.", call. = FALSE)
 
@@ -184,7 +125,7 @@ isimip3 <- function(obshist, simhist, simfut, yearobshist, yearsimhist, yearsimf
 
 #----- Exposure-response basis (bs, shared across variants and age groups)
 
-obs_hist <- obs_city[year %in% hist_years_bias & month_day != "02-29"]
+obs_hist <- obs_city[year %between% histrange & month_day != "02-29"]
 obs_repeat <- obs_city[year %in% hist_years_counterfactual, .(
   source_year = year,
   month_day,
@@ -201,9 +142,8 @@ if (any(!is.finite(obs_repeat$tmean_hist))) {
 # percentiles of the city's FULL observed ERA5-Land series (1990-2019), as in
 # Masselot & Gasparrini (2025) 03_attribution.R (`tper`). Using any other window
 # changes the shape of the published exposure-response function.
-predper <- c(seq(0, 1, 0.1), 2:98, seq(99, 100, 0.1))
 tper <- quantile(obs_city$tmean_obs, predper / 100, na.rm = TRUE)
-knots <- tper[paste0(knots_percentiles, ".0%")]
+knots <- tper[paste0(varper, ".0%")]
 bound <- range(tper)
 
 #----- Validation fixture: reproduce Masselot et al. (2023) published historical
@@ -211,7 +151,7 @@ bound <- range(tper)
 # the published coefficients and MMT. Checks the ERF reconstruction end to end.
 fixture_rows <- list()
 coef_fix <- fread("data/coefs.csv")[URAU_CODE == city_id]
-for (agegrp in c("65-74", "75-84", "85+")) {
+for (agegrp in agelabs) {
   cm <- city_meta[agegroup == agegrp]
   bfix <- as.matrix(coef_fix[agegroup == agegrp, .(b1, b2, b3, b4, b5)])
   bx <- suppressWarnings(onebasis(obs_city$tmean_obs, fun = varfun, degree = vardegree, knots = knots, Bound = bound))
@@ -231,7 +171,7 @@ fixture <- rbindlist(fixture_rows)
 fixture[, max_rel_error := pmax(abs(heat / pub_heat - 1), abs(cold / pub_cold - 1))]
 fixture_tolerance <- 1e-3
 
-coef_dt <- fread("data/coefs.csv")[URAU_CODE == city_id & agegroup %in% c("65-74", "75-84", "85+")]
+coef_dt <- fread("data/coefs.csv")[URAU_CODE == city_id & agegroup %in% agelabs]
 
 city_results <- list()
 
@@ -241,10 +181,10 @@ city_results <- list()
 # "demo" = recalibrated without additional warming
 
 cal_src <- rbind(
-  tmean_all[ssp == "hist" & year %in% hist_years_bias],
-  tmean_all[ssp == ssp_name & year >= min(calib_breaks)]
+  tmean_all[ssp == "hist" & year %between% histrange],
+  tmean_all[ssp == ssp_name & year >= min(projrange)]
 )
-cal_src[, calperiod := cut(year, c(min(hist_years_bias), calib_breaks), right = FALSE)]
+cal_src[, calperiod := cut(year, c(histrange[1], projrange), right = FALSE)]
 if (anyNA(cal_src$calperiod)) stop("Temperature years fall outside the calibration periods.", call. = FALSE)
 cal_src[, full := {
   m <- .BY$month
@@ -273,7 +213,7 @@ warming_tbl <- cal_src[year >= min(future_years), .(
 ), by = .(decade = (year %/% 10L) * 10L)]
 max_demo_drift <- max(abs(warming_tbl$demo_minus_ref))
 
-for (variant in variant_levels) {
+for (variant in branch_levels) {
   t_work <- copy(tmean_future)
   t_work[, days_in_year := 365L]
   coverage <- t_work[, .(rows = .N, unique_dates = uniqueN(date), expected_days = unique(days_in_year)), by = year]
@@ -303,9 +243,9 @@ for (variant in variant_levels) {
   }
 
   #----- Per age group: classify temperature range, compute AF/AN, annualise
-  for (agegrp in c("65-74", "75-84", "85+")) {
+  for (agegrp in agelabs) {
     age_row <- city_thresholds[agegroup == agegrp]
-    if (nrow(age_row) != 1L) stop(sprintf("Missing Madrid threshold row for age group %s.", agegrp), call. = FALSE)
+    if (nrow(age_row) != 1L) stop(sprintf("Missing city threshold row for age group %s.", agegrp), call. = FALSE)
 
     p2_5 <- age_row[["p2_5"]]
     p97_5 <- age_row[["p97_5"]]
@@ -363,7 +303,7 @@ setorder(grouped, branch, year, agegroup, range)
 
 if (any(!grouped$range %in% range_levels)) stop("Unexpected temperature range labels produced.", call. = FALSE)
 
-full_domain <- CJ(branch = variant_levels, year = future_years, agegroup = c("65-74", "75-84", "85+"), range = range_levels)
+full_domain <- CJ(branch = branch_levels, year = future_years, agegroup = agelabs, range = range_levels)
 grouped <- merge(full_domain, grouped, by = c("branch", "year", "agegroup", "range"), all.x = TRUE, sort = FALSE)
 grouped[is.na(an), an := 0]
 grouped[, `:=`(geo_id = city_id, label = city_name, ssp = as.integer(ssp_name), gcm = gcm_name)]
@@ -411,7 +351,7 @@ checks <- data.table(
     sprintf("%s; max |decadal mean - 2010-14 mean| = %.3f C (with_cc 2090s: %+.2f C)", counterfactual, max_demo_drift, warming_tbl[decade == 2090, full_minus_ref])
   ),
   threshold = c(
-    "unique Madrid city identifier",
+    "unique city identifier",
     gcm_name,
     annualization_rule_text,
     "365-day years (29 Feb removed)",
@@ -464,7 +404,7 @@ p <- ggplot(plot_dt, aes(x = year)) +
   scale_color_manual(values = range_colors, guide = "none") +
   scale_y_continuous(limits = c(y_min, y_max)) +
   labs(
-    title = "Madrid SSP3-7.0 annual temperature-attributable deaths by temperature range",
+    title = sprintf("%s %s annual temperature-attributable deaths by temperature range", city_name, ssplabs[ssp_name]),
     subtitle = sprintf("One GCM (%s); shaded areas accumulate from extreme cold to extreme heat", gcm_name),
     x = "Year",
     y = "Annual temperature-attributable deaths"

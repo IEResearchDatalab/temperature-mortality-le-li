@@ -2,56 +2,30 @@
 
 ################################################################################
 #
-# Temperature-related mortality / life expectancy pipeline -- Madrid pilot
+# Temperature-related mortality and its impact on life expectancy and
+# lifespan inequality at older ages in European cities
 #
-# R Pipeline Step 00: Grouped and single-age demographic projections
-#   Follows the calibration logic of Masselot & Gasparrini (2025, R Code Part 2):
-#   national Wittgenstein population/survival projections are rescaled to a
-#   single EUcityTRM city using a city-to-country ratio, then disaggregated
-#   from 5-year age bands to single ages (65:100) via PCLM.
-#   Scope here is narrowed to one city (Madrid), one SSP (SSP3-7.0) and the
-#   three oldest age groups (65-74, 75-84, 85+).
+# R Pipeline Part 00: Demographic projections, grouped and single-age
+#   Follows Masselot & Gasparrini (2025) 02_prep_data.R: Wittgenstein
+#   population and survival ratios (SSP-specific, both sexes), annual deaths
+#   = pop x (1 - ASSR) / 5, scaled to the city by age-group factors computed
+#   against the national 2000-2014 mean. National 5-year bands are then
+#   disaggregated to single ages 65-100+ with PCLM (Rizzi et al. 2015).
 #
 ################################################################################
 
-suppressPackageStartupMessages({
-  library(data.table)
-  library(ggplot2)
-})
+source("R_pipeline/00_pkg_params.R")
 
-# Expected single-age output length for a PCLM fit over grouped age bands x.
-pclm_expected_length <- function(x, nlast) {
-  sum(diff(x)) + nlast
-}
+message(sprintf("\n[00] Building %s %s demographic tables...", city_name, ssplabs[ssp_name]))
 
-message("\n[00] Building Madrid SSP3-7.0 demographic tables...")
-
-#----- Output locations
-
-out_dir <- "results/phase1_madrid"
-check_dir <- "results/checks"
-fig_dir <- "results/figures"
-dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
-dir.create(check_dir, recursive = TRUE, showWarnings = FALSE)
-dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
-
-grouped_file <- file.path(out_dir, "00_demography_grouped.csv")
-single_file <- file.path(out_dir, "00_demography_single_age.csv")
+grouped_file <- file.path(dem_dir, "00_demography_grouped.csv")
+single_file <- file.path(dem_dir, "00_demography_single_age.csv")
 checks_file <- file.path(check_dir, "00_demography_checks.csv")
 failures_file <- file.path(check_dir, "00_demography_failures.csv")
 fig_file <- file.path(fig_dir, "00_demography_diagnostic.png")
 
-#----- Analysis parameters (single city, single SSP, ages 65+)
+#----- Wittgenstein 5-year bands used for ages 65+
 
-city_id <- "ES001C"
-city_name <- "Madrid"
-ssp_target <- "3"
-# City calibration (Masselot 2025, 02_prep_data.R): city factor = EUcityTRM
-# baseline value / mean national Wittgenstein value over the historical period
-# 2000-2014 (5-year snapshots 2000, 2005, 2010), by age group, fixed over time.
-calib_years <- c(2000L, 2014L)
-future_years <- 2020:2099
-target_agegroups <- c("65-74", "75-84", "85+")
 age_map <- data.table(
   age_band = c("65--69", "70--74", "75--79", "80--84", "85--89", "90--94", "95--99", "100+"),
   agegroup = c(rep("65-74", 2L), rep("75-84", 2L), rep("85+", 4L)),
@@ -59,36 +33,28 @@ age_map <- data.table(
   nlast = c(rep(5L, 7L), 1L)
 )
 
-# PCLM inputs are stored in the Wittgenstein source's thousand-person unit.
-# Scale to persons before fitting so the likelihood is evaluated on the same
-# count scale as the validated Lloyd/Aburto reference implementations.
-pclm_input_scale <- 1000
+# PCLM (see 00_pkg_params.R): Wittgenstein counts are fitted on the person
+# scale, and the open group 100+ is spread over 100-110 (nlast = 11) before being
+# collapsed back into 100+. With nlast = 1 the smoother oscillated at 85-99
+# (benchmark vs observed Eurostat single-age data: LE65 error 0.167 y with
+# nlast = 1, 0.007 y with nlast = 11).
 
-# Open age group 100+: PCLM spreads it over 100-110 (nlast = 11) and the fitted
-# values are then collapsed back into the single open interval 100+ used by the
-# life table. Fitting 100+ as one single year (nlast = 1) forced the smoother to
-# place the whole open group at age 100 and produced oscillating, non-monotone
-# mortality at 85-99. Benchmark against observed Eurostat single-age data
-# (6 countries x 2015-2019, references/fix_notes/260923_09_single_age_pclm.md):
-# LE65 error 0.007 y (nlast = 11) vs 0.167 y (nlast = 1).
-pclm_open_nlast <- 11L
-
-#----- Verify Madrid identity in the EUcityTRM baseline table
+#----- Verify the city identity in the EUcityTRM baseline table
 
 city_meta <- fread("data/city_results.csv")
-city_meta <- unique(city_meta[URAU_CODE == city_id & LABEL == city_name & agegroup %in% target_agegroups])
-if (nrow(city_meta) != 3L || !all(unique(city_meta$agegroup) %in% target_agegroups)) {
-  stop(sprintf("Madrid identifier verification failed for %s; expected 3 age-group rows for %s.", city_id, city_name), call. = FALSE)
+city_meta <- unique(city_meta[URAU_CODE == city_id & LABEL == city_name & agegroup %in% agelabs])
+if (nrow(city_meta) != 3L || !all(unique(city_meta$agegroup) %in% agelabs)) {
+  stop(sprintf("City identifier verification failed for %s; expected 3 age-group rows for %s.", city_id, city_name), call. = FALSE)
 }
 
-city_meta <- city_meta[match(target_agegroups, agegroup)]
+city_meta <- city_meta[match(agelabs, agegroup)]
 if (anyNA(city_meta$agegroup)) {
-  stop(sprintf("Madrid identifier verification failed: missing one of age groups %s.", paste(target_agegroups, collapse = ", ")), call. = FALSE)
+  stop(sprintf("City identifier verification failed: missing one of age groups %s.", paste(agelabs, collapse = ", ")), call. = FALSE)
 }
 
 country_codes <- unique(city_meta$CNTR_CODE)
 if (length(country_codes) != 1L || is.na(country_codes)) {
-  stop("Madrid must map to exactly one country code.", call. = FALSE)
+  stop("The city must map to exactly one country code.", call. = FALSE)
 }
 country_code <- country_codes[[1L]]
 
@@ -99,16 +65,16 @@ assr_raw <- fread("data/wittgenstein_assr.csv")
 
 sex_levels <- c("Female", "Male")
 pop_raw <- pop_raw[
-  CNTR_CODE == country_code & ssp == as.integer(ssp_target) &
+  CNTR_CODE == country_code & ssp == as.integer(ssp_name) &
     age %in% age_map$age_band & sex %in% sex_levels
 ]
 assr_raw <- assr_raw[
-  CNTR_CODE == country_code & ssp == as.integer(ssp_target) &
+  CNTR_CODE == country_code & ssp == as.integer(ssp_name) &
     age %in% age_map$age_band & sex %in% sex_levels
 ]
 
 if (!nrow(pop_raw) || !nrow(assr_raw)) {
-  stop("SSP3 demographic source tables are empty after filtering.", call. = FALSE)
+  stop("SSP demographic source tables are empty after filtering.", call. = FALSE)
 }
 
 parse_year_start <- function(x) as.integer(sub("^([0-9]{4}).*$", "\\1", x))
@@ -117,7 +83,7 @@ pop_raw[, year_start := as.integer(year)]
 assr_raw[, year_start := parse_year_start(period)]
 
 if (anyNA(pop_raw$year_start) || anyNA(assr_raw$year_start)) {
-  stop("Failed to parse SSP3 year anchors from the demographic sources.", call. = FALSE)
+  stop("Failed to parse SSP year anchors from the demographic sources.", call. = FALSE)
 }
 
 country_5y <- merge(
@@ -129,10 +95,10 @@ country_5y <- merge(
 )
 
 if (anyNA(country_5y$pop) || anyNA(country_5y$assr)) {
-  stop("Merged SSP3 demographic source contains NA pop/assr values.", call. = FALSE)
+  stop("Merged SSP demographic source contains NA pop/assr values.", call. = FALSE)
 }
 if (any(country_5y$pop < 0) || any(!is.finite(country_5y$pop)) || any(!is.finite(country_5y$assr))) {
-  stop("Invalid SSP3 demographic source values detected.", call. = FALSE)
+  stop("Invalid SSP demographic source values detected.", call. = FALSE)
 }
 
 country_5y[, death_5y := pop * (1 - assr)]
@@ -179,12 +145,12 @@ country_annual <- country_annual_5y[, .(
 ), by = .(CNTR_CODE, cntr_name, ssp, year, age_band, age_start)]
 
 if (uniqueN(country_annual$CNTR_CODE) != 1L || unique(country_annual$CNTR_CODE) != country_code) {
-  stop("Country projection contains rows outside Madrid's country.", call. = FALSE)
+  stop("Country projection contains rows outside the city's country.", call. = FALSE)
 }
 
 country_annual <- merge(country_annual, age_map[, .(age_band, agegroup, age_start)], by = c("age_band", "age_start"), all.x = TRUE, sort = FALSE)
 if (anyNA(country_annual$agegroup)) {
-  stop("Failed to map country age bands to Madrid age groups.", call. = FALSE)
+  stop("Failed to map country age bands to city age groups.", call. = FALSE)
 }
 
 country_annual_bridge <- country_annual_5y[, .(
@@ -199,7 +165,7 @@ country_annual_bridge <- merge(
 )
 country_annual_bridge[, bridge_abs_diff := abs(death_annual_expected - death_annual_observed)]
 
-# Aggregate the country age bands into the three Madrid age groups of interest
+# Aggregate the country age bands into the three city age groups of interest
 country_agegroup <- country_annual[, .(
   country_pop = sum(pop),
   country_death = sum(death)
@@ -207,19 +173,19 @@ country_agegroup <- country_annual[, .(
 
 #----- Calibrate the city-to-country ratio on the 2000-2014 national mean (Masselot 2025)
 
-country_agegroup_calib <- country_agegroup[year %between% calib_years, .(
+country_agegroup_calib <- country_agegroup[year %between% histrange, .(
   country_pop = mean(country_pop),
   country_death = mean(country_death),
   n_years = .N
 ), by = agegroup]
-if (nrow(country_agegroup_calib) != length(target_agegroups) || any(country_agegroup_calib$n_years != diff(calib_years) + 1L)) {
+if (nrow(country_agegroup_calib) != length(agelabs) || any(country_agegroup_calib$n_years != diff(histrange) + 1L)) {
   stop("Calibration period 2000-2014 is incomplete for one or more age groups in the SSP source.", call. = FALSE)
 }
 
 city_base <- unique(city_meta[, .(agegroup, city_pop = agepop, city_death = death)])
 share_tbl <- merge(city_base, country_agegroup_calib, by = "agegroup", all.x = TRUE, sort = FALSE)
 if (anyNA(share_tbl$country_pop) || anyNA(share_tbl$country_death)) {
-  stop("Could not compute Madrid baseline demographic shares from the SSP3 source.", call. = FALSE)
+  stop("Could not compute City baseline demographic shares from the SSP source.", call. = FALSE)
 }
 if (any(share_tbl$country_pop <= 0) || any(share_tbl$country_death <= 0)) {
   stop("Nonpositive baseline country demographic totals prevent share construction.", call. = FALSE)
@@ -231,7 +197,7 @@ share_tbl[, `:=`(
 )]
 
 if (any(!is.finite(share_tbl$pop_share)) || any(!is.finite(share_tbl$death_share))) {
-  stop("Madrid baseline shares are not finite.", call. = FALSE)
+  stop("City baseline shares are not finite.", call. = FALSE)
 }
 
 #----- Disaggregate country age bands to single ages via PCLM (person-scale fit)
@@ -392,7 +358,7 @@ if (anyNA(country_single_agegroup$pop_weight) || anyNA(country_single_agegroup$d
   stop("Single-age country weights could not be constructed.", call. = FALSE)
 }
 
-#----- Apply the calibration ratio to build Madrid's grouped projection
+#----- Apply the calibration ratio to build the city's grouped projection
 
 city_grouped <- merge(country_agegroup, share_tbl[, .(agegroup, pop_share, death_share)], by = "agegroup", all.x = TRUE, sort = FALSE)
 city_grouped[, `:=`(
@@ -400,7 +366,7 @@ city_grouped[, `:=`(
   label = city_name,
   country_code = country_code,
   cntr_name = unique(country_annual$cntr_name),
-  ssp = as.integer(ssp_target),
+  ssp = as.integer(ssp_name),
   city_pop = country_pop * pop_share * 1000,
   city_death = country_death * death_share * 1000
 )]
@@ -415,7 +381,7 @@ city_grouped <- city_grouped[year %in% future_years, .(
   death_share
 )]
 
-#----- Allocate Madrid's grouped totals to single ages using the country age shape
+#----- Allocate the city's grouped totals to single ages using the country age shape
 
 city_single <- merge(
   city_grouped,
@@ -430,7 +396,7 @@ city_single[, `:=`(
   label = city_name,
   country_code = country_code,
   cntr_name = unique(country_annual$cntr_name),
-  ssp = as.integer(ssp_target),
+  ssp = as.integer(ssp_name),
   pop = pop * pop_weight,
   death = death * death_weight
 )]
@@ -462,7 +428,7 @@ recon_check[, `:=`(
   death_abs_diff = abs(grouped_death - single_death)
 )]
 
-full_group_grid <- CJ(year = future_years, agegroup = target_agegroups)
+full_group_grid <- CJ(year = future_years, agegroup = agelabs)
 full_single_grid <- CJ(year = future_years, age = 65:100)
 
 grouped_keys <- unique(city_grouped[, .(year, agegroup)])
@@ -484,9 +450,15 @@ pclm_diag[, band_ok := exact_band_containment & nonnegative_schedule & !signed_i
 #----- Invariant checks (project convention: a failing check stops the run)
 
 # Plausibility of the single-age schedule: mortality should rise with age
-mx_chk <- city_single[order(year, age), .(age, mx = death / pop), by = year]
-mx_chk[, drop := shift(mx) / mx - 1, by = year]
+# The check targets the PCLM schedule, so it is applied within age groups. At
+# group boundaries (74->75, 84->85) steps come from Masselot's age-group-specific
+# city factors (city/national mortality ratios can differ by group); these are
+# by design and only reported (e.g. Wilhelmshaven: -5.4% at 74->75).
+mx_chk <- city_single[order(year, age), .(age, agegroup, mx = death / pop), by = year]
+mx_chk[, drop := shift(mx) / mx - 1, by = .(year, agegroup)]
 max_mx_drop <- max(0, mx_chk$drop, na.rm = TRUE)
+mx_chk[, drop_any := shift(mx) / mx - 1, by = year]
+max_mx_step_boundary <- max(0, mx_chk[age %in% c(75L, 85L)]$drop_any, na.rm = TRUE)
 
 # Calibration invariant: applying the city factors to the national 2000-2014
 # mean must return the EUcityTRM baseline exactly (Masselot 2025 definition).
@@ -547,7 +519,7 @@ checks <- data.table(
     sprintf("max_pop_diff=%0.3e; max_death_diff=%0.3e", max(recon_check$pop_abs_diff), max(recon_check$death_abs_diff)),
     sprintf("max_pop_share=%0.6f; max_death_share=%0.6f", max(share_tbl$pop_share), max(share_tbl$death_share)),
     sprintf("max_rel_err=%0.2e", max(calib_check$rel_err)),
-    sprintf("max relative decline in single-age mx between consecutive ages = %.4f", max_mx_drop),
+    sprintf("max relative decline within age groups = %.4f; at group boundaries 74/75, 84/85 = %.4f (calibration step, not checked)", max_mx_drop, max_mx_step_boundary),
     sprintf("scale_factor=%d; unit=persons", pclm_input_scale),
     sprintf("converged_rows=%d/%d", sum(pclm_diag$convergence_ok), nrow(pclm_diag)),
     sprintf("lambda_min=%0.6f; lambda_max=%0.6f", min(pclm_diag$selected_lambda, na.rm = TRUE), max(pclm_diag$selected_lambda, na.rm = TRUE)),
@@ -567,7 +539,7 @@ checks <- data.table(
     "<= 1e-9",
     "finite shares",
     "2000-2014 mean of calibrated city series equals EUcityTRM baseline (<= 1e-12)",
-    "mortality essentially increasing with age: no decline > 5% between consecutive ages 65-100",
+    "mortality essentially increasing with age: no decline > 5% between consecutive ages within each age group",
     sprintf("input conversion factor %d to persons", pclm_input_scale),
     "all PCLM fits converge or all-zero",
     "finite lambda or all-zero",
@@ -613,7 +585,7 @@ p <- ggplot(plot_group, aes(x = year, y = value, color = agegroup)) +
   geom_line(linewidth = 0.6) +
   facet_wrap(~measure, scales = "free_y") +
   labs(
-    title = "Madrid SSP3-7.0 demographic projection diagnostic",
+    title = sprintf("%s %s demographic projection diagnostic", city_name, ssplabs[ssp_name]),
     subtitle = sprintf("City %s (%s); piecewise-constant annualization from 5-year source snapshots", city_name, city_id),
     x = "Year",
     y = "Count"

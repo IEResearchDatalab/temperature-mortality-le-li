@@ -11,6 +11,8 @@ Current stage: **single-city validation (Madrid, ES001C, SSP3-7.0, one GCM, cent
 
 ## Pipeline (`R_pipeline/`)
 
+All packages and analysis parameters (city, SSP, GCM, periods, ERF specification, temperature ranges, counterfactual, PCLM and decomposition settings, output folders) are set in `R_pipeline/00_pkg_params.R`. Every script sources that file, so a different city, SSP or GCM only needs changing there. The structure and parameter names follow Masselot & Gasparrini (2025) `01_pkg_params.R` (`histrange`, `projrange`, `perlen`, `varfun`, `varper`, `predper`, `agelabs`, `gcmexcl`, …).
+
 Run the scripts in order from the repository root:
 
 ```bash
@@ -25,15 +27,50 @@ Rscript R_pipeline/05_figures.R
 
 | Script | Step |
 |---|---|
+| `00_pkg_params.R` | Packages and analysis parameters (sourced by every script, not run on its own) |
 | `00a_prep_temperature.R` | Builds `data/prep_data.RData`: the observed ERA5-Land series and per-city thresholds (MMT, 2.5th/97.5th percentiles of 1990–2019) |
 | `00_demography.R` | Wittgenstein Centre population and deaths (SSP-specific), scaled to the city, disaggregated to single ages 65–100+ |
 | `01_attribution.R` | Daily ANs by age group (65–74, 75–84, 85+) and temperature range, with and without climate change |
 | `02_single_age.R` | Grouped ANs allocated to single ages 65–100+ |
 | `03_master_table.R` | The "dataset for analysis" (Lloyd et al. 2024, Fig S1): population and deaths by cause (4 ranges + rest) by single age |
-| `04_le_li_decomposition.R` | Period life tables and LE65/LI65+ levels (`04_le_li_levels.csv`). Horiuchi decomposition by age × cause of the year-on-year change within each branch (`04_le/li_decomposition.csv`), and of the with − without CC difference per 5-year period (`04_between_branch_decomposition.csv`). Steps are cached, so a run can be resumed |
-| `05_figures.R` | Summary figures: (1) LE65/LI65+ trajectories with vs without CC and their gap (dual axis); (2) contributions by temperature range, 5-year age band and 20-year block (Lloyd 2024 Figs 3–4 layout); (3) age profile of the climate-change effect, ~2050 vs ~2090. Also `05_summary.csv` with headline numbers, including the CC effect as a % of the LE65 gain |
+| `04_le_li_decomposition.R` | Period life tables and LE65/LI65+ levels (`04_le_li_levels.csv`). Horiuchi decomposition by age × cause of the year-on-year change within each branch (`04_le/li_decomposition.csv`), of the change between consecutive 5-year-period means within each branch (`04_within_branch_period_decomposition.csv`), and of the with − without CC difference per 5-year period (`04_between_branch_decomposition.csv`). Steps are cached, so a run can be resumed |
+| `01b_ensemble.R` | Ensemble-mean ANs over the 19 GCMs (batch runs) |
+| `05_figures.R` | Summary figures: (1) LE65/LI65+ trajectories with vs without CC and their gap (dual axis); (2) contributions by temperature range, 5-year age band and ~20-year block, from changes between 5-year-period means (Lloyd 2024 Figs 3–4 layout); (3) age profile of the climate-change effect, ~2050 vs ~2090. Also `05_summary.csv` with headline numbers, including the CC effect as a % of the LE65 gain |
+| `06_collect.R` | Collects batch results into the three data objects (parquet) |
+| `run_batch.sh` | Batch runner: cities × 19 GCMs × one SSP, parallel and resumable |
 
 Each script stops with an error if any of its invariant checks fails. Check results are written to `results/checks/`, outputs to `results/phase1_madrid/`, and diagnostic figures to `results/figures/`.
+
+## Batch runs: all cities × 19 GCMs × SSPs
+
+```bash
+Rscript R_pipeline/00a_prep_temperature.R            # once
+R_pipeline/run_batch.sh 3 all 32                     # SSP3-7.0, all 854 cities, 32 cores
+R_pipeline/run_batch.sh 3 my_cities.txt 8            # or a list of URAU codes (first column)
+Rscript R_pipeline/06_collect.R                      # objects 1-3 as parquet
+```
+
+`run_batch.sh` works through three stages. Scripts take their settings from environment variables (`CITY_ID`, `SSP`, `GCM`, `OUT_DIR`, `DEMOG_DIR`, …) that override the defaults in `00_pkg_params.R`.
+
+1. **Demography:** Part 00 for each city.
+2. **City × GCM:** Parts 01–03 and the Part 04 LE/LI levels for each GCM, which give the per-GCM uncertainty.
+3. **Ensemble:** Part 01b takes the mean ANs over the 19 GCMs (Masselot's ensemble of point estimates), then Parts 02–04 run the decompositions.
+
+Other behaviour:
+
+- Output goes to `results/europe/ssp<k>/<city>/{demography,<GCM>,ENSEMBLE}/`.
+- Finished jobs leave a `.done` marker, so a run can be restarted and resumes. Failures are listed in `failed.txt`.
+- Part 04 runs only the 5-year-period decompositions (`DECOMP_ANNUAL=0`) with N = 50. On Madrid these give the same result as N = 400 to 6 decimals.
+
+`06_collect.R` writes the three data objects agreed on 10 Sep, at the most disaggregated level:
+
+| File | Contents |
+|---|---|
+| `object1_dataset.parquet` | Deaths by cause and population by city × SSP × scenario × year × single age |
+| `object2_contributions.parquet` | Horiuchi contributions by city × SSP × age × cause, with vs without CC and between periods |
+| `object3_levels.parquet` | LE65 and LI65+ by city × SSP × scenario × year, for the ensemble and each GCM |
+
+Cost measured on 2 cores: about 30 s per city × GCM job and 1–2 min per city ensemble. One SSP for all 854 cities is therefore about 140 CPU-hours (roughly 4–5 h on 32 cores), and about 15 GB of disk.
 
 ## Method choices and their source
 
@@ -46,7 +83,7 @@ Every choice below follows a reference implementation. If something deviates, it
 | Single ages (population, deaths) | PCLM (`ungroup::pclm`, BIC λ, person-scale counts) on the national 5-year bands 65–69 … 95–99, 100+. The open group is spread over 100–110 (`nlast = 11`) and collapsed back into 100+. Checked against observed Eurostat single-age data (LE65 error 0.007 y) | Rizzi et al. 2015; Simon's methods draft 2.5; meeting 10 Sep §2.4 |
 | Single-age ANs | Each group's attributable fraction applied to the PCLM single-age deaths, so AN ≤ deaths at every age | Simon's methods draft 2.5, option (b) (confirmed by Daniel 23 Sep) |
 | Life tables | Period life tables 65–100+, piecewise-constant hazard; LE65; LI65+ = SD of age at death conditional on reaching 65 | Lloyd 2024 `Code_1.R`, `Code_2.R` (Aburto 2022) |
-| Decomposition | Horiuchi (`DemoDecomp`, N = 400) by single age × cause (4 ranges + rest): (i) consecutive years within each branch, summable over periods and ages; (ii) with vs without CC on 5-year-period mean rates, where rest contributes 0 by construction | Lloyd 2024; Simon's methods draft 2.7 |
+| Decomposition | Horiuchi (`DemoDecomp`, N = 400) by single age × cause (4 ranges + rest): (i) consecutive years within each branch, summable over periods and ages, plus consecutive 5-year-period means (used for block figures, so single-year weather at block endpoints does not drive the result; Lloyd 2024 also decomposed multi-year average ANs); (ii) with vs without CC on 5-year-period mean rates, where rest contributes 0 by construction | Lloyd 2024; Simon's methods draft 2.7 |
 | ERF basis | `bs`, degree 2; knots at the 10/75/90th percentiles and boundaries at the range of the city's **full ERA5-Land series 1990–2019** (the series the ERFs were estimated on) | Masselot 2025 `03_attribution.R` (`tper`) |
 | Temperature projections (with climate change) | ISIMIP3BASD trend-preserving bias correction against ERA5 2000–2014, applied **by month × calibration period** (2015–29, 2030–39, …, 2090–99) | Masselot 2025 `03_attribution.R`, `functions/isimip3.R` |
 | Without-climate-change counterfactual | Masselot's `demo` series: each 5-year block of the calibrated GCM series is re-mapped with ISIMIP3 onto the calibrated 2010–2014 distribution. Day-to-day weather is kept and the warming trend removed. Option `counterfactual = "era5_cycle"` (observed 2000–2019 repeated) is kept for sensitivity analysis | Masselot 2025 `03_attribution.R`; Simon's methods draft 2.4.3; Simon 23 Sep ("do whatever Masselot did") |

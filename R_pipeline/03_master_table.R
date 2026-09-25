@@ -2,58 +2,39 @@
 
 ################################################################################
 #
-# Temperature-related mortality / life expectancy pipeline -- Madrid pilot
+# Temperature-related mortality and its impact on life expectancy and
+# lifespan inequality at older ages in European cities
 #
-# R Pipeline Step 03: Assemble the single-age master analysis table
-#   Combines Step 00's single-age demography (population, total deaths) with
-#   Step 02's single-age attributable numbers into one row per mortality
-#   component. The four temperature components and `rest` sum to all-cause
-#   deaths for each branch, year, and age.
+# R Pipeline Part 03: Dataset for analysis (Lloyd et al. 2024, Fig S1)
+#   Population and deaths by cause (4 temperature ranges + rest) by single age,
+#   year and branch. Rest = deaths - AN(without CC), identical in both branches;
+#   with CC, deaths = projected deaths + AN(with CC) - AN(without CC)
+#   (Simon, 18 Sep 2026; methods draft 2.5).
 #
 ################################################################################
 
-suppressPackageStartupMessages({
-  library(data.table)
-  library(ggplot2)
-})
+source("R_pipeline/00_pkg_params.R")
 
-message("\n[03] Assembling Madrid master analysis table...")
-
-out_dir <- "results/phase1_madrid"
-check_dir <- "results/checks"
-fig_dir <- "results/figures"
-dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
-dir.create(check_dir, recursive = TRUE, showWarnings = FALSE)
-dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
+message(sprintf("\n[03] Assembling %s master analysis table...", city_name))
 
 master_file <- file.path(out_dir, "03_master_table.csv")
 checks_file <- file.path(check_dir, "03_master_checks.csv")
 failures_file <- file.path(check_dir, "03_master_failures.csv")
 fig_file <- file.path(fig_dir, "03_master_table_diagnostic.png")
 
-city_id <- "ES001C"
-city_name <- "Madrid"
-ssp_target <- 3L
-gcm_target <- "GFDL_ESM4"
-branch_levels <- c("with_cc", "without_cc")
-range_levels <- c("ExtrCold", "ModCold", "ModHeat", "ExtrHeat")
-cause_levels <- c(range_levels, "rest")
-age_levels <- 65:100
-year_levels <- 2020:2099
+#----- Load Part 00/02 outputs and restrict to the city/SSP/GCM domain
 
-#----- Load Step 00/02 outputs and restrict to the Madrid/SSP3/GCM domain
-
-grouped_dem <- fread(file.path(out_dir, "00_demography_grouped.csv"))
-single_dem <- fread(file.path(out_dir, "00_demography_single_age.csv"))
+grouped_dem <- fread(file.path(dem_dir, "00_demography_grouped.csv"))
+single_dem <- fread(file.path(dem_dir, "00_demography_single_age.csv"))
 single_an <- fread(file.path(out_dir, "02_single_age_an.csv"))
 
-grouped_dem <- grouped_dem[geo_id == city_id & ssp == ssp_target]
-single_dem <- single_dem[geo_id == city_id & ssp == ssp_target]
-single_an <- single_an[geo_id == city_id & ssp == ssp_target & gcm == gcm_target]
+grouped_dem <- grouped_dem[geo_id == city_id & ssp == as.integer(ssp_name)]
+single_dem <- single_dem[geo_id == city_id & ssp == as.integer(ssp_name)]
+single_an <- single_an[geo_id == city_id & ssp == as.integer(ssp_name) & gcm == gcm_name]
 
-if (!nrow(grouped_dem)) stop("Grouped demography missing for Madrid.", call. = FALSE)
-if (!nrow(single_dem)) stop("Single-age demography missing for Madrid.", call. = FALSE)
-if (!nrow(single_an)) stop("Single-age AN missing for Madrid.", call. = FALSE)
+if (!nrow(grouped_dem)) stop("Grouped demography missing for the city.", call. = FALSE)
+if (!nrow(single_dem)) stop("Single-age demography missing for the city.", call. = FALSE)
+if (!nrow(single_an)) stop("Single-age AN missing for the city.", call. = FALSE)
 
 grouped_dem <- grouped_dem[agegroup %in% c("65-74", "75-84", "85+")]
 single_dem <- single_dem[age %in% age_levels]
@@ -71,8 +52,8 @@ if (any(!is.finite(single_an$an)) || any(!is.finite(single_an$weight))) {
 
 #----- Build the full (branch x year x age x range) domain
 
-dem_grid <- CJ(year = year_levels, age = age_levels)
-an_grid <- CJ(year = year_levels, age = age_levels, range = range_levels, branch = branch_levels)
+dem_grid <- CJ(year = future_years, age = age_levels)
+an_grid <- CJ(year = future_years, age = age_levels, range = range_levels, branch = branch_levels)
 
 dem_keys <- single_dem[, .(year, age)]
 an_keys <- single_an[, .(year, branch, age, range)]
@@ -87,7 +68,7 @@ if (nrow(fsetdiff(an_grid, an_keys_unique)) || nrow(fsetdiff(an_keys_unique, an_
   stop("Single-age AN primary keys are incomplete.", call. = FALSE)
 }
 
-#----- Merge attributable numbers (Step 02) with single-age demography (Step 00)
+#----- Merge attributable numbers (Part 02) with single-age demography (Part 00)
 master <- merge(
   an_grid,
   single_an,
@@ -113,7 +94,7 @@ master <- merge(
 )
 
 if (anyNA(master$source_agegroup) || anyNA(master$agegroup) || any(master$source_agegroup != master$agegroup)) {
-  stop("Step 00 and Step 02 age-band mappings disagree.", call. = FALSE)
+  stop("Part 00 and Part 02 age-band mappings disagree.", call. = FALSE)
 }
 
 without_cc_temp <- master[branch == "without_cc", .(without_cc_temp_deaths = sum(an)), by = .(year, age)]
@@ -128,8 +109,8 @@ master[branch == "without_cc", adjusted_death := death]
 master[, `:=`(
   geo_id = city_id,
   label = city_name,
-  ssp = ssp_target,
-  gcm = gcm_target,
+  ssp = as.integer(ssp_name),
+  gcm = gcm_name,
   temp_deaths = age_temp_deaths
 )]
 
@@ -160,7 +141,7 @@ master[, source_agegroup := as.character(source_agegroup)]
 
 #----- Invariant checks (project convention: a failing check stops the run)
 
-full_grid <- CJ(branch = branch_levels, year = year_levels, age = age_levels, range = cause_levels)
+full_grid <- CJ(branch = branch_levels, year = future_years, age = age_levels, range = cause_levels)
 
 key_cols <- c("geo_id", "label", "ssp", "gcm", "branch", "year", "age", "range")
 duplicate_rows <- master[duplicated(master, by = key_cols) | duplicated(master, by = key_cols, fromLast = TRUE)]
@@ -330,8 +311,8 @@ p <- ggplot(plot_dt, aes(x = year, y = value, color = measure)) +
   geom_line(linewidth = 0.7) +
   facet_wrap(~branch, scales = "free_y") +
   labs(
-    title = "Madrid master table diagnostic",
-    subtitle = sprintf("Demographics, AN, and rest mortality; GCM=%s", gcm_target),
+    title = sprintf("%s master table diagnostic", city_name),
+    subtitle = sprintf("Demographics, AN, and rest mortality; GCM=%s", gcm_name),
     x = "Year",
     y = "Count"
   ) +
