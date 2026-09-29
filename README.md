@@ -37,8 +37,12 @@ Rscript pipeline/05_figures.R
 | `01b_ensemble.R` | Ensemble-mean ANs over the 19 GCMs (batch runs) |
 | `05_figures.R` | Summary figures: (1) LE65/LI65+ trajectories with vs without CC and their gap (dual axis); (2) contributions by temperature range, 5-year age band and ~20-year block, from changes between 5-year-period means (Lloyd 2024 Figs 3–4 layout); (3) age profile of the climate-change effect, ~2050 vs ~2090. Also `05_summary.csv` with headline numbers, including the CC effect as a % of the LE65 gain |
 | `06_collect.R` | Collects batch results into the three data objects (parquet) |
+| `07_pooled_le_li.R` | Sums city population and deaths by cause, then constructs pooled country, regional or European life tables and Horiuchi decompositions; also reports the share of 90+ contributions arising at ages 98+ |
+| `08_pooled_figures.R` | Pooled figures with 10-year-smoothed trajectories, the with-minus-without-CC gap, age/cause decompositions and cumulative contributions to LE65 change |
+| `09_pooled_overview.R` | Cross-geography European, regional and country summaries; regional comparison and country ranking figures (Southern Europe is orange, not blue) |
 | `run_batch.sh` | Batch runner: cities × 19 GCMs × one SSP, parallel and resumable |
 | `run_figures.sh` | Figure runner: Part 05 for every city whose ensemble finished, parallel and resumable |
+| `run_pooled.sh` | Pooled-analysis runner for Europe, the four regions and all countries, parallel and resumable |
 
 Each script stops with an error if any of its invariant checks fails. Run on its own, a script writes checks to `results/checks/`, outputs to `results/phase1_madrid/` and figures to `results/figures/` (defaults in `00_pkg_params.R`). The batch runners write to per-city folders instead (see below).
 
@@ -50,6 +54,7 @@ pipeline/run_batch.sh 3 all 32                     # SSP3-7.0, all 854 cities, 3
 pipeline/run_batch.sh 3 my_cities.txt 8            # or a list of URAU codes (first column)
 Rscript pipeline/06_collect.R                      # objects 1-3 as parquet
 nohup pipeline/run_figures.sh 3 32 > figures_ssp3.log 2>&1 &   # Part 05 per city, in the background
+nohup pipeline/run_pooled.sh 3 4 > pooled_ssp3.log 2>&1 &       # pooled Europe/region/country results
 ```
 
 `run_batch.sh` works through three stages. Scripts take their settings from environment variables (`CITY_ID`, `SSP`, `GCM`, `OUT_DIR`, `DEMOG_DIR`, …) that override the defaults in `00_pkg_params.R`.
@@ -72,6 +77,12 @@ Other behaviour:
 | `object1_dataset.parquet` | Deaths by cause and population by city × SSP × scenario × year × single age |
 | `object2_contributions.parquet` | Horiuchi contributions by city × SSP × age × cause, with vs without CC and between periods |
 | `object3_levels.parquet` | LE65 and LI65+ by city × SSP × scenario × year, for the ensemble and each GCM |
+
+`run_pooled.sh` implements the aggregation decision from 25 Sep: attributable
+deaths remain city-specific through Part 06; for each reporting geography,
+Part 07 sums population and deaths by cause across its cities before building a
+life table. It never averages city ERFs, city LE/LI values or city decomposition
+contributions. Outputs are under `results/europe/pooled/ssp<k>/`.
 
 Cost measured on 2 cores: about 30 s per city × GCM job and 1–2 min per city ensemble. One SSP for all 854 cities is therefore about 140 CPU-hours (roughly 4–5 h on 32 cores), and about 15 GB of disk.
 
