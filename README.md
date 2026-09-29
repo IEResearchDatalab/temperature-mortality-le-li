@@ -11,69 +11,42 @@ Current stage: **batch runs for all 854 cities × 19 GCMs** (SSP3-7.0 first; cen
 
 ## Pipeline (`pipeline/`)
 
-All packages and analysis parameters (city, SSP, GCM, periods, ERF specification, temperature ranges, counterfactual, PCLM and decomposition settings, output folders) are set in `pipeline/00_pkg_params.R`. Every script sources that file, so a different city, SSP or GCM only needs changing there. The structure and parameter names follow Masselot & Gasparrini (2025) `01_pkg_params.R` (`histrange`, `projrange`, `perlen`, `varfun`, `varper`, `predper`, `agelabs`, `gcmexcl`, …).
+The scientific pipeline has exactly five ordered scripts. This deliberate structure stays close to Masselot's code and makes each transformation easy to review. `pipeline/00_pkg_params.R` contains configuration and is sourced by each step; it is not a sixth step.
 
-Run the scripts in order from the repository root:
+| Script | Scientific step | Established output |
+|---|---|---|
+| `00_prep_data.R` | Prepare the common ERA5 series and thresholds, and prepare SSP-specific city demography at grouped and single ages | `data/prep_data.RData`, `00_demography_grouped.csv`, `00_demography_single_age.csv` |
+| `01_attribution.R` | Calculate grouped temperature-attributable deaths for one GCM, or the ensemble mean when `GCM=ENSEMBLE` | `01_attribution_grouped.csv` |
+| `02_single_age.R` | Allocate grouped attributable deaths to single ages 65–100+ | `02_single_age_an.csv` |
+| `03_master_table.R` | Construct the cause-specific analysis dataset for a city; collect Object 1; or sum city counts to a country, region or Europe | `03_master_table.csv`, `object1_dataset.parquet` |
+| `04_le_li_decomposition.R` | Construct LE65/LI65+ and Horiuchi decompositions from any Part 03 table; collect Objects 2 and 3 | `04_le_li_levels.csv`, decomposition CSVs, `object2_contributions.parquet`, `object3_levels.parquet` |
 
-```bash
-Rscript pipeline/00a_prep_temperature.R
-Rscript pipeline/00_demography.R
-Rscript pipeline/01_attribution.R
-Rscript pipeline/02_single_age.R
-Rscript pipeline/03_master_table.R
-Rscript pipeline/04_le_li_decomposition.R
-Rscript pipeline/05_figures.R
-```
+The same Parts 03 and 04 implement every geographical level. For pooled geographies, Part 03 sums population and deaths by cause across cities before Part 04 constructs mortality rates, life tables and decompositions. City ERFs, LE/LI values and decomposition contributions are never averaged.
 
-| Script | Step |
-|---|---|
-| `00_pkg_params.R` | Packages and analysis parameters (sourced by every script, not run on its own) |
-| `00a_prep_temperature.R` | Builds `data/prep_data.RData`: the observed ERA5-Land series and per-city thresholds (MMT, 2.5th/97.5th percentiles of 1990–2019) |
-| `00_demography.R` | Wittgenstein Centre population and deaths (SSP-specific), scaled to the city, disaggregated to single ages 65–100+ |
-| `01_attribution.R` | Daily ANs by age group (65–74, 75–84, 85+) and temperature range, with and without climate change |
-| `02_single_age.R` | Grouped ANs allocated to single ages 65–100+ |
-| `03_master_table.R` | The "dataset for analysis" (Lloyd et al. 2024, Fig S1): population and deaths by cause (4 ranges + rest) by single age |
-| `04_le_li_decomposition.R` | Period life tables and LE65/LI65+ levels (`04_le_li_levels.csv`). Horiuchi decomposition by age × cause of the year-on-year change within each branch (`04_le/li_decomposition.csv`), of the change between consecutive 5-year-period means within each branch (`04_within_branch_period_decomposition.csv`), and of the with − without CC difference per 5-year period (`04_between_branch_decomposition.csv`). Steps are cached, so a run can be resumed |
-| `01b_ensemble.R` | Ensemble-mean ANs over the 19 GCMs (batch runs) |
-| `05_figures.R` | Summary figures: (1) LE65/LI65+ trajectories with vs without CC and their gap (dual axis); (2) contributions by temperature range, 5-year age band and ~20-year block, from changes between 5-year-period means (Lloyd 2024 Figs 3–4 layout); (3) age profile of the climate-change effect, ~2050 vs ~2090. Also `05_summary.csv` with headline numbers, including the CC effect as a % of the LE65 gain |
-| `06_collect.R` | Collects batch results into the three data objects (parquet) |
-| `07_pooled_le_li.R` | Sums city population and deaths by cause, then constructs pooled country, regional or European life tables and Horiuchi decompositions; also reports the share of 90+ contributions arising at ages 98+ |
-| `08_pooled_figures.R` | Pooled figures with 10-year-smoothed trajectories, the with-minus-without-CC gap, age/cause decompositions and the cumulative climate-change contribution to the LE65 gain |
-| `09_pooled_overview.R` | Cross-geography European, regional and country summaries; regional comparison and country ranking figures (Southern Europe is orange, not blue) |
-| `run_batch.sh` | Batch runner: cities × 19 GCMs × one SSP, parallel and resumable |
-| `run_figures.sh` | Figure runner: Part 05 for every city whose ensemble finished, parallel and resumable |
-| `run_pooled.sh` | Pooled-analysis runner for Europe, the four regions and all countries, parallel and resumable |
-
-Each script stops with an error if any of its invariant checks fails. Run on its own, a script writes checks to `results/checks/`, outputs to `results/phase1_madrid/` and figures to `results/figures/` (defaults in `00_pkg_params.R`). The batch runners write to per-city folders instead (see below).
+Each step writes invariant checks next to its scientific output and stops on failure. The main pipeline does not generate manuscript figures or tables.
 
 ## Batch runs: all cities × 19 GCMs × SSPs
 
 ```bash
-Rscript pipeline/00a_prep_temperature.R            # once
-pipeline/run_batch.sh 3 all 32                     # SSP3-7.0, all 854 cities, 32 cores
-pipeline/run_batch.sh 3 my_cities.txt 8            # or a list of URAU codes (first column)
-Rscript pipeline/06_collect.R                      # objects 1-3 as parquet
-nohup pipeline/run_figures.sh 3 32 > figures_ssp3.log 2>&1 &   # Part 05 per city, in the background
-nohup pipeline/run_pooled.sh 3 4 > pooled_ssp3.log 2>&1 &       # pooled Europe/region/country results
+./run_pipeline.sh 3 all 32                         # SSP3-7.0, all levels, 32 cores
+./run_pipeline.sh 3 my_cities.txt 8                # partial city run; pooled levels are skipped
+nohup analysis/run_city_figures.sh 3 32 > figures_ssp3.log 2>&1 &
+nohup analysis/run_geography_results.sh 3 4 > geography_results_ssp3.log 2>&1 &
 Rscript analysis/moderate_heat_erf_diagnostic.R                # ERF/threshold diagnostic requested on 25 Sep
 CITY_ID=ES001C Rscript analysis/temperature_pattern_diagnostic.R # 19-GCM temperature pattern diagnostic
 CITY_ID=ES001C Rscript analysis/demography_temperature_gap_diagnostic.R # exact two-factor LE-gap diagnostic
 ```
 
-`run_batch.sh` works through three stages. Scripts take their settings from environment variables (`CITY_ID`, `SSP`, `GCM`, `OUT_DIR`, `DEMOG_DIR`, …) that override the defaults in `00_pkg_params.R`.
-
-1. **Demography:** Part 00 for each city.
-2. **City × GCM:** Parts 01–03 and the Part 04 LE/LI levels for each GCM, which give the per-GCM uncertainty.
-3. **Ensemble:** Part 01b takes the mean ANs over the 19 GCMs (Masselot's ensemble of point estimates), then Parts 02–04 run the decompositions.
+`run_pipeline.sh` is orchestration only. It repeats the five scripts across cities and GCMs, calculates the ensemble in Part 01, collects Object 1 in Part 03, and then applies Parts 03–04 to countries, regions and Europe. Settings come from environment variables (`CITY_ID`, `GEO_LEVEL`, `GEO_ID`, `SSP`, `GCM`, `OUT_DIR`, `DEMOG_DIR`, …) that override `00_pkg_params.R`.
 
 Other behaviour:
 
 - Output goes to `results/europe/ssp<k>/<city>/{demography,<GCM>,ENSEMBLE}/`.
 - Finished jobs leave a `.done` marker, so a run can be restarted and resumes. Failures are listed in `failed.txt`.
-- `run_figures.sh` writes `ENSEMBLE/figures/05_fig*.png` and `ENSEMBLE/05_summary.csv` per city, skips cities that already have all three figures (`FORCE=1` redoes them) and lists failures in `figures_failed.txt`.
+- Result scripts under `analysis/` generate figures and manuscript summaries only after the pipeline is complete.
 - Part 04 runs only the 5-year-period decompositions (`DECOMP_ANNUAL=0`) with N = 50. On Madrid these give the same result as N = 400 to 6 decimals.
 
-`06_collect.R` writes the three data objects agreed on 10 Sep, at the most disaggregated level:
+Parts 03 and 04 write the three data objects agreed on 10 Sep:
 
 | File | Contents |
 |---|---|
@@ -81,11 +54,7 @@ Other behaviour:
 | `object2_contributions.parquet` | Horiuchi contributions by city × SSP × age × cause, with vs without CC and between periods |
 | `object3_levels.parquet` | LE65 and LI65+ by city × SSP × scenario × year, for the ensemble and each GCM |
 
-`run_pooled.sh` implements the aggregation decision from 25 Sep: attributable
-deaths remain city-specific through Part 06; for each reporting geography,
-Part 07 sums population and deaths by cause across its cities before building a
-life table. It never averages city ERFs, city LE/LI values or city decomposition
-contributions. Outputs are under `results/europe/pooled/ssp<k>/`.
+Pooled outputs are under `results/europe/geographies/ssp<k>/`. Figures, smoothing, rankings, headline summaries and paper tables are deliberately outside `pipeline/` in `analysis/`.
 
 Cost measured on 2 cores: about 30 s per city × GCM job and 1–2 min per city ensemble. One SSP for all 854 cities is therefore about 140 CPU-hours (roughly 4–5 h on 32 cores), and about 15 GB of disk.
 
@@ -136,7 +105,7 @@ All of these come from the Masselot et al. (2025) data archive, Zenodo [10.5281/
 | `wittgenstein_assr.csv` | 5 MB | 00 | Wittgenstein Centre age-specific survival ratios, same breakdown |
 | `coef_simu.csv` | 470 MB | (uncertainty, not yet used) | Monte Carlo draws of the ERF coefficients (Masselot et al. 2023 record, 10.5281/zenodo.10288665) |
 
-`data/prep_data.RData` is a derived file built by `pipeline/00a_prep_temperature.R` from `era5series.gz.parquet` and `city_results.csv`. It is also not committed.
+`data/prep_data.RData` is a derived file built by the temperature mode of `pipeline/00_prep_data.R` from `era5series.gz.parquet` and `city_results.csv`. It is also not committed.
 
 ## Environment
 

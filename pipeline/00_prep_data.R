@@ -5,8 +5,17 @@
 # Temperature-related mortality and its impact on life expectancy and
 # lifespan inequality at older ages in European cities
 #
-# Pipeline Part 00: Demographic projections, grouped and single-age
-#   Follows Masselot & Gasparrini (2025) 02_prep_data.R: Wittgenstein
+# Pipeline Part 00: Prepare temperature and demographic inputs
+#   Follows the role of Masselot & Gasparrini (2025) 02_prep_data.R. The
+#   temperature mode prepares the common ERA5 series, MMTs and extreme-range
+#   thresholds. The demographic mode prepares one city's grouped and
+#   single-age population and deaths from the Wittgenstein projections.
+#
+#   PREP_SCOPE=temperature  common input, run once
+#   PREP_SCOPE=demography   one city/SSP (default)
+#   PREP_SCOPE=all          both operations
+#
+#   Demography uses Wittgenstein
 #   population and survival ratios (SSP-specific, both sexes), annual deaths
 #   = pop x (1 - ASSR) / 5, scaled to the city by age-group factors computed
 #   against the national 2000-2014 mean. National 5-year bands are then
@@ -16,13 +25,101 @@
 
 source("pipeline/00_pkg_params.R")
 
+prep_scope <- tolower(Sys.getenv("PREP_SCOPE", "demography"))
+if (!prep_scope %in% c("temperature", "demography", "all")) {
+  stop("PREP_SCOPE must be temperature, demography or all.", call. = FALSE)
+}
+
+#------------------------
+# OBSERVED TEMPERATURE AND THRESHOLDS
+#------------------------
+
+if (prep_scope %in% c("temperature", "all")) {
+  message("\n[00] Building observed temperature series and thresholds...")
+
+  era5 <- as.data.table(read_parquet("data/era5series.gz.parquet"))
+  city_results <- fread("data/city_results.csv")
+
+  obs_data <- era5[, .(
+    URAU_CODE,
+    date = as.IDate(date),
+    tmean_obs = as.numeric(era5landtmean)
+  )]
+  setorder(obs_data, URAU_CODE, date)
+
+  pct <- obs_data[year(date) %between% threshold_years, .(
+    p2_5 = as.numeric(quantile(tmean_obs, extreme_probs[["p2_5"]], na.rm = TRUE)),
+    p97_5 = as.numeric(quantile(tmean_obs, extreme_probs[["p97_5"]], na.rm = TRUE))
+  ), by = URAU_CODE]
+
+  coefs <- fread("data/coefs.csv")
+  mmt_tbl <- obs_data[, {
+    tper <- quantile(tmean_obs, predper / 100)
+    argvar <- list(
+      fun = varfun,
+      degree = vardegree,
+      knots = tper[paste0(varper, ".0%")],
+      Bound = range(tper)
+    )
+    bper <- suppressWarnings(do.call(onebasis, c(list(x = tper), argvar)))
+    ind <- tper >= tper["25.0%"] & tper <= tper["99.0%"]
+    cc <- coefs[URAU_CODE == .BY$URAU_CODE]
+    list(
+      agegroup = cc$agegroup,
+      mmt = vapply(seq_len(nrow(cc)), function(i) {
+        b <- as.numeric(cc[i, .(b1, b2, b3, b4, b5)])
+        as.numeric(tper[ind][which.min(drop(bper[ind, ] %*% b))])
+      }, numeric(1))
+    )
+  }, by = URAU_CODE]
+
+  thresholds <- merge(city_results, pct, by = "URAU_CODE", all.x = TRUE, sort = TRUE)
+  setnames(thresholds, "mmt", "mmt_2023")
+  thresholds <- merge(
+    thresholds,
+    mmt_tbl,
+    by = c("URAU_CODE", "agegroup"),
+    all.x = TRUE,
+    sort = TRUE
+  )
+  setkey(thresholds, URAU_CODE)
+  cities <- sort(unique(city_results$URAU_CODE))
+
+  temperature_checks <- data.table(
+    check_name = c(
+      "all_cities_have_obs", "obs_finite", "thresholds_complete",
+      "p2_5_below_p97_5", "obs_period", "mmt_finite"
+    ),
+    status = c(
+      if (setequal(cities, unique(obs_data$URAU_CODE))) "PASS" else "FAIL",
+      if (all(is.finite(obs_data$tmean_obs))) "PASS" else "FAIL",
+      if (!anyNA(thresholds[, .(p2_5, p97_5, mmt)])) "PASS" else "FAIL",
+      if (all(thresholds$p2_5 < thresholds$p97_5)) "PASS" else "FAIL",
+      if (all(range(year(obs_data$date)) == threshold_years)) "PASS" else "FAIL",
+      if (all(is.finite(thresholds$mmt))) "PASS" else "FAIL"
+    )
+  )
+  fwrite(temperature_checks, file.path(check_dir, "00_temperature_checks.csv"))
+  if (any(temperature_checks$status == "FAIL")) {
+    stop("Temperature preparation failed its invariant checks.", call. = FALSE)
+  }
+
+  save(obs_data, thresholds, cities, file = "data/prep_data.RData")
+  message("Saved data/prep_data.RData (", length(cities), " cities)")
+}
+
+if (prep_scope == "temperature") quit(save = "no")
+
+#------------------------
+# DEMOGRAPHIC PROJECTIONS
+#------------------------
+
 message(sprintf("\n[00] Building %s %s demographic tables...", city_name, ssplabs[ssp_name]))
 
 grouped_file <- file.path(dem_dir, "00_demography_grouped.csv")
 single_file <- file.path(dem_dir, "00_demography_single_age.csv")
 checks_file <- file.path(check_dir, "00_demography_checks.csv")
 failures_file <- file.path(check_dir, "00_demography_failures.csv")
-fig_file <- file.path(fig_dir, "00_demography_diagnostic.png")
 
 #----- Wittgenstein 5-year bands used for ages 65+
 
@@ -567,7 +664,7 @@ if (any(checks$status == "FAIL")) {
 fwrite(checks, checks_file)
 if (nrow(failures)) {
   fwrite(failures, failures_file)
-  stop(sprintf("00_demography.R failed %d invariant(s); see %s", nrow(failures), failures_file), call. = FALSE)
+  stop(sprintf("00_prep_data.R failed %d invariant(s); see %s", nrow(failures), failures_file), call. = FALSE)
 } else {
   if (file.exists(failures_file)) file.remove(failures_file)
   file.create(failures_file)
@@ -576,25 +673,6 @@ if (nrow(failures)) {
 fwrite(city_grouped, grouped_file)
 fwrite(city_single, single_file)
 
-#----- Diagnostic figure
-
-plot_group <- city_grouped[, .(pop = sum(pop), death = sum(death)), by = .(year, agegroup)]
-plot_group <- melt(plot_group, id.vars = c("year", "agegroup"), variable.name = "measure", value.name = "value")
-
-p <- ggplot(plot_group, aes(x = year, y = value, color = agegroup)) +
-  geom_line(linewidth = 0.6) +
-  facet_wrap(~measure, scales = "free_y") +
-  labs(
-    title = sprintf("%s %s demographic projection diagnostic", city_name, ssplabs[ssp_name]),
-    subtitle = sprintf("City %s (%s); piecewise-constant annualization from 5-year source snapshots", city_name, city_id),
-    x = "Year",
-    y = "Count"
-  ) +
-  theme_minimal(base_size = 11)
-
-ggsave(fig_file, p, width = 10, height = 6, dpi = 160)
-
 message("Saved grouped demography to ", grouped_file)
 message("Saved single-age demography to ", single_file)
 message("Saved checks to ", checks_file)
-message("Saved diagnostic figure to ", fig_file)

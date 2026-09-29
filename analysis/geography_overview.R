@@ -5,7 +5,9 @@
 # Temperature-related mortality and its impact on life expectancy and
 # lifespan inequality at older ages in European cities
 #
-# Pipeline Part 09: Cross-geography pooled summary
+# Auxiliary results: cross-geography pooled summary
+#   This script reads completed pipeline outputs. It is not one of the five
+#   scientific pipeline steps.
 #   Combines the independently constructed European, regional and country
 #   pooled life tables. Southern Europe is deliberately shown in orange, not
 #   blue, following Simon Lloyd's presentation guidance.
@@ -14,7 +16,7 @@
 
 source("pipeline/00_pkg_params.R")
 
-root <- Sys.getenv("POOLED_ROOT", file.path("results/europe/pooled", paste0("ssp", ssp_name)))
+root <- Sys.getenv("GEOGRAPHY_ROOT", file.path("results/europe/geographies", paste0("ssp", ssp_name)))
 if (!dir.exists(root)) stop("Missing pooled-results root: ", root, call. = FALSE)
 
 meta <- unique(fread("data/city_results.csv")[, .(
@@ -31,10 +33,10 @@ geo_def[, level_order := NULL]
 
 read_one <- function(level, id, label) {
   d <- file.path(root, level, id)
-  lev_file <- file.path(d, "07_le_li_levels.csv")
-  bet_file <- file.path(d, "07_between_branch_decomposition.csv")
-  win_file <- file.path(d, "07_within_branch_period_decomposition.csv")
-  chk_file <- file.path(d, "checks", "07_pooled_checks.csv")
+  lev_file <- file.path(d, "04_le_li_levels.csv")
+  bet_file <- file.path(d, "04_between_branch_decomposition.csv")
+  win_file <- file.path(d, "04_within_branch_period_decomposition.csv")
+  chk_file <- file.path(d, "checks", "03_master_checks.csv")
   if (!all(file.exists(c(lev_file, bet_file, win_file, chk_file)))) {
     stop("Incomplete pooled output: ", d, call. = FALSE)
   }
@@ -95,8 +97,8 @@ read_one <- function(level, id, label) {
 ans <- Map(read_one, geo_def$geo_level, geo_def$geo_id, geo_def$label)
 summary_dt <- rbindlist(lapply(ans, `[[`, "overall"), fill = TRUE)
 cause_dt <- rbindlist(lapply(ans, `[[`, "cause"), fill = TRUE)
-fwrite(summary_dt, file.path(root, "09_geography_summary.csv"))
-fwrite(cause_dt, file.path(root, "09_geography_cause_summary.csv"))
+fwrite(summary_dt, file.path(root, "geography_summary.csv"))
+fwrite(cause_dt, file.path(root, "geography_cause_summary.csv"))
 
 region_colors <- c(
   "Eastern Europe" = "#E6AB02",
@@ -126,7 +128,7 @@ p_reg <- ggplot(reg_long, aes(label, value, fill = label)) +
   ) +
   theme_minimal(base_size = 11) +
   theme(axis.text.x = element_text(angle = 25, hjust = 1))
-ggsave(file.path(root, "09_region_endcentury.png"), p_reg, width = 10, height = 5.5, dpi = 160)
+ggsave(file.path(root, "region_endcentury.png"), p_reg, width = 10, height = 5.5, dpi = 160)
 
 cty <- summary_dt[geo_level == "country"]
 cty <- merge(cty, unique(meta[, .(geo_id = country, region)]), by = "geo_id", all.x = TRUE)
@@ -142,7 +144,7 @@ p_country <- ggplot(cty, aes(endcentury_dLE, label, fill = paste(region, "Europe
   ) +
   theme_minimal(base_size = 10) +
   theme(legend.position = "bottom")
-ggsave(file.path(root, "09_country_endcentury_ranking.png"), p_country, width = 10, height = 8, dpi = 160)
+ggsave(file.path(root, "country_endcentury_ranking.png"), p_country, width = 10, height = 8, dpi = 160)
 
 print(summary_dt[geo_level %in% c("europe", "region")], digits = 5)
 message("Saved cross-geography summary to ", root)

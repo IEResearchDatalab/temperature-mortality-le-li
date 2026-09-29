@@ -20,7 +20,7 @@ library(data.table)
 library(arrow)
 library(ggplot2)
 
-# Object 1 from pipeline/06_collect.R; set OBJ1 to use another file
+# Object 1 from the collect mode of pipeline/03_master_table.R; set OBJ1 to use another file
 # (e.g. the 10-capitals prototype VIG/data/260924_object1_10cities_ssp3_ensemble.parquet)
 obj1_file <- Sys.getenv("OBJ1", "results/europe/collected/object1_dataset.parquet")
 stopifnot(file.exists(obj1_file))

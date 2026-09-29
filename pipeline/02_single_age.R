@@ -20,7 +20,6 @@ message(sprintf("\n[02] Allocating %s grouped AN to single ages...", city_name))
 single_file <- file.path(out_dir, "02_single_age_an.csv")
 checks_file <- file.path(check_dir, "02_single_age_checks.csv")
 failures_file <- file.path(check_dir, "02_single_age_failures.csv")
-fig_file <- file.path(fig_dir, "02_single_age_diagnostic.png")
 
 
 #----- Load Part 00/01 outputs and restrict to the city/SSP domain
@@ -33,8 +32,8 @@ grouped_dem <- grouped_dem[geo_id == city_id & ssp == as.integer(ssp_name)]
 single_dem <- single_dem[geo_id == city_id & ssp == 3 & age %in% 65:100]
 grouped_an <- grouped_an[geo_id == city_id & ssp == as.integer(ssp_name)]
 
-if (!nrow(grouped_dem)) stop("Grouped demography for the city is missing; run 00_demography.R first.", call. = FALSE)
-if (!nrow(single_dem)) stop("Single-age demography for the city is missing; run 00_demography.R first.", call. = FALSE)
+if (!nrow(grouped_dem)) stop("Grouped demography for the city is missing; run 00_prep_data.R first.", call. = FALSE)
+if (!nrow(single_dem)) stop("Single-age demography for the city is missing; run 00_prep_data.R first.", call. = FALSE)
 if (!nrow(grouped_an)) stop("Grouped AN for the city is missing; run 01_attribution.R first.", call. = FALSE)
 
 grouped_dem <- grouped_dem[agegroup %in% agelabs]
@@ -236,33 +235,5 @@ if (nrow(failures)) {
 
 fwrite(single_an, single_file)
 
-min_year <- min(weights_dt$year)
-weights_plot <- weights_dt[year == min_year][, .(age, weight, source_agegroup)]
-plot_weights <- ggplot(weights_plot, aes(x = age, y = weight)) +
-  geom_line(linewidth = 0.6, color = "#2c7fb8") +
-  facet_wrap(~source_agegroup, scales = "free_x") +
-  labs(
-    title = sprintf("%s single-age demographic weights", city_name),
-    subtitle = "Within-group weights from the Part 00 single-age all-cause deaths",
-    x = "Age",
-    y = "Weight"
-  ) +
-  theme_minimal(base_size = 11)
-
-plot_recon <- ggplot(recon_dt, aes(x = group_an, y = reconstructed_an, color = branch)) +
-  geom_point(alpha = 0.35, size = 1) +
-  geom_abline(slope = 1, intercept = 0, linetype = 2) +
-  labs(
-    title = "Grouped-to-single-age AN reconstruction",
-    subtitle = sprintf("Max abs diff = %.3e", max(recon_dt$abs_diff)),
-    x = "Grouped AN",
-    y = "Reconstructed AN"
-  ) +
-  theme_minimal(base_size = 11)
-
-p <- plot_weights / plot_recon
-ggsave(fig_file, p, width = 11, height = 9, dpi = 160)
-
 message("Saved single-age AN to ", single_file)
 message("Saved checks to ", checks_file)
-message("Saved diagnostic figure to ", fig_file)

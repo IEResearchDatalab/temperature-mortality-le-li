@@ -5,7 +5,9 @@
 # Temperature-related mortality and its impact on life expectancy and
 # lifespan inequality at older ages in European cities
 #
-# Pipeline Part 08: Figures and headline results for pooled geographies
+# Auxiliary results: figures and headline results for pooled geographies
+#   This script reads completed pipeline outputs. It is not one of the five
+#   scientific pipeline steps.
 #   Follows the presentation decisions from Simon Lloyd on 25 Sep 2026:
 #     - smooth LE65 / LI65+ trajectories with a roughly 10-year moving average;
 #     - show with- versus without-CC trajectories and their gap;
@@ -16,20 +18,50 @@
 
 source("pipeline/00_pkg_params.R")
 
-levels_file <- file.path(out_dir, "07_le_li_levels.csv")
-between_file <- file.path(out_dir, "07_between_branch_decomposition.csv")
-within_file <- file.path(out_dir, "07_within_branch_period_decomposition.csv")
+levels_file <- file.path(out_dir, "04_le_li_levels.csv")
+between_file <- file.path(out_dir, "04_between_branch_decomposition.csv")
+within_file <- file.path(out_dir, "04_within_branch_period_decomposition.csv")
 for (f in c(levels_file, between_file, within_file)) {
-  if (!file.exists(f)) stop("Missing Part 07 output: ", f, call. = FALSE)
+  if (!file.exists(f)) stop("Missing Part 04 output: ", f, call. = FALSE)
 }
 
 levels_dt <- fread(levels_file)
 between <- fread(between_file)
 within <- fread(within_file)
-geo_label <- unique(levels_dt$label)
-if (length(geo_label) != 1L) stop("Part 07 output must contain one geography.", call. = FALSE)
 
-message(sprintf("\n[08] Building pooled figures for %s...", geo_label))
+# Simon's ages-98+ diagnostic is a result derived from the completed
+# decomposition, not a separate pipeline calculation.
+age98 <- rbind(
+  between[cause != "rest" & age >= 90L, .(
+    contribution_90plus = sum(le_contribution),
+    contribution_98plus = sum(le_contribution[age >= 98L]),
+    abs_contribution_90plus = sum(abs(le_contribution)),
+    abs_contribution_98plus = sum(abs(le_contribution[age >= 98L]))
+  ), by = .(period, cause)][, measure := "LE65"],
+  between[cause != "rest" & age >= 90L, .(
+    contribution_90plus = sum(li_contribution),
+    contribution_98plus = sum(li_contribution[age >= 98L]),
+    abs_contribution_90plus = sum(abs(li_contribution)),
+    abs_contribution_98plus = sum(abs(li_contribution[age >= 98L]))
+  ), by = .(period, cause)][, measure := "LI65"]
+)
+age98[, `:=`(
+  signed_share_98plus = fifelse(
+    abs(contribution_90plus) > 0,
+    contribution_98plus / contribution_90plus,
+    NA_real_
+  ),
+  absolute_share_98plus = fifelse(
+    abs_contribution_90plus > 0,
+    abs_contribution_98plus / abs_contribution_90plus,
+    NA_real_
+  )
+)]
+fwrite(age98, file.path(out_dir, "geography_age98_share.csv"))
+geo_label <- unique(levels_dt$label)
+if (length(geo_label) != 1L) stop("Part 04 output must contain one geography.", call. = FALSE)
+
+message(sprintf("\n[results] Building pooled figures for %s...", geo_label))
 
 time_blocks <- c(2020, 2040, 2060, 2080, 2100)
 age_band_breaks <- c(seq(65, 100, 5), Inf)
@@ -49,7 +81,7 @@ setorder(lev_long, branch, measure, year)
 lev_long[, value := frollmean(raw_value, n = 10L, align = "center"), by = .(branch, measure)]
 lev_long[, measure := factor(measure, levels = c("LE65", "LI65"),
   labels = c("Remaining life expectancy at 65 (years)", "Lifespan inequality 65+ (SD, years)"))]
-fwrite(lev_long, file.path(out_dir, "08_smoothed_levels.csv"))
+fwrite(lev_long, file.path(out_dir, "geography_smoothed_levels.csv"))
 
 p1a <- ggplot(lev_long[!is.na(value)], aes(year, value, colour = branch)) +
   geom_line(linewidth = 0.9) +
@@ -79,7 +111,7 @@ p1 <- (p1a / p1b) + plot_annotation(
   title = sprintf("%s: LE65 and LI65+, with vs without climate change", geo_label),
   subtitle = sprintf("%s, pooled life table, central ERF estimates", ssplabs[ssp_name])
 )
-ggsave(file.path(fig_dir, "08_fig1_smoothed_trajectories.png"), p1, width = 11, height = 9, dpi = 160)
+ggsave(file.path(fig_dir, "geography_fig1_smoothed_trajectories.png"), p1, width = 11, height = 9, dpi = 160)
 
 #----- Fig 2: within-branch contributions by age band and time block
 
@@ -109,7 +141,7 @@ p2 <- ggplot(blk, aes(age_band, contribution, fill = cause)) +
   ) +
   theme_minimal(base_size = 9) +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5), legend.position = "bottom")
-ggsave(file.path(fig_dir, "08_fig2_within_branch_by_age_block.png"), p2, width = 16, height = 7, dpi = 160)
+ggsave(file.path(fig_dir, "geography_fig2_within_branch_by_age_block.png"), p2, width = 16, height = 7, dpi = 160)
 
 #----- Fig 3: age profile of the climate-change effect
 
@@ -134,7 +166,7 @@ p3 <- ggplot(snap, aes(age, value, colour = cause, linetype = snapshot)) +
     x = "Age", y = "Contribution by single year of age", linetype = NULL
   ) +
   theme_minimal(base_size = 11)
-ggsave(file.path(fig_dir, "08_fig3_age_profile_cc_effect.png"), p3, width = 10, height = 8, dpi = 160)
+ggsave(file.path(fig_dir, "geography_fig3_age_profile_cc_effect.png"), p3, width = 10, height = 8, dpi = 160)
 
 #----- Fig 4: cumulative climate-change contribution to the LE65 gain
 
@@ -153,7 +185,7 @@ total <- cum[, .(
 ), by = .(period_to, p_to)][, cause := "total"]
 cum_plot <- rbind(cum, total, use.names = TRUE)
 cum_plot[, cause := factor(cause, levels = c(range_levels, "total"))]
-fwrite(cum_plot, file.path(out_dir, "08_cumulative_cc_le_contributions.csv"))
+fwrite(cum_plot, file.path(out_dir, "geography_cumulative_cc_le_contributions.csv"))
 
 p4 <- ggplot(cum_plot, aes(p_to + 2, cumulative_contribution, colour = cause)) +
   geom_hline(yintercept = 0, colour = "grey60") +
@@ -170,7 +202,7 @@ p4 <- ggplot(cum_plot, aes(p_to + 2, cumulative_contribution, colour = cause)) +
   ) +
   theme_minimal(base_size = 11) +
   theme(legend.position = "bottom")
-ggsave(file.path(fig_dir, "08_fig4_cumulative_le_contributions.png"), p4, width = 11, height = 6, dpi = 160)
+ggsave(file.path(fig_dir, "geography_fig4_cumulative_le_contributions.png"), p4, width = 11, height = 6, dpi = 160)
 
 #----- Headline numbers use the same 5-year mean mortality schedules as the
 # decomposition, not means of annual LE/LI values (the nonlinear life-table
@@ -211,7 +243,7 @@ summary_dt <- rbind(
       c(cc_change$cause, "total")),
     value = c(cc_change$dLI_change, sum(cc_change$dLI_change)), unit = "SD")
 )
-fwrite(summary_dt, file.path(out_dir, "08_summary.csv"))
+fwrite(summary_dt, file.path(out_dir, "geography_summary.csv"))
 print(summary_dt, digits = 5)
 message("Saved pooled figures to ", fig_dir)
 
