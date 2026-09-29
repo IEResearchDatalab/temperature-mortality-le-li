@@ -136,43 +136,59 @@ p3 <- ggplot(snap, aes(age, value, colour = cause, linetype = snapshot)) +
   theme_minimal(base_size = 11)
 ggsave(file.path(fig_dir, "08_fig3_age_profile_cc_effect.png"), p3, width = 10, height = 8, dpi = 160)
 
-#----- Fig 4: cumulative contribution to LE65 change since 2020-2024
+#----- Fig 4: cumulative climate-change contribution to the LE65 gain
 
-cum <- within[cause %in% range_levels,
-  .(increment = sum(le_contribution)), by = .(branch, period_to, p_to, cause)]
-setorder(cum, branch, cause, p_to)
-cum[, cumulative_contribution := cumsum(increment), by = .(branch, cause)]
-base <- CJ(branch = branch_levels, cause = range_levels)
-base[, `:=`(period_to = "2020-2024", p_to = 2020L, increment = 0, cumulative_contribution = 0)]
-cum <- rbind(base, cum, use.names = TRUE)
-cum[, cause := factor(cause, levels = range_levels)]
-fwrite(cum, file.path(out_dir, "08_cumulative_le_contributions.csv"))
+inc <- within[cause %in% range_levels,
+  .(contribution = sum(le_contribution)), by = .(branch, period_to, p_to, cause)]
+inc <- dcast(inc, period_to + p_to + cause ~ branch, value.var = "contribution")
+inc[, increment := with_cc - without_cc]
+setorder(inc, cause, p_to)
+inc[, cumulative_contribution := cumsum(increment), by = cause]
+base <- data.table(period_to = "2020-2024", p_to = 2020L, cause = range_levels,
+  with_cc = 0, without_cc = 0, increment = 0, cumulative_contribution = 0)
+cum <- rbind(base, inc, use.names = TRUE)
+total <- cum[, .(
+  with_cc = sum(with_cc), without_cc = sum(without_cc), increment = sum(increment),
+  cumulative_contribution = sum(cumulative_contribution)
+), by = .(period_to, p_to)][, cause := "total"]
+cum_plot <- rbind(cum, total, use.names = TRUE)
+cum_plot[, cause := factor(cause, levels = c(range_levels, "total"))]
+fwrite(cum_plot, file.path(out_dir, "08_cumulative_cc_le_contributions.csv"))
 
-p4 <- ggplot(cum, aes(p_to + 2, cumulative_contribution, colour = cause)) +
+p4 <- ggplot(cum_plot, aes(p_to + 2, cumulative_contribution, colour = cause)) +
   geom_hline(yintercept = 0, colour = "grey60") +
   geom_line(linewidth = 0.9) +
   geom_point(size = 1.4) +
-  facet_wrap(~branch, labeller = labeller(branch = branch_labels)) +
-  scale_colour_manual(values = range_colors, labels = range_labels, name = NULL) +
+  scale_colour_manual(
+    values = c(range_colors, total = "black"),
+    labels = c(range_labels, total = "Total"), name = NULL
+  ) +
   labs(
-    title = sprintf("%s: cumulative temperature-related contribution to LE65 change", geo_label),
-    subtitle = sprintf("%s, pooled life table; cumulative since 2020-2024", ssplabs[ssp_name]),
-    x = "5-year period (midpoint)", y = "Cumulative contribution to LE65 change (years)"
+    title = sprintf("%s: cumulative climate-change contribution to the LE65 gain", geo_label),
+    subtitle = sprintf("%s, pooled life table; with minus without climate change, cumulative since 2020-2024", ssplabs[ssp_name]),
+    x = "5-year period (midpoint)", y = "Cumulative contribution to the LE65 gain (years)"
   ) +
   theme_minimal(base_size = 11) +
   theme(legend.position = "bottom")
 ggsave(file.path(fig_dir, "08_fig4_cumulative_le_contributions.png"), p4, width = 11, height = 6, dpi = 160)
 
-#----- Headline numbers use 5-year means, not individual weather years
+#----- Headline numbers use the same 5-year mean mortality schedules as the
+# decomposition, not means of annual LE/LI values (the nonlinear life-table
+# transformation makes those quantities slightly different).
 
 levels_dt[, period_start := 2020L + ((year - 2020L) %/% 5L) * 5L]
-period_levels <- levels_dt[, .(LE65 = mean(LE65), LI65 = mean(LI65)), by = .(branch, period_start)]
-first_p <- min(period_levels$period_start); last_p <- max(period_levels$period_start)
-gain <- period_levels[, .(
-  gain_LE = LE65[period_start == last_p] - LE65[period_start == first_p],
-  change_LI = LI65[period_start == last_p] - LI65[period_start == first_p]
+first_p <- min(levels_dt$period_start); last_p <- max(levels_dt$period_start)
+gain <- within[, .(
+  gain_LE = sum(le_contribution),
+  change_LI = sum(li_contribution)
 ), by = branch]
 cc_last <- between[period_start == last_p, .(dLE = sum(le_contribution), dLI = sum(li_contribution)), by = cause]
+cc_first <- between[period_start == first_p, .(dLE_first = sum(le_contribution), dLI_first = sum(li_contribution)), by = cause]
+cc_change <- merge(cc_last, cc_first, by = "cause", sort = FALSE)
+cc_change[, `:=`(dLE_change = dLE - dLE_first, dLI_change = dLI - dLI_first)]
+cc_change[, cause_order := match(cause, cause_levels)]
+setorder(cc_change, cause_order)
+cc_change[, cause_order := NULL]
 gain_wo <- gain[branch == "without_cc", gain_LE]
 summary_dt <- rbind(
   data.table(item = sprintf("LE65 gain %d-%d to %d-%d, %s", first_p, first_p + 4, last_p, last_p + 4, gain$branch),
@@ -184,7 +200,16 @@ summary_dt <- rbind(
   data.table(item = sprintf("CC effect on LE65 as %% of the without-CC gain, %d-%d, %s", last_p, last_p + 4, c(cc_last$cause, "total")),
     value = 100 * c(cc_last$dLE, sum(cc_last$dLE)) / gain_wo, unit = "%"),
   data.table(item = sprintf("CC effect on LI65+, %d-%d, %s", last_p, last_p + 4, c(cc_last$cause, "total")),
-    value = c(cc_last$dLI, sum(cc_last$dLI)), unit = "SD")
+    value = c(cc_last$dLI, sum(cc_last$dLI)), unit = "SD"),
+  data.table(item = sprintf("CC-induced change in LE65 gain, %d-%d to %d-%d, %s", first_p, first_p + 4, last_p, last_p + 4,
+      c(cc_change$cause, "total")),
+    value = c(cc_change$dLE_change, sum(cc_change$dLE_change)), unit = "years"),
+  data.table(item = sprintf("CC-induced change in LE65 gain as %% of the without-CC gain, %d-%d to %d-%d, %s",
+      first_p, first_p + 4, last_p, last_p + 4, c(cc_change$cause, "total")),
+    value = 100 * c(cc_change$dLE_change, sum(cc_change$dLE_change)) / gain_wo, unit = "%"),
+  data.table(item = sprintf("CC-induced change in LI65+, %d-%d to %d-%d, %s", first_p, first_p + 4, last_p, last_p + 4,
+      c(cc_change$cause, "total")),
+    value = c(cc_change$dLI_change, sum(cc_change$dLI_change)), unit = "SD")
 )
 fwrite(summary_dt, file.path(out_dir, "08_summary.csv"))
 print(summary_dt, digits = 5)

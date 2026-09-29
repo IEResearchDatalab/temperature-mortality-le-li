@@ -38,7 +38,7 @@ Rscript pipeline/05_figures.R
 | `05_figures.R` | Summary figures: (1) LE65/LI65+ trajectories with vs without CC and their gap (dual axis); (2) contributions by temperature range, 5-year age band and ~20-year block, from changes between 5-year-period means (Lloyd 2024 Figs 3–4 layout); (3) age profile of the climate-change effect, ~2050 vs ~2090. Also `05_summary.csv` with headline numbers, including the CC effect as a % of the LE65 gain |
 | `06_collect.R` | Collects batch results into the three data objects (parquet) |
 | `07_pooled_le_li.R` | Sums city population and deaths by cause, then constructs pooled country, regional or European life tables and Horiuchi decompositions; also reports the share of 90+ contributions arising at ages 98+ |
-| `08_pooled_figures.R` | Pooled figures with 10-year-smoothed trajectories, the with-minus-without-CC gap, age/cause decompositions and cumulative contributions to LE65 change |
+| `08_pooled_figures.R` | Pooled figures with 10-year-smoothed trajectories, the with-minus-without-CC gap, age/cause decompositions and the cumulative climate-change contribution to the LE65 gain |
 | `09_pooled_overview.R` | Cross-geography European, regional and country summaries; regional comparison and country ranking figures (Southern Europe is orange, not blue) |
 | `run_batch.sh` | Batch runner: cities × 19 GCMs × one SSP, parallel and resumable |
 | `run_figures.sh` | Figure runner: Part 05 for every city whose ensemble finished, parallel and resumable |
@@ -55,6 +55,9 @@ pipeline/run_batch.sh 3 my_cities.txt 8            # or a list of URAU codes (fi
 Rscript pipeline/06_collect.R                      # objects 1-3 as parquet
 nohup pipeline/run_figures.sh 3 32 > figures_ssp3.log 2>&1 &   # Part 05 per city, in the background
 nohup pipeline/run_pooled.sh 3 4 > pooled_ssp3.log 2>&1 &       # pooled Europe/region/country results
+Rscript analysis/moderate_heat_erf_diagnostic.R                # ERF/threshold diagnostic requested on 25 Sep
+CITY_ID=ES001C Rscript analysis/temperature_pattern_diagnostic.R # 19-GCM temperature pattern diagnostic
+CITY_ID=ES001C Rscript analysis/demography_temperature_gap_diagnostic.R # exact two-factor LE-gap diagnostic
 ```
 
 `run_batch.sh` works through three stages. Scripts take their settings from environment variables (`CITY_ID`, `SSP`, `GCM`, `OUT_DIR`, `DEMOG_DIR`, …) that override the defaults in `00_pkg_params.R`.
