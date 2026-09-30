@@ -30,6 +30,7 @@ Each step writes invariant checks next to its scientific output and stops on fai
 ```bash
 ./run_pipeline.sh 3 all 32                         # SSP3-7.0, all levels, 32 cores
 ./run_pipeline.sh 3 my_cities.txt 8                # partial city run; pooled levels are skipped
+./run_pipeline.sh --config run_config.csv           # enabled SSPs, sequential and resumable
 nohup analysis/run_city_figures.sh 3 32 > figures_ssp3.log 2>&1 &
 nohup analysis/run_geography_results.sh 3 4 > geography_results_ssp3.log 2>&1 &
 Rscript analysis/moderate_heat_erf_diagnostic.R                # ERF/threshold diagnostic requested on 25 Sep
@@ -38,6 +39,15 @@ CITY_ID=ES001C Rscript analysis/demography_temperature_gap_diagnostic.R # exact 
 ```
 
 `run_pipeline.sh` is orchestration only. It repeats the five scripts across cities and GCMs, calculates the ensemble in Part 01, collects Object 1 in Part 03, and then applies Parts 03–04 to countries, regions and Europe. Settings come from environment variables (`CITY_ID`, `GEO_LEVEL`, `GEO_ID`, `SSP`, `GCM`, `OUT_DIR`, `DEMOG_DIR`, …) that override `00_pkg_params.R`.
+
+`run_config.csv` is the tracked production run plan. Each enabled row is one
+atomic SSP run; the runner processes those rows sequentially and parallelises
+cities and GCMs within the active SSP. Scientific scripts therefore never loop
+over scenarios or share scenario state. A failed city/ensemble stage stops
+before canonical objects or pooled geographies are updated, and a failed SSP
+stops the config before later SSPs begin. Each scenario output records the Git
+revision and resolved city/GCM domains in `run_manifest.txt`, `run_cities.txt`
+and `run_gcms.txt`.
 
 Other behaviour:
 

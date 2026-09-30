@@ -52,7 +52,7 @@ else
 fi
 echo "$(date '+%F %T') done; failures: $nfail"
 if [ "$nfail" -gt 0 ]; then
-  echo "Failed geographies (see <level>/<id>/log.txt):"
+  echo "Failed geographies (see <level>/<id>/results.log):"
   cat "$ROOT/failed.txt"
   exit 1
 fi

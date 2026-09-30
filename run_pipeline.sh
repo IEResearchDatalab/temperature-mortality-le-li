@@ -5,6 +5,7 @@
 #
 #   Usage from the repository root:
 #     ./run_pipeline.sh <SSP> <cities.txt | all> [NCORES]
+#     ./run_pipeline.sh --config run_config.csv
 #
 #   00_prep_data.R             temperature thresholds and demography
 #   01_attribution.R           GCM-specific and ensemble attributable deaths
@@ -18,9 +19,61 @@
 ################################################################################
 set -uo pipefail
 
+if [ "${1:-}" = "--config" ]; then
+  [ "$#" -eq 2 ] || { echo "ERROR: usage: $0 --config <run_config.csv>"; exit 2; }
+  RUN_CONFIG=$2
+  [ -s "$RUN_CONFIG" ] || { echo "ERROR: missing or empty run config: $RUN_CONFIG"; exit 2; }
+
+  IFS= read -r header < "$RUN_CONFIG"
+  header=${header%$'\r'}
+  expected_header='ssp,enabled,cities,ncores,n_horiuchi,decomp_annual'
+  [ "$header" = "$expected_header" ] || {
+    echo "ERROR: config header must be: $expected_header"
+    exit 2
+  }
+
+  nruns=0
+  while IFS=, read -r run_ssp enabled cities ncores n_horiuchi decomp_annual extra; do
+    run_ssp=${run_ssp%$'\r'}
+    enabled=${enabled%$'\r'}
+    cities=${cities%$'\r'}
+    ncores=${ncores%$'\r'}
+    n_horiuchi=${n_horiuchi%$'\r'}
+    decomp_annual=${decomp_annual%$'\r'}
+    [ -z "$run_ssp$enabled$cities$ncores$n_horiuchi$decomp_annual${extra:-}" ] && continue
+    [ -z "${extra:-}" ] || { echo "ERROR: too many fields in config row for SSP $run_ssp"; exit 2; }
+    case "$enabled" in
+      true) ;;
+      false) continue ;;
+      *) echo "ERROR: enabled must be true or false for SSP $run_ssp"; exit 2 ;;
+    esac
+    case "$decomp_annual" in
+      0|1) ;;
+      *) echo "ERROR: decomp_annual must be 0 or 1 for SSP $run_ssp"; exit 2 ;;
+    esac
+
+    nruns=$((nruns + 1))
+    echo "$(date '+%F %T') config run $nruns: SSP$run_ssp, cities=$cities, cores=$ncores"
+    if ! RUN_CONFIG_SOURCE="$RUN_CONFIG" N_HORIUCHI="$n_horiuchi" DECOMP_ANNUAL="$decomp_annual" \
+        "$0" "$run_ssp" "$cities" "$ncores"; then
+      echo "ERROR: config stopped after SSP$run_ssp failed. Later scenarios were not started."
+      exit 1
+    fi
+  done < <(tail -n +2 "$RUN_CONFIG" | tr -d '\r')
+
+  [ "$nruns" -gt 0 ] || { echo "ERROR: the config contains no enabled runs"; exit 2; }
+  echo "$(date '+%F %T') all $nruns configured scenario runs completed"
+  exit 0
+fi
+
 SSP=${1:?"SSP (1, 2 or 3)"}
 CITIES=${2:?"cities file (URAU code in the first column) or 'all'"}
 NCORES=${3:-4}
+case "$SSP" in 1|2|3) ;; *) echo "ERROR: SSP must be 1, 2 or 3"; exit 2 ;; esac
+[[ "$NCORES" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: NCORES must be a positive integer"; exit 2; }
+[[ "${N_HORIUCHI:-50}" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: N_HORIUCHI must be a positive integer"; exit 2; }
+case "${DECOMP_ANNUAL:-0}" in 0|1) ;; *) echo "ERROR: DECOMP_ANNUAL must be 0 or 1"; exit 2 ;; esac
+[ "$CITIES" = "all" ] || [ -s "$CITIES" ] || { echo "ERROR: missing or empty cities file: $CITIES"; exit 2; }
 export ROOT=results/europe/ssp${SSP} SSP
 export BATCH_ROOT=results/europe
 export DECOMP_ANNUAL=${DECOMP_ANNUAL:-0}
@@ -43,6 +96,25 @@ done
 Rscript -e 'suppressMessages(source("pipeline/00_pkg_params.R")); invisible(arrow::open_dataset("data/tmeanproj.gz.parquet")$schema)' \
   > "$ROOT/preflight.log" 2>&1 || { echo "ERROR: R packages or tmeanproj.gz.parquet not readable; see $ROOT/preflight.log"; cat "$ROOT/preflight.log"; exit 1; }
 GCMS=$(Rscript -e 'suppressMessages(source("pipeline/00_pkg_params.R")); cat(gcmlist, sep = "\n")')
+
+# Record the exact resolved run inputs beside the scenario outputs. The tracked
+# config declares the requested runs; these files preserve the expanded city
+# and GCM domains and the code revision actually used.
+printf '%s\n' $CITY_LIST > "$ROOT/run_cities.txt"
+printf '%s\n' $GCMS > "$ROOT/run_gcms.txt"
+{
+  echo "started_at=$(date -Iseconds)"
+  echo "git_commit=$(git rev-parse HEAD)"
+  if [ -n "$(git status --porcelain)" ]; then echo "git_worktree=dirty"; else echo "git_worktree=clean"; fi
+  echo "run_config=${RUN_CONFIG_SOURCE:-command_line}"
+  echo "ssp=$SSP"
+  echo "cities=$CITIES"
+  echo "ncores=$NCORES"
+  echo "n_horiuchi=$N_HORIUCHI"
+  echo "decomp_annual=$DECOMP_ANNUAL"
+  echo "n_cities=$(printf '%s\n' $CITY_LIST | wc -l)"
+  echo "n_gcms=$(printf '%s\n' $GCMS | wc -l)"
+} > "$ROOT/run_manifest.txt"
 
 run_part() {  # run_part <city> <dir name> <gcm> <part> [ENV=value ...]
   local c=$1 dn=$2 g=$3 part=$4; shift 4
@@ -123,6 +195,13 @@ for c in $CITY_LIST; do for g in $GCMS; do echo "$c $g"; done; done | xargs -P "
 echo "$(date '+%F %T') steps 01-04: city ensemble"
 printf '%s\n' $CITY_LIST | xargs -P "$NCORES" -I{} bash -c 'ens_job {}'
 
+if [ -s "$ROOT/failed.txt" ]; then
+  nfail=$(wc -l < "$ROOT/failed.txt")
+  echo "ERROR: $nfail city pipeline jobs failed; see $ROOT/failed.txt"
+  echo "Canonical collected objects and pooled geographies were not updated."
+  exit 1
+fi
+
 echo "$(date '+%F %T') step 03: collect Object 1"
 mkdir -p "$BATCH_ROOT/collected"
 env ANALYSIS_MODE=collect BATCH_ROOT="$BATCH_ROOT" Rscript pipeline/03_master_table.R \
@@ -154,4 +233,5 @@ nfail=$(cat "$ROOT/failed.txt" 2>/dev/null | wc -l)
 echo "$(date '+%F %T') done; failures: $nfail"
 if [ "$nfail" -gt 0 ]; then
   echo "First failures (details in $ROOT/<city>/<dir>/log.txt):"; head -5 "$ROOT/failed.txt"
+  exit 1
 fi

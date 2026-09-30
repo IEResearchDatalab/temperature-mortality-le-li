@@ -29,7 +29,7 @@ single_dem <- fread(file.path(dem_dir, "00_demography_single_age.csv"))
 grouped_an <- fread(file.path(out_dir, "01_attribution_grouped.csv"))
 
 grouped_dem <- grouped_dem[geo_id == city_id & ssp == as.integer(ssp_name)]
-single_dem <- single_dem[geo_id == city_id & ssp == 3 & age %in% 65:100]
+single_dem <- single_dem[geo_id == city_id & ssp == as.integer(ssp_name) & age %in% 65:100]
 grouped_an <- grouped_an[geo_id == city_id & ssp == as.integer(ssp_name)]
 
 if (!nrow(grouped_dem)) stop("Grouped demography for the city is missing; run 00_prep_data.R first.", call. = FALSE)
