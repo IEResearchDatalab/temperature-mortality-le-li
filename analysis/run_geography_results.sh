@@ -15,7 +15,8 @@ set -uo pipefail
 SSP=${1:?'SSP (1, 2 or 3)'}
 NCORES=${2:-4}
 export SSP
-export ROOT=results/europe/geographies/ssp${SSP}
+export BATCH_ROOT=${BATCH_ROOT_OVERRIDE:-results/europe}
+export ROOT="$BATCH_ROOT/geographies/ssp${SSP}"
 
 [ -d "$ROOT" ] || { echo "ERROR: missing $ROOT (run run_pipeline.sh first)"; exit 1; }
 rm -f "$ROOT/failed.txt"

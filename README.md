@@ -49,6 +49,17 @@ stops the config before later SSPs begin. Each scenario output records the Git
 revision and resolved city/GCM domains in `run_manifest.txt`, `run_cities.txt`
 and `run_gcms.txt`.
 
+### Explicit sensitivity runs
+
+Two opt-in Part 00 settings exist only for the documented SSP1/SSP2 input
+sensitivities. `SKIP_MX_PLAUSIBILITY_CHECK=1` continues after the 5% within-age-
+group mortality-shape guard, while preserving the observed failure as a
+`WARNING`. `ASSR_ONE_REPLACEMENT=0.99999` replaces source ratios reported as
+exactly one and records every changed row. Defaults leave the source and guard
+unchanged. The runner refuses either setting unless a non-canonical
+`BATCH_ROOT_OVERRIDE` is supplied, so sensitivity outputs cannot overwrite or
+mix with `results/europe`.
+
 Other behaviour:
 
 - Output goes to `results/europe/ssp<k>/<city>/{demography,<GCM>,ENSEMBLE}/`.

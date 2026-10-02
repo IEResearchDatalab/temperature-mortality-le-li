@@ -120,6 +120,23 @@ grouped_file <- file.path(dem_dir, "00_demography_grouped.csv")
 single_file <- file.path(dem_dir, "00_demography_single_age.csv")
 checks_file <- file.path(check_dir, "00_demography_checks.csv")
 failures_file <- file.path(check_dir, "00_demography_failures.csv")
+sensitivity_file <- file.path(check_dir, "00_sensitivity_warnings.csv")
+
+# WARNING: The options below are for explicitly labelled sensitivity analyses
+# only. Their defaults preserve the canonical scientific pipeline. The runner
+# requires an isolated BATCH_ROOT_OVERRIDE whenever either option is enabled so
+# these outputs cannot replace production results by accident.
+skip_mx_plausibility_check <- Sys.getenv("SKIP_MX_PLAUSIBILITY_CHECK", "0") == "1"
+assr_one_replacement_text <- Sys.getenv("ASSR_ONE_REPLACEMENT", "")
+assr_one_replacement <- if (nzchar(assr_one_replacement_text)) {
+  suppressWarnings(as.numeric(assr_one_replacement_text))
+} else {
+  NA_real_
+}
+if (nzchar(assr_one_replacement_text) &&
+    (!is.finite(assr_one_replacement) || assr_one_replacement <= 0 || assr_one_replacement >= 1)) {
+  stop("ASSR_ONE_REPLACEMENT must be a finite number strictly between 0 and 1.", call. = FALSE)
+}
 
 #----- Wittgenstein 5-year bands used for ages 65+
 
@@ -172,6 +189,26 @@ assr_raw <- assr_raw[
 
 if (!nrow(pop_raw) || !nrow(assr_raw)) {
   stop("SSP demographic source tables are empty after filtering.", call. = FALSE)
+}
+
+# WARNING: Replacing an exactly reported ASSR of 1 is not a correction to the
+# Wittgenstein source. It creates a small, artificial death count solely to
+# test how SSP1 behaves when rounded survival ratios no longer imply zero
+# deaths. The original rows and replacement value are persisted for audit.
+assr_one_rows <- assr_raw[as.numeric(assr) == 1]
+if (is.finite(assr_one_replacement) && nrow(assr_one_rows)) {
+  assr_one_rows[, `:=`(
+    original_assr = as.numeric(assr),
+    replacement_assr = assr_one_replacement
+  )]
+  fwrite(assr_one_rows, file.path(check_dir, "00_assr_one_replacements.csv"))
+  assr_raw[as.numeric(assr) == 1, assr := assr_one_replacement]
+  warning(sprintf(
+    "SENSITIVITY ONLY: replaced %d exact ASSR=1 source rows with %.8f for %s/SSP%s.",
+    nrow(assr_one_rows), assr_one_replacement, city_id, ssp_name
+  ), call. = FALSE)
+} else if (file.exists(file.path(check_dir, "00_assr_one_replacements.csv"))) {
+  file.remove(file.path(check_dir, "00_assr_one_replacements.csv"))
 }
 
 parse_year_start <- function(x) as.integer(sub("^([0-9]{4}).*$", "\\1", x))
@@ -596,7 +633,7 @@ checks <- data.table(
     if (max(recon_check$pop_abs_diff) <= 1e-9 && max(recon_check$death_abs_diff) <= 1e-9) "PASS" else "FAIL",
     if (!any(!is.finite(share_tbl$pop_share)) && !any(!is.finite(share_tbl$death_share))) "PASS" else "FAIL",
     if (max(calib_check$rel_err) <= 1e-12) "PASS" else "FAIL",
-    if (max_mx_drop <= 0.05) "PASS" else "FAIL",
+    if (max_mx_drop <= 0.05) "PASS" else if (skip_mx_plausibility_check) "WARNING" else "FAIL",
     if (all(pclm_diag$input_unit == "persons") && all(pclm_diag$source_unit == "thousand-person Wittgenstein counts") && all(pclm_diag$input_conversion_factor == pclm_input_scale)) "PASS" else "FAIL",
     if (all(pclm_diag$convergence_ok)) "PASS" else "FAIL",
     if (all(pclm_diag$lambda_ok)) "PASS" else "FAIL",
@@ -647,6 +684,31 @@ checks <- data.table(
     "no signed PCLM input"
   )
 )
+
+# WARNING: A WARNING is deliberately distinct from PASS. It allows the
+# requested sensitivity run to continue while preserving the failed observed
+# value in the check table. It must never be described as a validated schedule.
+sensitivity_checks <- rbindlist(list(
+  if (skip_mx_plausibility_check) data.table(
+    check_name = "warning_mx_plausibility_guard_bypassed",
+    status = "WARNING",
+    value = sprintf("max within-group single-age mortality decline = %.4f", max_mx_drop),
+    threshold = "canonical guard is <= 0.05; bypass requested for sensitivity analysis"
+  ),
+  if (is.finite(assr_one_replacement)) data.table(
+    check_name = "warning_exact_assr_one_replaced",
+    status = "WARNING",
+    value = sprintf("%d source rows changed from 1 to %.8f", nrow(assr_one_rows), assr_one_replacement),
+    threshold = "canonical input is unchanged; replacement requested for sensitivity analysis"
+  )
+), fill = TRUE)
+if (nrow(sensitivity_checks)) {
+  checks <- rbind(checks, sensitivity_checks, fill = TRUE)
+  fwrite(sensitivity_checks, sensitivity_file)
+  warning("SENSITIVITY ONLY: demographic outputs contain an explicit WARNING; see ", sensitivity_file, call. = FALSE)
+} else if (file.exists(sensitivity_file)) {
+  file.remove(sensitivity_file)
+}
 
 failures <- data.table()
 if (any(checks$status == "FAIL")) {

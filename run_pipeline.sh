@@ -74,8 +74,27 @@ case "$SSP" in 1|2|3) ;; *) echo "ERROR: SSP must be 1, 2 or 3"; exit 2 ;; esac
 [[ "${N_HORIUCHI:-50}" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: N_HORIUCHI must be a positive integer"; exit 2; }
 case "${DECOMP_ANNUAL:-0}" in 0|1) ;; *) echo "ERROR: DECOMP_ANNUAL must be 0 or 1"; exit 2 ;; esac
 [ "$CITIES" = "all" ] || [ -s "$CITIES" ] || { echo "ERROR: missing or empty cities file: $CITIES"; exit 2; }
-export ROOT=results/europe/ssp${SSP} SSP
-export BATCH_ROOT=results/europe
+case "${SKIP_MX_PLAUSIBILITY_CHECK:-0}" in 0|1) ;; *) echo "ERROR: SKIP_MX_PLAUSIBILITY_CHECK must be 0 or 1"; exit 2 ;; esac
+if [ -n "${ASSR_ONE_REPLACEMENT:-}" ]; then
+  awk -v x="$ASSR_ONE_REPLACEMENT" 'BEGIN { exit !(x + 0 == x && x > 0 && x < 1) }' || {
+    echo "ERROR: ASSR_ONE_REPLACEMENT must be a number strictly between 0 and 1"
+    exit 2
+  }
+fi
+
+# WARNING: Both switches alter a scientific safeguard or source value. They
+# are sensitivity analyses only and must use a separate batch root so canonical
+# results/europe outputs cannot be overwritten or silently mixed with them.
+if { [ "${SKIP_MX_PLAUSIBILITY_CHECK:-0}" = "1" ] || [ -n "${ASSR_ONE_REPLACEMENT:-}" ]; } && \
+   { [ -z "${BATCH_ROOT_OVERRIDE:-}" ] || [ "$BATCH_ROOT_OVERRIDE" = "results/europe" ]; }; then
+  echo "ERROR: sensitivity switches require a non-canonical BATCH_ROOT_OVERRIDE"
+  exit 2
+fi
+
+export BATCH_ROOT=${BATCH_ROOT_OVERRIDE:-results/europe}
+export ROOT="$BATCH_ROOT/ssp${SSP}" SSP
+export SKIP_MX_PLAUSIBILITY_CHECK=${SKIP_MX_PLAUSIBILITY_CHECK:-0}
+export ASSR_ONE_REPLACEMENT=${ASSR_ONE_REPLACEMENT:-}
 export DECOMP_ANNUAL=${DECOMP_ANNUAL:-0}
 # Horiuchi steps: N = 50 as in Lloyd et al. (2024); on Madrid the results equal
 # N = 400 to 6 decimals (closure error 8e-8), at 1/8 of the cost
@@ -112,6 +131,9 @@ printf '%s\n' $GCMS > "$ROOT/run_gcms.txt"
   echo "ncores=$NCORES"
   echo "n_horiuchi=$N_HORIUCHI"
   echo "decomp_annual=$DECOMP_ANNUAL"
+  echo "batch_root=$BATCH_ROOT"
+  echo "skip_mx_plausibility_check=$SKIP_MX_PLAUSIBILITY_CHECK"
+  echo "assr_one_replacement=${ASSR_ONE_REPLACEMENT:-none}"
   echo "n_cities=$(printf '%s\n' $CITY_LIST | wc -l)"
   echo "n_gcms=$(printf '%s\n' $GCMS | wc -l)"
 } > "$ROOT/run_manifest.txt"
