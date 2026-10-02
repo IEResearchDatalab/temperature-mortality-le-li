@@ -5,8 +5,17 @@
 # Temperature-related mortality and its impact on life expectancy and
 # lifespan inequality at older ages in European cities
 #
-# Pipeline Part 00: Demographic projections, grouped and single-age
-#   Follows Masselot & Gasparrini (2025) 02_prep_data.R: Wittgenstein
+# Pipeline Part 00: Prepare temperature and demographic inputs
+#   Follows the role of Masselot & Gasparrini (2025) 02_prep_data.R. The
+#   temperature mode prepares the common ERA5 series, MMTs and extreme-range
+#   thresholds. The demographic mode prepares one city's grouped and
+#   single-age population and deaths from the Wittgenstein projections.
+#
+#   PREP_SCOPE=temperature  common input, run once
+#   PREP_SCOPE=demography   one city/SSP (default)
+#   PREP_SCOPE=all          both operations
+#
+#   Demography uses Wittgenstein
 #   population and survival ratios (SSP-specific, both sexes), annual deaths
 #   = pop x (1 - ASSR) / 5, scaled to the city by age-group factors computed
 #   against the national 2000-2014 mean. National 5-year bands are then
@@ -16,13 +25,118 @@
 
 source("pipeline/00_pkg_params.R")
 
+prep_scope <- tolower(Sys.getenv("PREP_SCOPE", "demography"))
+if (!prep_scope %in% c("temperature", "demography", "all")) {
+  stop("PREP_SCOPE must be temperature, demography or all.", call. = FALSE)
+}
+
+#------------------------
+# OBSERVED TEMPERATURE AND THRESHOLDS
+#------------------------
+
+if (prep_scope %in% c("temperature", "all")) {
+  message("\n[00] Building observed temperature series and thresholds...")
+
+  era5 <- as.data.table(read_parquet("data/era5series.gz.parquet"))
+  city_results <- fread("data/city_results.csv")
+
+  obs_data <- era5[, .(
+    URAU_CODE,
+    date = as.IDate(date),
+    tmean_obs = as.numeric(era5landtmean)
+  )]
+  setorder(obs_data, URAU_CODE, date)
+
+  pct <- obs_data[year(date) %between% threshold_years, .(
+    p2_5 = as.numeric(quantile(tmean_obs, extreme_probs[["p2_5"]], na.rm = TRUE)),
+    p97_5 = as.numeric(quantile(tmean_obs, extreme_probs[["p97_5"]], na.rm = TRUE))
+  ), by = URAU_CODE]
+
+  coefs <- fread("data/coefs.csv")
+  mmt_tbl <- obs_data[, {
+    tper <- quantile(tmean_obs, predper / 100)
+    argvar <- list(
+      fun = varfun,
+      degree = vardegree,
+      knots = tper[paste0(varper, ".0%")],
+      Bound = range(tper)
+    )
+    bper <- suppressWarnings(do.call(onebasis, c(list(x = tper), argvar)))
+    ind <- tper >= tper["25.0%"] & tper <= tper["99.0%"]
+    cc <- coefs[URAU_CODE == .BY$URAU_CODE]
+    list(
+      agegroup = cc$agegroup,
+      mmt = vapply(seq_len(nrow(cc)), function(i) {
+        b <- as.numeric(cc[i, .(b1, b2, b3, b4, b5)])
+        as.numeric(tper[ind][which.min(drop(bper[ind, ] %*% b))])
+      }, numeric(1))
+    )
+  }, by = URAU_CODE]
+
+  thresholds <- merge(city_results, pct, by = "URAU_CODE", all.x = TRUE, sort = TRUE)
+  setnames(thresholds, "mmt", "mmt_2023")
+  thresholds <- merge(
+    thresholds,
+    mmt_tbl,
+    by = c("URAU_CODE", "agegroup"),
+    all.x = TRUE,
+    sort = TRUE
+  )
+  setkey(thresholds, URAU_CODE)
+  cities <- sort(unique(city_results$URAU_CODE))
+
+  temperature_checks <- data.table(
+    check_name = c(
+      "all_cities_have_obs", "obs_finite", "thresholds_complete",
+      "p2_5_below_p97_5", "obs_period", "mmt_finite"
+    ),
+    status = c(
+      if (setequal(cities, unique(obs_data$URAU_CODE))) "PASS" else "FAIL",
+      if (all(is.finite(obs_data$tmean_obs))) "PASS" else "FAIL",
+      if (!anyNA(thresholds[, .(p2_5, p97_5, mmt)])) "PASS" else "FAIL",
+      if (all(thresholds$p2_5 < thresholds$p97_5)) "PASS" else "FAIL",
+      if (all(range(year(obs_data$date)) == threshold_years)) "PASS" else "FAIL",
+      if (all(is.finite(thresholds$mmt))) "PASS" else "FAIL"
+    )
+  )
+  fwrite(temperature_checks, file.path(check_dir, "00_temperature_checks.csv"))
+  if (any(temperature_checks$status == "FAIL")) {
+    stop("Temperature preparation failed its invariant checks.", call. = FALSE)
+  }
+
+  save(obs_data, thresholds, cities, file = "data/prep_data.RData")
+  message("Saved data/prep_data.RData (", length(cities), " cities)")
+}
+
+if (prep_scope == "temperature") quit(save = "no")
+
+#------------------------
+# DEMOGRAPHIC PROJECTIONS
+#------------------------
+
 message(sprintf("\n[00] Building %s %s demographic tables...", city_name, ssplabs[ssp_name]))
 
 grouped_file <- file.path(dem_dir, "00_demography_grouped.csv")
 single_file <- file.path(dem_dir, "00_demography_single_age.csv")
 checks_file <- file.path(check_dir, "00_demography_checks.csv")
 failures_file <- file.path(check_dir, "00_demography_failures.csv")
-fig_file <- file.path(fig_dir, "00_demography_diagnostic.png")
+sensitivity_file <- file.path(check_dir, "00_sensitivity_warnings.csv")
+
+# WARNING: The options below are for explicitly labelled sensitivity analyses
+# only. Their defaults preserve the canonical scientific pipeline. The runner
+# requires an isolated BATCH_ROOT_OVERRIDE whenever either option is enabled so
+# these outputs cannot replace production results by accident.
+skip_mx_plausibility_check <- Sys.getenv("SKIP_MX_PLAUSIBILITY_CHECK", "0") == "1"
+assr_one_replacement_text <- Sys.getenv("ASSR_ONE_REPLACEMENT", "")
+assr_one_replacement <- if (nzchar(assr_one_replacement_text)) {
+  suppressWarnings(as.numeric(assr_one_replacement_text))
+} else {
+  NA_real_
+}
+if (nzchar(assr_one_replacement_text) &&
+    (!is.finite(assr_one_replacement) || assr_one_replacement <= 0 || assr_one_replacement >= 1)) {
+  stop("ASSR_ONE_REPLACEMENT must be a finite number strictly between 0 and 1.", call. = FALSE)
+}
 
 #----- Wittgenstein 5-year bands used for ages 65+
 
@@ -75,6 +189,26 @@ assr_raw <- assr_raw[
 
 if (!nrow(pop_raw) || !nrow(assr_raw)) {
   stop("SSP demographic source tables are empty after filtering.", call. = FALSE)
+}
+
+# WARNING: Replacing an exactly reported ASSR of 1 is not a correction to the
+# Wittgenstein source. It creates a small, artificial death count solely to
+# test how SSP1 behaves when rounded survival ratios no longer imply zero
+# deaths. The original rows and replacement value are persisted for audit.
+assr_one_rows <- assr_raw[as.numeric(assr) == 1]
+if (is.finite(assr_one_replacement) && nrow(assr_one_rows)) {
+  assr_one_rows[, `:=`(
+    original_assr = as.numeric(assr),
+    replacement_assr = assr_one_replacement
+  )]
+  fwrite(assr_one_rows, file.path(check_dir, "00_assr_one_replacements.csv"))
+  assr_raw[as.numeric(assr) == 1, assr := assr_one_replacement]
+  warning(sprintf(
+    "SENSITIVITY ONLY: replaced %d exact ASSR=1 source rows with %.8f for %s/SSP%s.",
+    nrow(assr_one_rows), assr_one_replacement, city_id, ssp_name
+  ), call. = FALSE)
+} else if (file.exists(file.path(check_dir, "00_assr_one_replacements.csv"))) {
+  file.remove(file.path(check_dir, "00_assr_one_replacements.csv"))
 }
 
 parse_year_start <- function(x) as.integer(sub("^([0-9]{4}).*$", "\\1", x))
@@ -499,7 +633,7 @@ checks <- data.table(
     if (max(recon_check$pop_abs_diff) <= 1e-9 && max(recon_check$death_abs_diff) <= 1e-9) "PASS" else "FAIL",
     if (!any(!is.finite(share_tbl$pop_share)) && !any(!is.finite(share_tbl$death_share))) "PASS" else "FAIL",
     if (max(calib_check$rel_err) <= 1e-12) "PASS" else "FAIL",
-    if (max_mx_drop <= 0.05) "PASS" else "FAIL",
+    if (max_mx_drop <= 0.05) "PASS" else if (skip_mx_plausibility_check) "WARNING" else "FAIL",
     if (all(pclm_diag$input_unit == "persons") && all(pclm_diag$source_unit == "thousand-person Wittgenstein counts") && all(pclm_diag$input_conversion_factor == pclm_input_scale)) "PASS" else "FAIL",
     if (all(pclm_diag$convergence_ok)) "PASS" else "FAIL",
     if (all(pclm_diag$lambda_ok)) "PASS" else "FAIL",
@@ -551,6 +685,31 @@ checks <- data.table(
   )
 )
 
+# WARNING: A WARNING is deliberately distinct from PASS. It allows the
+# requested sensitivity run to continue while preserving the failed observed
+# value in the check table. It must never be described as a validated schedule.
+sensitivity_checks <- rbindlist(list(
+  if (skip_mx_plausibility_check) data.table(
+    check_name = "warning_mx_plausibility_guard_bypassed",
+    status = "WARNING",
+    value = sprintf("max within-group single-age mortality decline = %.4f", max_mx_drop),
+    threshold = "canonical guard is <= 0.05; bypass requested for sensitivity analysis"
+  ),
+  if (is.finite(assr_one_replacement)) data.table(
+    check_name = "warning_exact_assr_one_replaced",
+    status = "WARNING",
+    value = sprintf("%d source rows changed from 1 to %.8f", nrow(assr_one_rows), assr_one_replacement),
+    threshold = "canonical input is unchanged; replacement requested for sensitivity analysis"
+  )
+), fill = TRUE)
+if (nrow(sensitivity_checks)) {
+  checks <- rbind(checks, sensitivity_checks, fill = TRUE)
+  fwrite(sensitivity_checks, sensitivity_file)
+  warning("SENSITIVITY ONLY: demographic outputs contain an explicit WARNING; see ", sensitivity_file, call. = FALSE)
+} else if (file.exists(sensitivity_file)) {
+  file.remove(sensitivity_file)
+}
+
 failures <- data.table()
 if (any(checks$status == "FAIL")) {
   failures <- rbindlist(lapply(which(checks$status == "FAIL"), function(i) {
@@ -567,7 +726,7 @@ if (any(checks$status == "FAIL")) {
 fwrite(checks, checks_file)
 if (nrow(failures)) {
   fwrite(failures, failures_file)
-  stop(sprintf("00_demography.R failed %d invariant(s); see %s", nrow(failures), failures_file), call. = FALSE)
+  stop(sprintf("00_prep_data.R failed %d invariant(s); see %s", nrow(failures), failures_file), call. = FALSE)
 } else {
   if (file.exists(failures_file)) file.remove(failures_file)
   file.create(failures_file)
@@ -576,25 +735,6 @@ if (nrow(failures)) {
 fwrite(city_grouped, grouped_file)
 fwrite(city_single, single_file)
 
-#----- Diagnostic figure
-
-plot_group <- city_grouped[, .(pop = sum(pop), death = sum(death)), by = .(year, agegroup)]
-plot_group <- melt(plot_group, id.vars = c("year", "agegroup"), variable.name = "measure", value.name = "value")
-
-p <- ggplot(plot_group, aes(x = year, y = value, color = agegroup)) +
-  geom_line(linewidth = 0.6) +
-  facet_wrap(~measure, scales = "free_y") +
-  labs(
-    title = sprintf("%s %s demographic projection diagnostic", city_name, ssplabs[ssp_name]),
-    subtitle = sprintf("City %s (%s); piecewise-constant annualization from 5-year source snapshots", city_name, city_id),
-    x = "Year",
-    y = "Count"
-  ) +
-  theme_minimal(base_size = 11)
-
-ggsave(fig_file, p, width = 10, height = 6, dpi = 160)
-
 message("Saved grouped demography to ", grouped_file)
 message("Saved single-age demography to ", single_file)
 message("Saved checks to ", checks_file)
-message("Saved diagnostic figure to ", fig_file)

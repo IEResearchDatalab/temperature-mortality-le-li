@@ -6,21 +6,185 @@
 # lifespan inequality at older ages in European cities
 #
 # Pipeline Part 03: Dataset for analysis (Lloyd et al. 2024, Fig S1)
-#   Population and deaths by cause (4 temperature ranges + rest) by single age,
-#   year and branch. Rest = deaths - AN(without CC), identical in both branches;
-#   with CC, deaths = projected deaths + AN(with CC) - AN(without CC)
-#   (Simon, 18 Sep 2026; methods draft 2.5).
+#   Produces the same population-and-deaths-by-cause table at every geography.
+#   City mode combines Parts 00 and 02. Collect mode builds Object 1 from all
+#   completed cities. Geography mode sums city population and deaths by cause
+#   before any mortality rate or life table is calculated (Simon, 25 Sep 2026).
+#
+#   ANALYSIS_MODE=city       one city/GCM (default)
+#   ANALYSIS_MODE=collect    collect completed ensemble city tables as Object 1
+#   ANALYSIS_MODE=geography  one country, region or Europe from Object 1
 #
 ################################################################################
 
 source("pipeline/00_pkg_params.R")
+
+analysis_mode <- tolower(Sys.getenv("ANALYSIS_MODE", "city"))
+if (!analysis_mode %in% c("city", "collect", "geography")) {
+  stop("ANALYSIS_MODE must be city, collect or geography.", call. = FALSE)
+}
+
+#------------------------
+# COLLECT CITY DATASETS (OBJECT 1)
+#------------------------
+
+if (analysis_mode == "collect") {
+  root <- Sys.getenv("BATCH_ROOT", "results/europe")
+  collected_dir <- file.path(root, "collected")
+  dir.create(collected_dir, recursive = TRUE, showWarnings = FALSE)
+
+  meta <- unique(fread("data/city_results.csv")[, .(
+    city = URAU_CODE,
+    city_name = LABEL,
+    country = CNTR_CODE,
+    region
+  )])
+  ensemble_dirs <- Sys.glob(file.path(root, "ssp*", "*", "ENSEMBLE"))
+  ensemble_dirs <- ensemble_dirs[file.exists(file.path(ensemble_dirs, ".done"))]
+  if (!length(ensemble_dirs)) stop("No completed ensemble runs under ", root, call. = FALSE)
+
+  runs <- data.table(
+    dir = ensemble_dirs,
+    city = basename(dirname(ensemble_dirs)),
+    ssp = as.integer(sub("ssp", "", basename(dirname(dirname(ensemble_dirs)))))
+  )
+  object1 <- rbindlist(lapply(seq_len(nrow(runs)), function(i) {
+    master <- fread(file.path(runs$dir[i], "03_master_table.csv"))
+    master[, .(
+      city = geo_id,
+      ssp = runs$ssp[i],
+      scenario = branch,
+      year,
+      age,
+      cause = range,
+      deaths = deaths_component,
+      pop
+    )]
+  }))
+  object1 <- merge(meta, object1, by = "city")
+  setorder(object1, city, ssp, scenario, year, age, cause)
+  write_parquet(object1, file.path(collected_dir, "object1_dataset.parquet"))
+  message("Saved Object 1 for ", uniqueN(object1$city), " cities to ", collected_dir)
+  quit(save = "no")
+}
+
+#------------------------
+# AGGREGATE CITY COUNTS TO A REPORTING GEOGRAPHY
+#------------------------
+
+if (analysis_mode == "geography") {
+  if (!geo_level %in% c("country", "region", "europe")) {
+    stop("Geography mode requires GEO_LEVEL=country, region or europe.", call. = FALSE)
+  }
+
+  object1_file <- Sys.getenv(
+    "OBJECT1_FILE",
+    file.path("results/europe/collected", "object1_dataset.parquet")
+  )
+  if (!file.exists(object1_file)) stop("Object 1 not found: ", object1_file, call. = FALSE)
+
+  meta <- unique(fread("data/city_results.csv")[, .(
+    city = URAU_CODE,
+    city_name = LABEL,
+    country = CNTR_CODE,
+    region
+  )])
+  expected_cities <- switch(
+    geo_level,
+    europe = meta$city,
+    region = meta[region == geo_id, city],
+    country = meta[country == geo_id, city]
+  )
+  if (!length(expected_cities)) stop("Unknown or empty geography: ", geo_id, call. = FALSE)
+
+  query <- open_dataset(object1_file) %>%
+    filter(ssp == !!as.integer(ssp_name), city %in% !!expected_cities) %>%
+    select(city, scenario, year, age, cause, deaths, pop)
+  city_data <- as.data.table(collect(query))
+  included_cities <- unique(city_data$city)
+  if (!setequal(included_cities, expected_cities)) {
+    stop("City coverage does not match the requested geography.", call. = FALSE)
+  }
+
+  deaths <- city_data[, .(
+    deaths_component = sum(deaths)
+  ), by = .(scenario, year, age, cause)]
+  population <- unique(city_data[cause == "rest", .(
+    city, scenario, year, age, pop
+  )])[, .(pop = sum(pop)), by = .(scenario, year, age)]
+  master <- merge(deaths, population, by = c("scenario", "year", "age"))
+  setnames(master, c("scenario", "cause"), c("branch", "range"))
+
+  baseline <- master[branch == "without_cc", .(
+    death = sum(deaths_component)
+  ), by = .(year, age)]
+  rest_mortality <- master[range == "rest", .(
+    rest = deaths_component
+  ), by = .(branch, year, age)]
+  temperature_mortality <- master[range != "rest", .(
+    temp_deaths = sum(deaths_component)
+  ), by = .(branch, year, age)]
+  master <- merge(master, baseline, by = c("year", "age"))
+  master <- merge(master, rest_mortality, by = c("branch", "year", "age"))
+  master <- merge(master, temperature_mortality, by = c("branch", "year", "age"))
+  master[, `:=`(
+    geo_id = geo_id,
+    label = city_name,
+    ssp = as.integer(ssp_name),
+    gcm = "ENSEMBLE",
+    an = fifelse(range == "rest", 0, deaths_component)
+  )]
+  setcolorder(master, c(
+    "geo_id", "label", "ssp", "gcm", "branch", "year", "age", "range",
+    "pop", "death", "an", "temp_deaths", "rest", "deaths_component"
+  ))
+  setorder(master, branch, year, age, range)
+
+  expected_rows <- length(branch_levels) * length(future_years) *
+    length(age_levels) * length(cause_levels)
+  checks <- data.table(
+    check_name = c(
+      "city_coverage", "complete_grid", "finite_values", "positive_population",
+      "nonnegative_deaths", "population_identical_between_branches",
+      "rest_identical_between_branches"
+    ),
+    status = c(
+      if (setequal(included_cities, expected_cities)) "PASS" else "FAIL",
+      if (nrow(master) == expected_rows && !anyDuplicated(master, by = c("branch", "year", "age", "range"))) "PASS" else "FAIL",
+      if (all(vapply(
+        master[, .(pop, death, an, temp_deaths, rest, deaths_component)],
+        function(value) all(is.finite(value)),
+        logical(1)
+      ))) "PASS" else "FAIL",
+      if (all(master$pop > 0)) "PASS" else "FAIL",
+      if (all(master$deaths_component >= -1e-9)) "PASS" else "FAIL",
+      if (master[, max(pop) - min(pop), by = .(year, age, range)][, max(V1)] <= 1e-6) "PASS" else "FAIL",
+      if (master[, max(rest) - min(rest), by = .(year, age, range)][, max(V1)] <= 1e-6) "PASS" else "FAIL"
+    ),
+    value = c(
+      sprintf("%d/%d cities", length(included_cities), length(expected_cities)),
+      sprintf("%d/%d rows", nrow(master), expected_rows),
+      "required fields finite",
+      sprintf("minimum population = %.3f", min(master$pop)),
+      sprintf("minimum deaths = %.3f", min(master$deaths_component)),
+      sprintf("maximum difference = %.3e", master[, max(pop) - min(pop), by = .(year, age, range)][, max(V1)]),
+      sprintf("maximum difference = %.3e", master[, max(rest) - min(rest), by = .(year, age, range)][, max(V1)])
+    )
+  )
+  fwrite(checks, file.path(check_dir, "03_master_checks.csv"))
+  if (any(checks$status == "FAIL")) {
+    stop("Pooled master table failed its invariant checks.", call. = FALSE)
+  }
+  fwrite(master, file.path(out_dir, "03_master_table.csv"))
+  message("Saved pooled master table for ", city_name, " (", length(included_cities), " cities).")
+  quit(save = "no")
+}
 
 message(sprintf("\n[03] Assembling %s master analysis table...", city_name))
 
 master_file <- file.path(out_dir, "03_master_table.csv")
 checks_file <- file.path(check_dir, "03_master_checks.csv")
 failures_file <- file.path(check_dir, "03_master_failures.csv")
-fig_file <- file.path(fig_dir, "03_master_table_diagnostic.png")
 
 #----- Load Part 00/02 outputs and restrict to the city/SSP/GCM domain
 
@@ -294,32 +458,5 @@ if (nrow(failures)) {
 
 fwrite(master, master_file)
 
-plot_totals <- master[, .(
-  deaths = unique(death),
-  temp_deaths = unique(temp_deaths),
-  rest = sum(rest)
-), by = .(branch, year, age)]
-plot_totals <- plot_totals[, .(
-  deaths = sum(deaths),
-  temp_deaths = sum(temp_deaths),
-  rest = sum(rest)
-), by = .(branch, year)]
-
-plot_dt <- melt(plot_totals, id.vars = c("branch", "year"), variable.name = "measure", value.name = "value")
-
-p <- ggplot(plot_dt, aes(x = year, y = value, color = measure)) +
-  geom_line(linewidth = 0.7) +
-  facet_wrap(~branch, scales = "free_y") +
-  labs(
-    title = sprintf("%s master table diagnostic", city_name),
-    subtitle = sprintf("Demographics, AN, and rest mortality; GCM=%s", gcm_name),
-    x = "Year",
-    y = "Count"
-  ) +
-  theme_minimal(base_size = 11)
-
-ggsave(fig_file, p, width = 11, height = 6, dpi = 160)
-
 message("Saved master table to ", master_file)
 message("Saved checks to ", checks_file)
-message("Saved diagnostic figure to ", fig_file)
