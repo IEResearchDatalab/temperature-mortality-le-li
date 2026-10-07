@@ -183,13 +183,15 @@ manifest <- c(
   sprintf("repository=%s", repo_root),
   sprintf("branch=%s", git_value("branch", "--show-current")),
   sprintf("commit=%s", git_value("rev-parse", "HEAD")),
-  sprintf("git_status=%s", ifelse(nzchar(git_value("status", "--porcelain")), "dirty", "clean")),
+  sprintf("tracked_git_status=%s", ifelse(nzchar(git_value("status", "--porcelain", "--untracked-files=no")), "dirty", "clean")),
+  sprintf("full_git_status=%s", ifelse(nzchar(git_value("status", "--porcelain")), "dirty", "clean")),
   "script=analysis/gcm_spread_attributable_deaths.R",
   sprintf("input_pattern=%s", file.path(ssp_root, "<CITY>", "<GCM>", "01_attribution_grouped.csv")),
   sprintf("output_directory=%s", normalizePath(output_dir, mustWork = TRUE)),
   sprintf("command=Rscript analysis/gcm_spread_attributable_deaths.R %s %s %s", repo_root, ssp_root, output_dir),
   sprintf("cities=%d", length(cities)),
   sprintf("gcms=%d", length(gcms)),
+  sprintf("ncores=%d", ncores),
   "validation=PASS"
 )
 writeLines(manifest, file.path(output_dir, "run_manifest.txt"))

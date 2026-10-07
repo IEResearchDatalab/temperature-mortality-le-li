@@ -478,21 +478,27 @@ git_value <- function(...) {
   value <- tryCatch(system2("git", c("-C", normalizePath(".", mustWork = TRUE), ...), stdout = TRUE, stderr = FALSE), error = function(e) NA_character_)
   paste(value, collapse = " ")
 }
-invocation <- paste(c("Rscript", commandArgs(trailingOnly = FALSE)[grep("pooled_gcm_le_li_spread", commandArgs(trailingOnly = FALSE))], args), collapse = " ")
+tracked_status <- git_value("status", "--porcelain", "--untracked-files=no")
+full_status <- git_value("status", "--porcelain")
+invocation <- sprintf(
+  "NCORES=%d Rscript analysis/pooled_gcm_le_li_spread.R %s %s %d",
+  ncores, shQuote(source_repo), shQuote(output_dir), ssp
+)
 manifest <- c(
   sprintf("generated_at=%s", format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")),
   sprintf("server=%s", Sys.info()[["nodename"]]),
   sprintf("repository=%s", normalizePath(".", mustWork = TRUE)),
   sprintf("branch=%s", git_value("branch", "--show-current")),
   sprintf("commit=%s", git_value("rev-parse", "HEAD")),
-  sprintf("git_status=%s", ifelse(length(git_value("status", "--porcelain")) && nzchar(git_value("status", "--porcelain")), "dirty", "clean")),
+  sprintf("tracked_git_status=%s", ifelse(nzchar(tracked_status), "dirty", "clean")),
+  sprintf("full_git_status=%s", ifelse(nzchar(full_status), "dirty", "clean")),
   "script=analysis/pooled_gcm_le_li_spread.R",
   sprintf("source_repository=%s", source_repo),
   sprintf("input_pattern=%s", file.path(ssp_root, "<CITY>", "<GCM>", "01_attribution_grouped.csv")),
   sprintf("demography_pattern=%s", file.path(ssp_root, "<CITY>", "demography", "00_demography_{single_age,grouped}.csv")),
   sprintf("output_directory=%s", output_dir),
   sprintf("command=%s", invocation),
-  sprintf("ssp=%d", ssp), sprintf("cities=%d", length(cities)), sprintf("gcms=%d", length(gcms)),
+  sprintf("ssp=%d", ssp), sprintf("cities=%d", length(cities)), sprintf("gcms=%d", length(gcms)), sprintf("ncores=%d", ncores),
   sprintf("validation=%s", if (all(checks$status == "PASS")) "PASS" else "FAIL")
 )
 writeLines(manifest, file.path(output_dir, "run_manifest.txt"))
