@@ -9,6 +9,16 @@ The design follows two reference studies:
 
 Current stage: **batch runs for all 854 cities × 19 GCMs** (SSP3-7.0 first; central ERF coefficients). The pipeline was validated on Madrid (ES001C) first; that single-city stage is tagged `phase1-madrid-diagnostic`.
 
+## Limitations and warnings
+
+> **Read before using any result.** Status on 9 October 2026.
+
+- **Central estimates only.** All results use the central ERF coefficients and the mean over 19 GCMs. No uncertainty intervals exist yet (coefficient draws, GCM spread and PCLM sensitivity are planned in issues #4–#12).
+- **SSP1-2.6 is incomplete in production.** The Wittgenstein (WCDE v2) survival ratios are published to three decimals. Late in the century many old-age values are exactly `1.000`, which implies zero deaths in whole broad age groups (65–74 and, in several countries, 75–84). This affects 658 of the 854 cities, in 18 countries: AT, BE, CH, DE, DK, EL, ES, FI, FR, IE, IT, LU, NL, NO, PT, SE, SI and UK. Their demography stops at Part 00, and no pooled SSP1 geography exists. The unrounded WCDE v2 source has not been found in the public releases. Runs that replace exact ones with `0.9995` (all cities) or `0.99999` (Madrid pilot) are exploratory sensitivities only, **not a production fix**. The full `0.9995` run exceeds the 5% mortality-shape threshold in 562 cities.
+- **SSP2-4.5 production excludes the 12 Swiss cities.** Their reconstructed single-age mortality falls by about 11% between consecutive ages, failing the 5% mortality-shape check, so no pooled SSP2 geography exists in production. A run with that check bypassed covers all 854 cities. It is an inclusion-versus-exclusion sensitivity and **does not validate the Swiss reconstruction**.
+- **The 5% mortality-shape threshold is an internal project safeguard,** not an established demographic standard. Neither Masselot's code nor the PCLM method uses it. It flags any decline of more than 5% in single-age mortality between consecutive ages within a broad age group.
+- **Sensitivity runs are labelled and isolated.** They carry `WARNING` rows in their Part 00 check tables and in `00_sensitivity_warnings.csv`, record the switches in `run_manifest.txt`, and are written below `results/europe/sensitivities/<name>/`, never into the canonical `results/europe/ssp<k>`, `collected` or `geographies` outputs. See "Explicit sensitivity runs" below.
+
 ## Pipeline (`pipeline/`)
 
 The scientific pipeline has exactly five ordered scripts. This deliberate structure stays close to Masselot's code and makes each transformation easy to review. `pipeline/00_pkg_params.R` contains configuration and is sourced by each step; it is not a sixth step.
