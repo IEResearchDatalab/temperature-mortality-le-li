@@ -7,7 +7,11 @@
 #
 # Pipeline Part 01: Attributable numbers by age group and temperature range
 #   Follows Masselot & Gasparrini (2025) 03_attribution.R for one city, one
-#   SSP, one GCM and the central ERF coefficients:
+#   SSP and the central ERF coefficients. For an individual GCM it follows
+#   Masselot's attribution calculation; with GCM=ENSEMBLE it averages the
+#   completed GCM-specific attributable numbers, as in Masselot's impact code.
+#
+#   Individual GCM calculation:
 #     - ISIMIP3BASD calibration of the GCM series by month x calibration period
 #     - `with_cc` = calibrated series; `without_cc` = Masselot's `demo` series
 #       (each 5-year block recalibrated to the 2010-2014 distribution)
@@ -19,6 +23,42 @@
 
 source("pipeline/00_pkg_params.R")
 
+if (gcm_name == "ENSEMBLE") {
+  message(sprintf("\n[01] Ensemble-mean ANs for %s %s...", city_name, ssplabs[ssp_name]))
+
+  gcm_files <- file.path(dirname(out_dir), gcmlist, "01_attribution_grouped.csv")
+  missing <- gcmlist[!file.exists(gcm_files)]
+  if (length(missing)) {
+    stop(sprintf("Missing Part 01 outputs for: %s", paste(missing, collapse = ", ")), call. = FALSE)
+  }
+
+  an_all <- rbindlist(lapply(gcm_files, fread))
+  keys <- c("branch", "year", "agegroup", "range")
+  domain <- an_all[, .N, by = keys]
+  if (any(domain$N != length(gcmlist)) || uniqueN(an_all$gcm) != length(gcmlist)) {
+    stop("Per-GCM AN domains differ; cannot calculate the ensemble mean.", call. = FALSE)
+  }
+
+  ensemble <- an_all[, .(an = mean(an)), by = c(
+    keys, "geo_id", "label", "ssp", "days_in_year", "annualization_rule"
+  )]
+  ensemble[, gcm := "ENSEMBLE"]
+  setcolorder(ensemble, names(an_all))
+  setorderv(ensemble, c("branch", "year", "agegroup", "range"))
+
+  spread <- an_all[, .(
+    an_mean = mean(an),
+    an_sd = sd(an),
+    an_min = min(an),
+    an_max = max(an)
+  ), by = keys]
+
+  fwrite(ensemble, file.path(out_dir, "01_attribution_grouped.csv"))
+  fwrite(spread, file.path(out_dir, "01_gcm_spread.csv"))
+  message("Saved ensemble-mean ANs over ", length(gcmlist), " GCMs.")
+  quit(save = "no")
+}
+
 path_tmean <- "data/tmeanproj.gz.parquet"
 if (!gcm_name %in% gcmlist) stop(sprintf("Part 01 runs one GCM of gcmlist; got %s.", gcm_name), call. = FALSE)
 
@@ -27,7 +67,6 @@ message(sprintf("\n[01] Building %s %s grouped attributable numbers...", city_na
 grouped_file <- file.path(out_dir, "01_attribution_grouped.csv")
 checks_file <- file.path(check_dir, "01_attribution_checks.csv")
 failures_file <- file.path(check_dir, "01_attribution_failures.csv")
-fig_file <- file.path(fig_dir, "01_attribution_diagnostic.png")
 
 # Masselot (2025) removes 29 February from all daily series and uses 365-day years.
 annualization_rule_text <- "sum(daily AN) / 365 (29 Feb removed)"
@@ -50,7 +89,7 @@ city_meta <- city_meta[match(agelabs, agegroup)]
 demography <- fread(file.path(dem_dir, "00_demography_grouped.csv"))
 demography <- demography[geo_id == city_id & ssp == as.integer(ssp_name)]
 if (!nrow(demography)) {
-  stop("Demographic domain for the city is empty; run 00_demography.R first.", call. = FALSE)
+  stop("Demographic domain for the city is empty; run 00_prep_data.R first.", call. = FALSE)
 }
 
 city_thresholds <- thresholds[URAU_CODE == city_id & agegroup %in% agelabs]
@@ -387,31 +426,5 @@ if (nrow(failures)) {
 
 fwrite(grouped, grouped_file)
 
-plot_dt <- grouped[, .(an = sum(an)), by = .(year, branch, range)]
-plot_dt[, range := factor(range, levels = range_levels)]
-setorder(plot_dt, branch, year, range)
-plot_dt[, lower := cumsum(an) - an, by = .(year, branch)]
-plot_dt[, upper := cumsum(an), by = .(year, branch)]
-axis_values <- c(plot_dt$lower, plot_dt$upper)
-y_min <- min(axis_values, na.rm = TRUE)
-y_max <- max(axis_values, na.rm = TRUE)
-p <- ggplot(plot_dt, aes(x = year)) +
-  geom_ribbon(aes(ymin = lower, ymax = upper, fill = range), colour = NA, alpha = 0.85) +
-  geom_line(aes(y = upper, colour = range), linewidth = 0.6, show.legend = FALSE) +
-  geom_hline(yintercept = 0, colour = "grey40", linewidth = 0.4) +
-  facet_wrap(~branch, labeller = as_labeller(branch_labels)) +
-  scale_fill_manual(values = range_colors, labels = range_labels, name = NULL) +
-  scale_color_manual(values = range_colors, guide = "none") +
-  scale_y_continuous(limits = c(y_min, y_max)) +
-  labs(
-    title = sprintf("%s %s annual temperature-attributable deaths by temperature range", city_name, ssplabs[ssp_name]),
-    subtitle = sprintf("One GCM (%s); shaded areas accumulate from extreme cold to extreme heat", gcm_name),
-    x = "Year",
-    y = "Annual temperature-attributable deaths"
-  ) +
-  theme_minimal(base_size = 11)
-ggsave(fig_file, p, width = 11, height = 6, dpi = 160)
-
 message("Saved grouped AN to ", grouped_file)
 message("Saved checks to ", checks_file)
-message("Saved diagnostic figure to ", fig_file)

@@ -37,15 +37,22 @@ suppressPackageStartupMessages({
 
 #----- Study unit
 # Defaults run the single-city validation (Madrid, SSP3-7.0, GFDL-ESM4). Batch
-# runs (pipeline/run_batch.sh) override them through environment variables.
+# runs (run_pipeline.sh) override them through environment variables.
 
 city_id <- Sys.getenv("CITY_ID", "ES001C") # URAU code
+geo_level <- tolower(Sys.getenv("GEO_LEVEL", "city"))
+geo_id <- Sys.getenv("GEO_ID", city_id)
 ssp_name <- Sys.getenv("SSP", "3") # as in the `ssp` column of tmeanproj / Wittgenstein
-gcm_name <- Sys.getenv("GCM", "GFDL_ESM4") # or "ENSEMBLE" (mean ANs over the 19 GCMs, Part 01b)
+gcm_name <- Sys.getenv("GCM", "GFDL_ESM4") # or "ENSEMBLE" (mean ANs over the 19 GCMs, Part 01)
 city_name <- local({
-  lab <- unique(fread("data/city_results.csv", select = c("URAU_CODE", "LABEL"))[URAU_CODE == city_id]$LABEL)
-  if (length(lab) != 1L) stop(sprintf("Unknown city %s.", city_id), call. = FALSE)
-  lab
+  supplied <- Sys.getenv("GEO_LABEL", "")
+  if (geo_level != "city") {
+    if (nzchar(supplied)) supplied else geo_id
+  } else {
+    lab <- unique(fread("data/city_results.csv", select = c("URAU_CODE", "LABEL"))[URAU_CODE == city_id]$LABEL)
+    if (length(lab) != 1L) stop(sprintf("Unknown city %s.", city_id), call. = FALSE)
+    lab
+  }
 })
 
 # GCMs to exclude (Masselot 2025): 19 of the 21 GCMs in tmeanproj remain

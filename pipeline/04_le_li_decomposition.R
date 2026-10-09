@@ -23,6 +23,113 @@
 
 source("pipeline/00_pkg_params.R")
 
+analysis_mode <- tolower(Sys.getenv("ANALYSIS_MODE", "run"))
+if (!analysis_mode %in% c("run", "collect")) {
+  stop("ANALYSIS_MODE must be run or collect.", call. = FALSE)
+}
+
+#------------------------
+# COLLECT LIFE-TABLE OUTPUTS (OBJECTS 2 AND 3)
+#------------------------
+
+if (analysis_mode == "collect") {
+  root <- Sys.getenv("BATCH_ROOT", "results/europe")
+  collected_dir <- file.path(root, "collected")
+  dir.create(collected_dir, recursive = TRUE, showWarnings = FALSE)
+
+  meta <- unique(fread("data/city_results.csv")[, .(
+    city = URAU_CODE,
+    city_name = LABEL,
+    country = CNTR_CODE,
+    region
+  )])
+  ensemble_dirs <- Sys.glob(file.path(root, "ssp*", "*", "ENSEMBLE"))
+  ensemble_dirs <- ensemble_dirs[file.exists(file.path(ensemble_dirs, ".done"))]
+  if (!length(ensemble_dirs)) stop("No completed ensemble runs under ", root, call. = FALSE)
+
+  runs <- data.table(
+    dir = ensemble_dirs,
+    city = basename(dirname(ensemble_dirs)),
+    ssp = as.integer(sub("ssp", "", basename(dirname(dirname(ensemble_dirs)))))
+  )
+
+  # Every completed ensemble must have its two decomposition files and the
+  # level files of the ensemble and all GCMs; stop before writing any object
+  level_files <- unlist(lapply(dirname(runs$dir), function(directory) {
+    file.path(directory, c("ENSEMBLE", gcmlist), "04_le_li_levels.csv")
+  }))
+  expected_files <- c(
+    file.path(runs$dir, "04_between_branch_decomposition.csv"),
+    file.path(runs$dir, "04_within_branch_period_decomposition.csv"),
+    level_files
+  )
+  missing_files <- expected_files[!file.exists(expected_files)]
+  if (length(missing_files)) {
+    stop(sprintf(
+      "%d expected Part 04 files are missing; Objects 2 and 3 were not written. First: %s",
+      length(missing_files), paste(head(missing_files, 5), collapse = ", ")
+    ), call. = FALSE)
+  }
+
+  object2 <- rbindlist(lapply(seq_len(nrow(runs)), function(i) {
+    between <- fread(file.path(runs$dir[i], "04_between_branch_decomposition.csv"))
+    within <- fread(file.path(runs$dir[i], "04_within_branch_period_decomposition.csv"))
+    rbind(
+      between[, .(
+        city = geo_id,
+        ssp = runs$ssp[i],
+        type = "between",
+        scenario = "with_cc - without_cc",
+        period_from = period,
+        period_to = period,
+        age,
+        cause,
+        le_contribution,
+        li_contribution
+      )],
+      within[, .(
+        city = geo_id,
+        ssp = runs$ssp[i],
+        type = "within",
+        scenario = branch,
+        period_from,
+        period_to,
+        age,
+        cause,
+        le_contribution,
+        li_contribution
+      )]
+    )
+  }))
+  object2 <- merge(meta, object2, by = "city")
+  write_parquet(object2, file.path(collected_dir, "object2_contributions.parquet"))
+
+  object3 <- rbindlist(lapply(level_files, function(file) {
+    levels <- fread(file)
+    levels[, .(
+      city = geo_id,
+      ssp = as.integer(sub("ssp", "", basename(dirname(dirname(dirname(file)))))),
+      gcm,
+      scenario = branch,
+      year,
+      LE65,
+      LI65
+    )]
+  }))
+  object3 <- merge(meta, object3, by = "city")
+  write_parquet(object3, file.path(collected_dir, "object3_levels.parquet"))
+
+  completeness <- object3[, .(
+    n_gcm = uniqueN(gcm[gcm != "ENSEMBLE"]),
+    has_ensemble = any(gcm == "ENSEMBLE")
+  ), by = .(city, ssp)]
+  fwrite(completeness, file.path(collected_dir, "completeness.csv"))
+  message("Saved Objects 2 and 3 to ", collected_dir)
+  quit(save = "no")
+}
+
+analysis_geo_id <- geo_id
+analysis_geo_label <- city_name
 message(sprintf("\n[04] Running %s LE/LI decomposition (N = %d)...", city_name, N_HORIUCHI))
 
 # The cache is keyed on the md5 of the master table, so any upstream change
@@ -39,7 +146,6 @@ within_period_file <- file.path(out_dir, "04_within_branch_period_decomposition.
 checks_file <- file.path(check_dir, "04_le_li_decomposition_checks.csv")
 steps_file <- file.path(check_dir, "04_le_li_decomposition_steps.csv")
 failures_file <- file.path(check_dir, "04_le_li_decomposition_failures.csv")
-fig_file <- file.path(fig_dir, "04_le_li_decomposition_diagnostic.png")
 
 # Between-branch decomposition is run on mean mortality rates over the 5-year
 # periods of the demographic projections (annual with - without differences
@@ -47,7 +153,7 @@ fig_file <- file.path(fig_dir, "04_le_li_decomposition_diagnostic.png")
 period_len <- perlen
 
 master <- fread(master_file)
-master <- master[geo_id == city_id & gcm == gcm_name]
+master <- master[geo_id == analysis_geo_id & gcm == gcm_name]
 
 if (!nrow(master)) stop("Master table for the city is missing; run 03_master_table.R first.", call. = FALSE)
 
@@ -153,7 +259,7 @@ levels_dt <- cause_dt[cause == cause_levels[1], .(
   LE65 = life_expectancy_from_mx_65plus(mx_total[order(age)], x = age_levels, nx = nx, age = 0),
   LI65 = sd_from_mx_fun_65_plus(mx_total[order(age)], x = age_levels, nx = nx, age = 0)
 ), by = .(branch, year)]
-levels_dt[, `:=`(geo_id = city_id, label = city_name, gcm = gcm_name)]
+levels_dt[, `:=`(geo_id = analysis_geo_id, label = analysis_geo_label, gcm = gcm_name)]
 setcolorder(levels_dt, c("geo_id", "label", "gcm", "branch", "year", "LE65", "LI65"))
 setorder(levels_dt, branch, year)
 
@@ -173,7 +279,7 @@ for (b in if (decomp_annual) branch_levels else character(0)) {
     h <- cached(sprintf("within_%s_%d_%d_N%d", b, y0, y1, N_HORIUCHI),
       horiuchi_pair(cause_vector(cause_dt[branch == b & year == y0]), cause_vector(cause_dt[branch == b & year == y1])))
     le0 <- levels_dt[branch == b & year == y0]; le1 <- levels_dt[branch == b & year == y1]
-    base <- data.table(geo_id = city_id, label = city_name, gcm = gcm_name, branch = b, year_from = y0, year_to = y1)
+    base <- data.table(geo_id = analysis_geo_id, label = analysis_geo_label, gcm = gcm_name, branch = b, year_from = y0, year_to = y1)
     decomp_le[[length(decomp_le) + 1L]] <- cbind(base, grid_dt(h$le))
     decomp_li[[length(decomp_li) + 1L]] <- cbind(base, grid_dt(h$li))
     step_checks[[length(step_checks) + 1L]] <- data.table(
@@ -209,7 +315,7 @@ for (p in sort(unique(period_mx$period))) {
   f_le <- function(v) life_expectancy_cod(v, x = age_levels, nx = nx)
   f_li <- function(v) sd.cod.fun.65plus(v, x = age_levels, nx = nx)
   g <- grid_dt(h$le); setnames(g, "contribution", "le_contribution"); g[, li_contribution := h$li]
-  between[[length(between) + 1L]] <- cbind(data.table(geo_id = city_id, label = city_name, gcm = gcm_name,
+  between[[length(between) + 1L]] <- cbind(data.table(geo_id = analysis_geo_id, label = analysis_geo_label, gcm = gcm_name,
     period = sprintf("%d-%d", p, p + period_len - 1L)), g)
   between_checks[[length(between_checks) + 1L]] <- data.table(period = p,
     LE65_without = f_le(mx_wo), LE65_with = f_le(mx_w), LI65_without = f_li(mx_wo), LI65_with = f_li(mx_w),
@@ -224,7 +330,7 @@ between <- rbindlist(between); between_checks <- rbindlist(between_checks)
 # between the block's first and last single years, which is dominated by those
 # years' weather. Lloyd et al. (2024) decomposed changes in multi-year average
 # ANs; here consecutive 5-year-period mean schedules are used, so block sums
-# reflect the change between period means (used by 05_figures.R, Fig 2).
+# reflect the change between period means (used by the auxiliary result scripts).
 
 periods_all <- sort(unique(period_mx$period))
 f_le_p <- function(v) life_expectancy_cod(v, x = age_levels, nx = nx)
@@ -236,7 +342,7 @@ for (b in branch_levels) {
     m0 <- cause_vector(period_mx[branch == b & period == p0]); m1 <- cause_vector(period_mx[branch == b & period == p1])
     h <- cached(sprintf("withinperiod_%s_%d_%d_N%d", b, p0, p1, N_HORIUCHI), horiuchi_pair(m0, m1))
     g <- grid_dt(h$le); setnames(g, "contribution", "le_contribution"); g[, li_contribution := h$li]
-    within_p[[length(within_p) + 1L]] <- cbind(data.table(geo_id = city_id, label = city_name, gcm = gcm_name, branch = b,
+    within_p[[length(within_p) + 1L]] <- cbind(data.table(geo_id = analysis_geo_id, label = analysis_geo_label, gcm = gcm_name, branch = b,
       period_from = sprintf("%d-%d", p0, p0 + period_len - 1L), period_to = sprintf("%d-%d", p1, p1 + period_len - 1L)), g)
     within_p_checks[[length(within_p_checks) + 1L]] <- data.table(branch = b, period_from = p0,
       le_closure_error = sum(h$le) - (f_le_p(m1) - f_le_p(m0)), li_closure_error = sum(h$li) - (f_li_p(m1) - f_li_p(m0)))
@@ -292,20 +398,6 @@ if (decomp_annual) {
 }
 fwrite(between, between_file)
 fwrite(within_p, within_period_file)
-
-if (decomp_annual) {
-  plot_checks <- melt(step_checks[, .(branch, year_from, le_closure_error, li_closure_error)],
-    id.vars = c("branch", "year_from"), variable.name = "measure", value.name = "error")
-  p <- ggplot(plot_checks, aes(x = year_from, y = error, color = measure)) +
-    geom_hline(yintercept = 0, linetype = 2, color = "grey50") +
-    geom_line(linewidth = 0.7) +
-    facet_wrap(~branch, scales = "free_y") +
-    labs(title = sprintf("%s LE/LI decomposition closure diagnostics", city_name),
-         subtitle = sprintf("Horiuchi N = %d; closure tolerance %g", N_HORIUCHI, closure_tol),
-         x = "Year from", y = "Closure error") +
-    theme_minimal(base_size = 11)
-  ggsave(fig_file, p, width = 11, height = 6, dpi = 160)
-}
 
 message("Saved LE/LI levels to ", levels_file)
 message("Saved LE decomposition to ", le_file)

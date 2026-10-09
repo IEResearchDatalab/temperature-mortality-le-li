@@ -5,7 +5,9 @@
 # Temperature-related mortality and its impact on life expectancy and
 # lifespan inequality at older ages in European cities
 #
-# Pipeline Part 05: Summary figures and headline numbers
+# Auxiliary results: city figures and headline numbers
+#   This script reads completed pipeline outputs. It is not one of the five
+#   scientific pipeline steps.
 #   Built only from Part 04 outputs. The figures Simon asked for:
 #     Fig 1  LE65 and LI65+ trajectories, with vs without CC, plus the gap
 #            (Delta LE65 and Delta LI65+ on a dual axis)      [10 Sep §3.3, §8]
@@ -15,14 +17,14 @@
 #            (Lloyd et al. 2024 Figs 3-4 layout)              [26 Aug, 7 Sep]
 #     Fig 3  Age profile of the climate-change effect (with - without CC) by
 #            single age and temperature range, ~2050 and ~2090 [10 Sep §8]
-#   05_summary.csv: headline numbers, including the climate-change loss as a
+#   city_summary.csv: headline numbers, including the climate-change loss as a
 #   share of the LE65 gain without CC (relative change, Simon 8 Sep).
 #
 ################################################################################
 
 source("pipeline/00_pkg_params.R")
 
-message("\n[05] Building summary figures...")
+message("\n[results] Building city summary figures...")
 
 time_blocks <- c(2020, 2040, 2060, 2080, 2100)
 age_band_breaks <- c(seq(65, 100, 5), Inf)
@@ -59,7 +61,7 @@ p1b <- ggplot(gap, aes(mid)) +
   labs(x = "5-year period (midpoint)") +
   theme_minimal(base_size = 11) + theme(legend.position = "bottom")
 p1 <- (p1a / p1b) + plot_annotation(title = sprintf("%s: LE65 and LI65+, with vs without climate change", city_name), subtitle = scenario_label)
-ggsave(file.path(fig_dir, "05_fig1_trajectories.png"), p1, width = 11, height = 9, dpi = 160)
+ggsave(file.path(fig_dir, "city_fig1_trajectories.png"), p1, width = 11, height = 9, dpi = 160)
 
 #----- Fig 2: within-branch contributions by age band and time block
 # Uses the decomposition between consecutive 5-year-period means (Part 04), so
@@ -90,7 +92,7 @@ p2 <- ggplot(blk, aes(age_band, contribution, fill = cause)) +
        x = "Age group", y = "Contribution to change") +
   theme_minimal(base_size = 9) +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5), legend.position = "bottom")
-ggsave(file.path(fig_dir, "05_fig2_within_branch_by_age_block.png"), p2, width = 16, height = 7, dpi = 160)
+ggsave(file.path(fig_dir, "city_fig2_within_branch_by_age_block.png"), p2, width = 16, height = 7, dpi = 160)
 
 #----- Fig 3: age profile of the climate-change effect
 
@@ -111,7 +113,7 @@ p3 <- ggplot(snap, aes(age, value, colour = cause, linetype = snapshot)) +
        subtitle = paste(scenario_label, "- mean of 5-year-period decompositions"),
        x = "Age", y = "Contribution by single year of age", linetype = NULL) +
   theme_minimal(base_size = 11)
-ggsave(file.path(fig_dir, "05_fig3_age_profile_cc_effect.png"), p3, width = 10, height = 8, dpi = 160)
+ggsave(file.path(fig_dir, "city_fig3_age_profile_cc_effect.png"), p3, width = 10, height = 8, dpi = 160)
 
 #----- Headline numbers
 
@@ -131,6 +133,6 @@ summary_dt <- rbind(
   data.table(item = sprintf("CC effect on LI65+, %d-%d, %s", last_p, last_p + 4, c(cc_last$cause, "total")),
              value = c(cc_last$dLI, sum(cc_last$dLI)), unit = "SD")
 )
-fwrite(summary_dt, file.path(out_dir, "05_summary.csv"))
+fwrite(summary_dt, file.path(out_dir, "city_summary.csv"))
 print(summary_dt, digits = 4)
-message("Saved figures to ", fig_dir, " and summary to ", file.path(out_dir, "05_summary.csv"))
+message("Saved figures to ", fig_dir, " and summary to ", file.path(out_dir, "city_summary.csv"))
