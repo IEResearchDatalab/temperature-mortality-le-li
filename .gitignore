@@ -12,6 +12,8 @@ results/
 !results/.gitkeep
 *.log
 nohup.out
+analysis/object1_overview.html
+tmp/
 
 # ─── External data (too big for git; see README "Data" for sources) ─
 data/tmeanproj.gz.parquet
