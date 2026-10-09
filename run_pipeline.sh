@@ -122,7 +122,7 @@ done
 if [ "$CITIES" = "all" ]; then
   CITY_LIST=$(Rscript -e 'cat(sort(unique(data.table::fread("data/city_results.csv")$URAU_CODE)), sep = "\n")')
 else
-  CITY_LIST=$(tr -d '\r' < "$CITIES" | cut -d' ' -f1 | grep -v '^[[:space:]]*$')
+  CITY_LIST=$(tr -d '\r' < "$CITIES" | awk 'NF { print $1 }' | sort -u)
 fi
 [ -n "$CITY_LIST" ] || { echo "ERROR: the city list is empty"; exit 1; }
 # City IDs are later expanded unquoted and passed to bash -c, so accept only
