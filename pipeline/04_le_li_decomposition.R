@@ -52,6 +52,25 @@ if (analysis_mode == "collect") {
     city = basename(dirname(ensemble_dirs)),
     ssp = as.integer(sub("ssp", "", basename(dirname(dirname(ensemble_dirs)))))
   )
+
+  # Every completed ensemble must have its two decomposition files and the
+  # level files of the ensemble and all GCMs; stop before writing any object
+  level_files <- unlist(lapply(dirname(runs$dir), function(directory) {
+    file.path(directory, c("ENSEMBLE", gcmlist), "04_le_li_levels.csv")
+  }))
+  expected_files <- c(
+    file.path(runs$dir, "04_between_branch_decomposition.csv"),
+    file.path(runs$dir, "04_within_branch_period_decomposition.csv"),
+    level_files
+  )
+  missing_files <- expected_files[!file.exists(expected_files)]
+  if (length(missing_files)) {
+    stop(sprintf(
+      "%d expected Part 04 files are missing; Objects 2 and 3 were not written. First: %s",
+      length(missing_files), paste(head(missing_files, 5), collapse = ", ")
+    ), call. = FALSE)
+  }
+
   object2 <- rbindlist(lapply(seq_len(nrow(runs)), function(i) {
     between <- fread(file.path(runs$dir[i], "04_between_branch_decomposition.csv"))
     within <- fread(file.path(runs$dir[i], "04_within_branch_period_decomposition.csv"))
@@ -85,10 +104,6 @@ if (analysis_mode == "collect") {
   object2 <- merge(meta, object2, by = "city")
   write_parquet(object2, file.path(collected_dir, "object2_contributions.parquet"))
 
-  level_files <- unlist(lapply(dirname(runs$dir), function(directory) {
-    file.path(directory, c("ENSEMBLE", gcmlist), "04_le_li_levels.csv")
-  }))
-  level_files <- level_files[file.exists(level_files)]
   object3 <- rbindlist(lapply(level_files, function(file) {
     levels <- fread(file)
     levels[, .(
