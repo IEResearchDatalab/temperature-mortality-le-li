@@ -1,4 +1,4 @@
 ssp,enabled,cities,ncores,n_horiuchi,decomp_annual
-1,true,all,28,50,0
-2,true,all,28,50,0
-3,true,all,28,50,0
+1,false,all,28,400,0
+2,false,all,28,400,0
+3,true,all,28,400,0

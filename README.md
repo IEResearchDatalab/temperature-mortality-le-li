@@ -55,9 +55,21 @@ atomic SSP run; the runner processes those rows sequentially and parallelises
 cities and GCMs within the active SSP. Scientific scripts therefore never loop
 over scenarios or share scenario state. A failed city/ensemble stage stops
 before canonical objects or pooled geographies are updated, and a failed SSP
-stops the config before later SSPs begin. Each scenario output records the Git
-revision and resolved city/GCM domains in `run_manifest.txt`, `run_cities.txt`
-and `run_gcms.txt`.
+stops the config before later SSPs begin. The tracked plan enables only
+SSP3, at the validated `N_HORIUCHI=400`. SSP1 and SSP2 are disabled because
+their production runs are known to stop at Part 00 (see *Limitations and
+warnings*); enabling them would stop the config before SSP3. Each scenario
+output records the Git revision and resolved city/GCM domains in
+`run_manifest.txt`, `run_cities.txt` and `run_gcms.txt`.
+
+Rerunning into an existing scenario root resumes it: finished jobs are skipped.
+The runner first checks `run_manifest.txt`. It stops without deleting anything
+if `N_HORIUCHI`, `DECOMP_ANNUAL`, the sensitivity switches or the `pipeline/`
+code differ from the recorded run, or if `pipeline/` has uncommitted changes.
+Otherwise it keeps the original manifest and appends a `resumed_at` record.
+A root with finished outputs but no manifest (canonical SSP3 predates
+manifests) is reused only with `ACCEPT_UNRECORDED_OUTPUTS=1`, and the new
+manifest then says `prior_outputs=unrecorded_provenance`.
 
 ### Explicit sensitivity runs
 
@@ -77,7 +89,7 @@ Other behaviour:
 - Output goes to `results/europe/ssp<k>/<city>/{demography,<GCM>,ENSEMBLE}/`.
 - Finished jobs leave a `.done` marker, so a run can be restarted and resumes. Failures are listed in `failed.txt`.
 - Result scripts under `analysis/` generate figures and manuscript summaries only after the pipeline is complete.
-- Horiuchi steps (`N_HORIUCHI`): the runner and `run_config.csv` default to N = 50 with only the 5-year-period decompositions (`DECOMP_ANNUAL=0`); a direct `Rscript` run uses the `00_pkg_params.R` defaults, N = 400 with annual decompositions. On Madrid, N = 50 matches N = 400 to 6 decimals, but at N = 50 29 SSP1/SSP2 city ensembles missed the 1e-6 closure tolerance. The validated outputs therefore use N = 400: the SSP3 pooled run, and the SSP2 and SSP1 sensitivity runs (`run_manifest.txt`). Valletta and pooled Malta in the SSP1 sensitivity were rerun at N = 800. Canonical SSP1/SSP2 ran at N = 50.
+- Horiuchi steps (`N_HORIUCHI`): `run_config.csv` uses N = 400; the runner's command-line default is N = 50; both run only the 5-year-period decompositions (`DECOMP_ANNUAL=0`). A direct `Rscript` run uses the `00_pkg_params.R` defaults, N = 400 with annual decompositions. On Madrid, N = 50 matches N = 400 to 6 decimals, but at N = 50 29 SSP1/SSP2 city ensembles missed the 1e-6 closure tolerance. The validated outputs therefore use N = 400: the SSP3 pooled run, and the SSP2 and SSP1 sensitivity runs (`run_manifest.txt`). Valletta and pooled Malta in the SSP1 sensitivity were rerun at N = 800. Canonical SSP1/SSP2 ran at N = 50.
 
 Parts 03 and 04 write the three data objects agreed on 10 Sep:
 
