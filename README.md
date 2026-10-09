@@ -7,7 +7,7 @@ The design follows two reference studies:
 1. **Masselot et al. (2025, Nat Med)** for the temperature-attributable deaths (ANs): same data, same code logic. The only change is that heat and cold are each split into moderate and extreme.
 2. **Lloyd et al. (2024, Environ Int)**, using the Aburto et al. (2022) code, for the life tables and the Horiuchi decomposition of LE65 and LI65+.
 
-Current stage: **batch runs for all 854 cities × 19 GCMs** (SSP3-7.0 first; central ERF coefficients). The pipeline was validated on Madrid (ES001C) first; that single-city stage is tagged `phase1-madrid-diagnostic`.
+Current stage: **SSP3-7.0 is complete for all 854 cities × 19 GCMs and all 35 pooled geographies** (30 countries, four regions, Europe), using central ERF coefficients. SSP2-4.5 and SSP1-2.6 are incomplete in production; see *Limitations and warnings*. The pipeline was validated on Madrid (ES001C) first; that single-city stage is tagged `phase1-madrid-diagnostic`.
 
 ## Limitations and warnings
 
@@ -64,18 +64,20 @@ and `run_gcms.txt`.
 Two opt-in Part 00 settings exist only for the documented SSP1/SSP2 input
 sensitivities. `SKIP_MX_PLAUSIBILITY_CHECK=1` continues after the 5% within-age-
 group mortality-shape guard, while preserving the observed failure as a
-`WARNING`. `ASSR_ONE_REPLACEMENT=0.99999` replaces source ratios reported as
-exactly one and records every changed row. Defaults leave the source and guard
-unchanged. The runner refuses either setting unless a non-canonical
-`BATCH_ROOT_OVERRIDE` is supplied, so sensitivity outputs cannot overwrite or
-mix with `results/europe`.
+`WARNING`. `ASSR_ONE_REPLACEMENT=<value>` (the exploratory runs used `0.9995`
+and `0.99999`) replaces source ratios reported as exactly one and records every
+changed row. Neither setting is a production fix. Defaults leave the source and
+guard unchanged. The runner refuses either setting unless `BATCH_ROOT_OVERRIDE`
+resolves (after symlinks, `..` and trailing slashes) outside `results/europe`
+or strictly below `results/europe/sensitivities/`, so sensitivity outputs
+cannot overwrite or mix with the canonical outputs.
 
 Other behaviour:
 
 - Output goes to `results/europe/ssp<k>/<city>/{demography,<GCM>,ENSEMBLE}/`.
 - Finished jobs leave a `.done` marker, so a run can be restarted and resumes. Failures are listed in `failed.txt`.
 - Result scripts under `analysis/` generate figures and manuscript summaries only after the pipeline is complete.
-- Part 04 runs only the 5-year-period decompositions (`DECOMP_ANNUAL=0`) with N = 50. On Madrid these give the same result as N = 400 to 6 decimals.
+- Horiuchi steps (`N_HORIUCHI`): the runner and `run_config.csv` default to N = 50 with only the 5-year-period decompositions (`DECOMP_ANNUAL=0`); a direct `Rscript` run uses the `00_pkg_params.R` defaults, N = 400 with annual decompositions. On Madrid, N = 50 matches N = 400 to 6 decimals, but at N = 50 29 SSP1/SSP2 city ensembles missed the 1e-6 closure tolerance. The validated outputs therefore use N = 400: the SSP3 pooled run, and the SSP2 and SSP1 sensitivity runs (`run_manifest.txt`). Valletta and pooled Malta in the SSP1 sensitivity were rerun at N = 800. Canonical SSP1/SSP2 ran at N = 50.
 
 Parts 03 and 04 write the three data objects agreed on 10 Sep:
 
@@ -100,7 +102,7 @@ Every choice below follows a reference implementation. If something deviates, it
 | Single ages (population, deaths) | PCLM (`ungroup::pclm`, BIC λ, person-scale counts) on the national 5-year bands 65–69 … 95–99, 100+. The open group is spread over 100–110 (`nlast = 11`) and collapsed back into 100+. Checked against observed Eurostat single-age data (LE65 error 0.007 y) | Rizzi et al. 2015; Simon's methods draft 2.5; meeting 10 Sep §2.4 |
 | Single-age ANs | Each group's attributable fraction applied to the PCLM single-age deaths, so AN ≤ deaths at every age | Simon's methods draft 2.5, option (b) (confirmed by Daniel 23 Sep) |
 | Life tables | Period life tables 65–100+, piecewise-constant hazard; LE65; LI65+ = SD of age at death conditional on reaching 65 | Lloyd 2024 `Code_1.R`, `Code_2.R` (Aburto 2022) |
-| Decomposition | Horiuchi (`DemoDecomp`, N = 400) by single age × cause (4 ranges + rest): (i) consecutive years within each branch, summable over periods and ages, plus consecutive 5-year-period means (used for block figures, so single-year weather at block endpoints does not drive the result; Lloyd 2024 also decomposed multi-year average ANs); (ii) with vs without CC on 5-year-period mean rates, where rest contributes 0 by construction | Lloyd 2024; Simon's methods draft 2.7 |
+| Decomposition | Horiuchi (`DemoDecomp`, N = `N_HORIUCHI`; validated outputs use 400, see *Batch runs*) by single age × cause (4 ranges + rest): (i) consecutive years within each branch, summable over periods and ages, plus consecutive 5-year-period means (used for block figures, so single-year weather at block endpoints does not drive the result; Lloyd 2024 also decomposed multi-year average ANs); (ii) with vs without CC on 5-year-period mean rates, where rest contributes 0 by construction | Lloyd 2024; Simon's methods draft 2.7 |
 | ERF basis | `bs`, degree 2; knots at the 10/75/90th percentiles and boundaries at the range of the city's **full ERA5-Land series 1990–2019** (the series the ERFs were estimated on) | Masselot 2025 `03_attribution.R` (`tper`) |
 | Temperature projections (with climate change) | ISIMIP3BASD trend-preserving bias correction against ERA5 2000–2014, applied **by month × calibration period** (2015–29, 2030–39, …, 2090–99) | Masselot 2025 `03_attribution.R`, `functions/isimip3.R` |
 | Without-climate-change counterfactual | Masselot's `demo` series: each 5-year block of the calibrated GCM series is re-mapped with ISIMIP3 onto the calibrated 2010–2014 distribution. Day-to-day weather is kept and the warming trend removed. Option `counterfactual = "era5_cycle"` (observed 2000–2019 repeated) is kept for sensitivity analysis | Masselot 2025 `03_attribution.R`; Simon's methods draft 2.4.3; Simon 23 Sep ("do whatever Masselot did") |
@@ -157,7 +159,7 @@ Validated on 2026-09-23 with R 4.4.3 and these packages:
 install.packages(c("data.table", "arrow", "dplyr", "dlnm", "ungroup", "DemoDecomp", "ggplot2", "patchwork"))
 ```
 
-Runtime for one city, one GCM and one SSP on 2 cores: steps 00a–03 take about 2 minutes, and 04 about 30 minutes (Horiuchi, N = 400). Step 04 caches every Horiuchi step, so an interrupted run resumes.
+Runtime for one city, one GCM and one SSP on 2 cores: steps 00–03 take about 2 minutes, and 04 about 30 minutes with the script defaults (N = 400, `DECOMP_ANNUAL=1`). Step 04 caches every Horiuchi step, so an interrupted run resumes.
 
 ## Legacy code
 
