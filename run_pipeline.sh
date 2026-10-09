@@ -122,9 +122,17 @@ done
 if [ "$CITIES" = "all" ]; then
   CITY_LIST=$(Rscript -e 'cat(sort(unique(data.table::fread("data/city_results.csv")$URAU_CODE)), sep = "\n")')
 else
-  CITY_LIST=$(cut -d' ' -f1 "$CITIES")
+  CITY_LIST=$(tr -d '\r' < "$CITIES" | cut -d' ' -f1 | grep -v '^[[:space:]]*$')
 fi
 [ -n "$CITY_LIST" ] || { echo "ERROR: the city list is empty"; exit 1; }
+# City IDs are later expanded unquoted and passed to bash -c, so accept only
+# URAU codes (e.g. ES001C); anything else could be globbed or run as shell code.
+bad_cities=$(printf '%s\n' "$CITY_LIST" | grep -v -x -E '[A-Z]{2}[0-9]{3}C')
+if [ -n "$bad_cities" ]; then
+  echo "ERROR: invalid city IDs in $CITIES (expected URAU codes such as ES001C):"
+  printf '%s\n' "$bad_cities" | head -5 | sed 's/^/  /'
+  exit 2
+fi
 mkdir -p "$ROOT" "$BATCH_ROOT/shared/checks"
 Rscript -e 'suppressMessages(source("pipeline/00_pkg_params.R")); invisible(arrow::open_dataset("data/tmeanproj.gz.parquet")$schema)' \
   > "$ROOT/preflight.log" 2>&1 || { echo "ERROR: R packages or tmeanproj.gz.parquet not readable; see $ROOT/preflight.log"; cat "$ROOT/preflight.log"; exit 1; }
@@ -289,11 +297,11 @@ if [ ! -s data/prep_data.RData ]; then
 fi
 
 echo "$(date '+%F %T') step 00: demography"
-printf '%s\n' $CITY_LIST | xargs -P "$NCORES" -I{} bash -c 'dem_job {}'
+printf '%s\n' $CITY_LIST | xargs -P "$NCORES" -I{} bash -c 'dem_job "$1"' _ {}
 echo "$(date '+%F %T') steps 01-04: city x GCM"
 for c in $CITY_LIST; do for g in $GCMS; do echo "$c $g"; done; done | xargs -P "$NCORES" -L1 bash -c 'gcm_job "$0" "$1"'
 echo "$(date '+%F %T') steps 01-04: city ensemble"
-printf '%s\n' $CITY_LIST | xargs -P "$NCORES" -I{} bash -c 'ens_job {}'
+printf '%s\n' $CITY_LIST | xargs -P "$NCORES" -I{} bash -c 'ens_job "$1"' _ {}
 
 if [ -s "$ROOT/failed.txt" ]; then
   nfail=$(wc -l < "$ROOT/failed.txt")
