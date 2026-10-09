@@ -85,10 +85,23 @@ fi
 # WARNING: Both switches alter a scientific safeguard or source value. They
 # are sensitivity analyses only and must use a separate batch root so canonical
 # results/europe outputs cannot be overwritten or silently mixed with them.
-if { [ "${SKIP_MX_PLAUSIBILITY_CHECK:-0}" = "1" ] || [ -n "${ASSR_ONE_REPLACEMENT:-}" ]; } && \
-   { [ -z "${BATCH_ROOT_OVERRIDE:-}" ] || [ "$BATCH_ROOT_OVERRIDE" = "results/europe" ]; }; then
-  echo "ERROR: sensitivity switches require a non-canonical BATCH_ROOT_OVERRIDE"
-  exit 2
+# Paths are compared after resolving symlinks, "..", "." and trailing slashes.
+# The override must resolve outside results/europe, or strictly below
+# results/europe/sensitivities/ (the convention used by existing runs).
+if [ "${SKIP_MX_PLAUSIBILITY_CHECK:-0}" = "1" ] || [ -n "${ASSR_ONE_REPLACEMENT:-}" ]; then
+  [ -n "${BATCH_ROOT_OVERRIDE:-}" ] || {
+    echo "ERROR: sensitivity switches require a non-canonical BATCH_ROOT_OVERRIDE"
+    exit 2
+  }
+  canonical_root=$(realpath -m results/europe)
+  override_root=$(realpath -m "$BATCH_ROOT_OVERRIDE")
+  case "$override_root/" in
+    "$canonical_root"/sensitivities/?*) ;;
+    "$canonical_root"/*)
+      echo "ERROR: BATCH_ROOT_OVERRIDE resolves into the canonical results tree: $override_root"
+      echo "       Use a path outside $canonical_root or below $canonical_root/sensitivities/"
+      exit 2 ;;
+  esac
 fi
 
 export BATCH_ROOT=${BATCH_ROOT_OVERRIDE:-results/europe}
@@ -99,22 +112,26 @@ export DECOMP_ANNUAL=${DECOMP_ANNUAL:-0}
 # Horiuchi steps: N = 50 as in Lloyd et al. (2024); on Madrid the results equal
 # N = 400 to 6 decimals (closure error 8e-8), at 1/8 of the cost
 export N_HORIUCHI=${N_HORIUCHI:-50}
-mkdir -p "$ROOT" "$BATCH_ROOT/shared/checks"
-rm -f "$ROOT/failed.txt"   # failures are re-evaluated on every run
 
+#----- Pre-flight: inputs and packages (fail fast with a clear message)
+# Nothing is created or deleted until these checks pass.
+for f in data/city_results.csv data/coefs.csv data/wittgenstein_pop.csv data/wittgenstein_assr.csv \
+         data/tmeanproj.gz.parquet data/era5series.gz.parquet; do
+  [ -s "$f" ] || { echo "ERROR: missing $f (see README 'Data')"; exit 1; }
+done
 if [ "$CITIES" = "all" ]; then
   CITY_LIST=$(Rscript -e 'cat(sort(unique(data.table::fread("data/city_results.csv")$URAU_CODE)), sep = "\n")')
 else
   CITY_LIST=$(cut -d' ' -f1 "$CITIES")
 fi
-#----- Pre-flight: inputs and packages (fail fast with a clear message)
-for f in data/city_results.csv data/coefs.csv data/wittgenstein_pop.csv data/wittgenstein_assr.csv \
-         data/tmeanproj.gz.parquet data/era5series.gz.parquet; do
-  [ -s "$f" ] || { echo "ERROR: missing $f (see README 'Data')"; exit 1; }
-done
+[ -n "$CITY_LIST" ] || { echo "ERROR: the city list is empty"; exit 1; }
+mkdir -p "$ROOT" "$BATCH_ROOT/shared/checks"
 Rscript -e 'suppressMessages(source("pipeline/00_pkg_params.R")); invisible(arrow::open_dataset("data/tmeanproj.gz.parquet")$schema)' \
   > "$ROOT/preflight.log" 2>&1 || { echo "ERROR: R packages or tmeanproj.gz.parquet not readable; see $ROOT/preflight.log"; cat "$ROOT/preflight.log"; exit 1; }
 GCMS=$(Rscript -e 'suppressMessages(source("pipeline/00_pkg_params.R")); cat(gcmlist, sep = "\n")')
+[ -n "$GCMS" ] || { echo "ERROR: could not read the GCM list from 00_pkg_params.R"; exit 1; }
+
+rm -f "$ROOT/failed.txt"   # failures are re-evaluated on every run
 
 # Record the exact resolved run inputs beside the scenario outputs. The tracked
 # config declares the requested runs; these files preserve the expanded city
