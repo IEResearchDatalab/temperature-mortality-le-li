@@ -42,7 +42,7 @@ Right: cumulative contributions since 2020–24, x = months of LE65 and y = days
 
 ## Labels and captions
 
-Every SSP1 output says “survival ratios patched (WCDE rounding)”; every SSP2 output says “including 12 Swiss cities”. Captions state the static ERA5-Land 2000–2014 baseline, the preceding 15-year moving P97.5 window, 5-year-period-mean decompositions, units, and “central estimate, no uncertainty intervals”. Annual decompositions are optional (`DECOMP_ANNUAL=1`) and are not used in the paper figures.
+Every SSP1 output says “survival ratios patched (WCDE rounding)”; every SSP2 output says “including 12 Swiss cities”. Captions state the static ERA5-Land 2000–2014 baseline and the anchored preceding-15-year moving P97.5: observed ERA5 baseline plus the calibrated GCM change from its own 2000–2014 P97.5. They also state 5-year-period-mean decompositions, units, and “central estimate, no uncertainty intervals”. Annual decompositions are optional (`DECOMP_ANNUAL=1`) and are not used in the paper figures.
 
 ## Follow-up issue state at audit
 

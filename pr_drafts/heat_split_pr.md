@@ -1,20 +1,22 @@
-# Draft PR: WIP — three-way heat split blocked by 2015 threshold contradiction
+# Draft PR: three-way heat split with anchored 15-year threshold
 
 ## Summary
 
-This branch contains the audited implementation scaffold for the 15-year moving extreme-heat split, the six-cause downstream contract, prep-cache fingerprinting, and alternate-root figure handling. It is intentionally marked WIP and must not be merged.
+This branch implements the 15-year moving extreme-heat split, the six-cause downstream contract, prep-cache fingerprinting, and alternate-root figure handling. It remains a draft while the full SSP rerun and paper outputs are produced and checked.
 
-## Blocking test
+## Threshold decision
 
-Madrid/GFDL-ESM4/SSP3 shows that Masselot's calibrated historical GCM 2000–2014 P97.5 (28.2899418625876°C) does not equal the raw ERA5-Land static 2000–2014 P97.5 (28.201°C). The 0.0889418625876°C difference violates the requested numerical-equality check. Using ERA5 for the moving window or adding an anchor would contradict another explicit requirement unless the method is clarified.
+The moving threshold uses an observed-baseline-plus-model-change anchor: `ERA5 P97.5(2000–2014) + [calibrated GCM P97.5(t-15:t-1) - calibrated GCM P97.5(2000–2014)]`. This follows Masselot's calibration principle, preserves the calibrated GCM trajectory, removes residual model-specific baseline offsets, and makes the 2015 threshold equal the static ERA5 threshold by construction.
 
-## Completed checks
+## Madrid checks
 
 - R and shell syntax pass.
-- Masselot 2023 fixture: maximum relative error 4.56e-05 (tolerance 0.001).
-- Complete 15-year windows; no-CC NormExtrHeat AN exactly zero; one moving-threshold clamp in 85 evaluated years.
-- Canonical outputs untouched; no full batch started.
+- Masselot 2023 fixture: maximum relative error `4.56e-05` (tolerance `0.001`).
+- Complete 15-year windows; no-CC NormExtrHeat AN exactly zero; two anchored-threshold clamps in 85 evaluated years.
+- Old-versus-new heat/cold totals agree within `1.10e-11`.
+- Five-year and annual N=400 decompositions pass all six-cause closure checks; annual runtime was 19.8 minutes.
+- Canonical outputs remain untouched; the full rerun writes only below `results/europe/heatsplit_20261013/`.
 
-## Review request
+## Remaining work
 
-Please decide whether the moving historical window remains the calibrated GCM series without exact equality, whether 2015 uses ERA5, or whether a documented calibration anchor is added. See `agent_log/20261013_final_report.md`.
+Complete SSP3, SSP2 and SSP1; verify pooled outputs; produce the paper figures, table, provisional PDF and methods text; then replace this draft status with the final results summary.

@@ -19,9 +19,14 @@
 #   Departure from Masselot: cold follows Lloyd et al. (2024), while heat is
 #   split into moderate, normal-extreme and extreme ranges for this study.
 #   Static P2.5/P97.5 use ERA5-Land 2000-2014. For year t, the moving P97.5
-#   uses Masselot's calibrated historical/future GCM `full` series over
-#   t-15,...,t-1. It is clamped at the static P97.5. The without-CC branch
-#   uses the static P97.5 as its moving threshold, so NormExtrHeat is empty.
+#   is the observed ERA5-Land baseline plus the change in the P97.5 of
+#   Masselot's calibrated historical/future GCM `full` series:
+#     ERA5 P97.5(2000-2014) +
+#       [GCM P97.5(t-15:t-1) - GCM P97.5(2000-2014)].
+#   This observed-baseline-plus-model-change rule follows Masselot's calibration
+#   principle while removing residual GCM-specific baseline offsets. It is
+#   clamped at the static P97.5. The without-CC branch uses the static P97.5,
+#   so NormExtrHeat is empty.
 #
 ################################################################################
 
@@ -249,14 +254,20 @@ cal_src[, demo := {
 }, by = .(month, year5)]
 
 # Moving extreme-heat threshold. The 2000-2014 portion is the calibrated
-# historical GCM `full` series used by Masselot in the same attribution file;
-# projected years use the corresponding calibrated future `full` series.
-# This study-specific moving split is not present in Masselot's code.
+# historical GCM `full` series used by Masselot; projected years use the
+# corresponding calibrated future `full` series. The modelled change from the
+# GCM's own 2000-2014 P97.5 is added to the observed ERA5-Land 2000-2014 P97.5.
+# Masselot does not have this study-specific heat split, but the anchoring
+# applies his observed-baseline-plus-simulated-change calibration principle.
 static_p97_values <- unique(city_thresholds$p97_5)
 if (length(static_p97_values) != 1L) {
   stop("Static P97.5 is not unique across city age-group rows.", call. = FALSE)
 }
 static_p97 <- static_p97_values[[1L]]
+model_baseline_p97 <- as.numeric(quantile(
+  cal_src[year %between% threshold_years, full],
+  extreme_probs[["p97_5"]], na.rm = TRUE
+))
 moving_years <- seq.int(min(future_years) - 5L, max(future_years))
 moving_thresholds <- rbindlist(lapply(moving_years, function(target_year) {
   window <- cal_src[year %between% c(target_year - ext_window, target_year - 1L)]
@@ -274,10 +285,16 @@ if (any(moving_thresholds$n_years != ext_window) || any(moving_thresholds$n_days
 }
 moving_thresholds[, `:=`(
   static_p97_5 = static_p97,
-  clamped = moving_p97_5_raw < static_p97,
-  moving_p97_5 = pmax(moving_p97_5_raw, static_p97)
+  model_baseline_p97_5 = model_baseline_p97,
+  moving_delta_p97_5 = moving_p97_5_raw - model_baseline_p97,
+  moving_p97_5_anchored_raw = static_p97 +
+    (moving_p97_5_raw - model_baseline_p97)
 )]
-moving_2015_diff <- moving_thresholds[year == 2015L, abs(moving_p97_5_raw - static_p97)]
+moving_thresholds[, `:=`(
+  clamped = moving_p97_5_anchored_raw < static_p97,
+  moving_p97_5 = pmax(moving_p97_5_anchored_raw, static_p97)
+)]
+moving_2015_diff <- moving_thresholds[year == 2015L, abs(moving_p97_5_anchored_raw - static_p97)]
 moving_match_tol <- 1e-8
 clamp_count <- moving_thresholds[clamped == TRUE, .N]
 

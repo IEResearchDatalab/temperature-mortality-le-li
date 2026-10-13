@@ -1,4 +1,6 @@
-# Final report — stopped at the Madrid heat-window gate
+# Interim report — Madrid gate resolved and batch resuming
+
+> This report recorded the earlier stop and is retained for provenance. It is superseded by the approved observed-baseline-plus-model-change anchor documented in `agent_log/20261013_run.md`. The final report will be rewritten after the SSP batches and paper outputs finish.
 
 Date: 2026-10-13
 

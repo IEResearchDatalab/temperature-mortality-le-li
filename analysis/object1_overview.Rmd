@@ -25,9 +25,16 @@ library(ggplot2)
 obj1_file <- Sys.getenv("OBJ1", "results/europe/collected/object1_dataset.parquet")
 stopifnot(file.exists(obj1_file))
 
-range_levels <- c("ExtrCold", "ModCold", "ModHeat", "ExtrHeat")
-range_labels <- c(ExtrCold = "Extreme cold", ModCold = "Moderate cold", ModHeat = "Moderate heat", ExtrHeat = "Extreme heat")
-range_colors <- c(ExtrCold = "#2166ac", ModCold = "#67a9cf", ModHeat = "#ef8a62", ExtrHeat = "#b2182b")
+range_levels <- c("ExtrCold", "ModCold", "ModHeat", "NormExtrHeat", "ExtrHeat")
+range_labels <- c(
+  ExtrCold = "Extreme cold", ModCold = "Moderate cold",
+  ModHeat = "Moderate heat", NormExtrHeat = "Normal extreme heat",
+  ExtrHeat = "Extreme heat"
+)
+range_colors <- c(
+  ExtrCold = "#2166ac", ModCold = "#67a9cf",
+  ModHeat = "#f1c232", NormExtrHeat = "#f28e2b", ExtrHeat = "#b2182b"
+)
 branch_labels <- c(with_cc = "With climate change", without_cc = "Without climate change")
 branch_colors <- c(with_cc = "#b2182b", without_cc = "#2166ac")
 
@@ -40,11 +47,11 @@ if (!all(c("country", "region") %in% names(o1))) {
 o1[, period := sprintf("%d-%d", year - (year - 2020) %% 5, year - (year - 2020) %% 5 + 4)]
 ```
 
-File: ``r obj1_file``. Ensemble-mean ANs over the 19 GCMs, central ERF estimates. Deaths for the four temperature ranges are the attributable numbers (ANs); `rest` holds all other deaths.
+File: ``r obj1_file``. Ensemble-mean ANs over the 19 GCMs, central ERF estimates. Deaths for the five temperature ranges are the attributable numbers (ANs); `rest` holds all other deaths.
 
 # 1. What the table contains
 
-One row per city × SSP × scenario × year × single age × cause (four temperature ranges and rest), with deaths and population. Country and region can be derived by summing cities; they are attached here for convenience (Masselot regions).
+One row per city × SSP × scenario × year × single age × cause (five temperature ranges and rest), with deaths and population. Country and region can be derived by summing cities; they are attached here for convenience (Masselot regions).
 
 ```{r structure}
 o1[, .(rows = format(.N, big.mark = ","), cities = uniqueN(city), countries = uniqueN(country),
