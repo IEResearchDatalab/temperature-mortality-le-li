@@ -18,7 +18,8 @@ set -uo pipefail
 
 SSP=${1:?"SSP (1, 2 or 3)"}
 NCORES=${2:-4}
-export ROOT=results/europe/ssp${SSP} SSP FORCE=${FORCE:-0}
+export BATCH_ROOT=${BATCH_ROOT_OVERRIDE:-results/europe}
+export ROOT="$BATCH_ROOT/ssp${SSP}" SSP FORCE=${FORCE:-0}
 [ -d "$ROOT" ] || { echo "ERROR: $ROOT not found (run from the repository root)"; exit 1; }
 if grep -q "04_l[ei]_decomposition.csv" analysis/city_figures.R; then
   echo "ERROR: city_figures.R still reads annual decomposition files, which batch runs do not write"; exit 1

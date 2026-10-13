@@ -16,8 +16,12 @@
 #     - `with_cc` = calibrated series; `without_cc` = Masselot's `demo` series
 #       (each 5-year block recalibrated to the 2010-2014 distribution)
 #     - AN = (1 - 1/RR) x daily deaths, RR >= 1, 29 February removed
-#   The only departure: heat and cold are split into moderate and extreme
-#   ranges (Lloyd et al. 2024).
+#   Departure from Masselot: cold follows Lloyd et al. (2024), while heat is
+#   split into moderate, normal-extreme and extreme ranges for this study.
+#   Static P2.5/P97.5 use ERA5-Land 2000-2014. For year t, the moving P97.5
+#   uses Masselot's calibrated historical/future GCM `full` series over
+#   t-15,...,t-1. It is clamped at the static P97.5. The without-CC branch
+#   uses the static P97.5 as its moving threshold, so NormExtrHeat is empty.
 #
 ################################################################################
 
@@ -73,7 +77,7 @@ annualization_rule_text <- "sum(daily AN) / 365 (29 Feb removed)"
 
 #----- Load prepared thresholds/observations and verify the city identity
 
-load("data/prep_data.RData")
+load(prep_data_file)
 setDT(thresholds)
 setDT(obs_data)
 
@@ -244,6 +248,39 @@ cal_src[, demo := {
   )
 }, by = .(month, year5)]
 
+# Moving extreme-heat threshold. The 2000-2014 portion is the calibrated
+# historical GCM `full` series used by Masselot in the same attribution file;
+# projected years use the corresponding calibrated future `full` series.
+# This study-specific moving split is not present in Masselot's code.
+static_p97_values <- unique(city_thresholds$p97_5)
+if (length(static_p97_values) != 1L) {
+  stop("Static P97.5 is not unique across city age-group rows.", call. = FALSE)
+}
+static_p97 <- static_p97_values[[1L]]
+moving_years <- seq.int(min(future_years) - 5L, max(future_years))
+moving_thresholds <- rbindlist(lapply(moving_years, function(target_year) {
+  window <- cal_src[year %between% c(target_year - ext_window, target_year - 1L)]
+  data.table(
+    year = target_year,
+    window_start = target_year - ext_window,
+    window_end = target_year - 1L,
+    n_years = uniqueN(window$year),
+    n_days = nrow(window),
+    moving_p97_5_raw = as.numeric(quantile(window$full, extreme_probs[["p97_5"]], na.rm = TRUE))
+  )
+}))
+if (any(moving_thresholds$n_years != ext_window) || any(moving_thresholds$n_days != ext_window * 365L)) {
+  stop("A moving P97.5 window is incomplete; expected 15 complete 365-day years.", call. = FALSE)
+}
+moving_thresholds[, `:=`(
+  static_p97_5 = static_p97,
+  clamped = moving_p97_5_raw < static_p97,
+  moving_p97_5 = pmax(moving_p97_5_raw, static_p97)
+)]
+moving_2015_diff <- moving_thresholds[year == 2015L, abs(moving_p97_5_raw - static_p97)]
+moving_match_tol <- 1e-8
+clamp_count <- moving_thresholds[clamped == TRUE, .N]
+
 # Diagnostic: warming signal by decade in each branch (vs the 2010-2014 reference)
 ref_mean <- cal_src[year5 == counterfactual_ref_year5, mean(full)]
 warming_tbl <- cal_src[year >= min(future_years), .(
@@ -263,14 +300,17 @@ for (variant in branch_levels) {
   if (variant == "with_cc") {
     # Masselot (2025): calibrated by month x calibration period against ERA5 2000-2014
     t_work <- merge(t_work, cal_src[, .(date, tmean_variant = full)], by = "date", all.x = TRUE, sort = FALSE)
+    t_work <- merge(t_work, moving_thresholds[, .(year, moving_p97_5)], by = "year", all.x = TRUE, sort = FALSE)
     t_work[, temp_branch := "with_cc"]
   } else if (counterfactual == "masselot_demo") {
     t_work <- merge(t_work, cal_src[, .(date, tmean_variant = demo)], by = "date", all.x = TRUE, sort = FALSE)
+    t_work[, moving_p97_5 := static_p97]
     t_work[, temp_branch := "without_cc"]
   } else if (counterfactual == "era5_cycle") {
     t_work[, source_year := min(hist_years_counterfactual) + ((year - min(future_years)) %% length(hist_years_counterfactual))]
     t_work <- merge(t_work, obs_repeat, by = c("source_year", "month_day"), all.x = TRUE, sort = FALSE)
     t_work[, tmean_variant := tmean_hist]
+    t_work[, moving_p97_5 := static_p97]
     t_work[, temp_branch := "without_cc"]
     t_work[, c("source_year", "tmean_hist") := NULL]
   } else {
@@ -297,14 +337,28 @@ for (variant in branch_levels) {
     }
     if (anyNA(age_work$death)) stop(sprintf("Missing annual deaths for %s/%s.", city_id, agegrp), call. = FALSE)
 
-    # Split at the MMT first (cold vs heat), then at the fixed percentiles
-    # (Lloyd et al. 2024). If the MMT lies above p97.5, all heat is extreme;
-    # if below p2.5, all cold is extreme (Simon's methods draft 2.4.2).
+    # Split at the MMT first. Cold uses the static P2.5. Heat below the static
+    # P97.5 is moderate, heat between static and moving P97.5 is normal-extreme,
+    # and heat at/above the moving P97.5 is extreme. If MMT exceeds static
+    # P97.5, all heat is extreme (the pre-existing edge rule).
     tv <- age_work$tmean_variant
+    heat_idx <- if (mmt > p97_5) {
+      rep("ExtrHeat", length(tv))
+    } else {
+      fifelse(
+        tv < p97_5,
+        "ModHeat",
+        fifelse(
+          age_work$moving_p97_5 <= p97_5 | tv >= age_work$moving_p97_5,
+          "ExtrHeat",
+          "NormExtrHeat"
+        )
+      )
+    }
     range_idx <- fifelse(
       tv < mmt,
       fifelse(tv < p2_5, "ExtrCold", "ModCold"),
-      fifelse(tv >= p97_5, "ExtrHeat", "ModHeat")
+      heat_idx
     )
 
     b_fut <- onebasis(age_work$tmean_variant, fun = varfun, degree = vardegree, knots = knots, Bound = bound)
@@ -365,7 +419,11 @@ checks <- data.table(
     "domain_complete_without_cc",
     "finite_signed_an",
     "masselot2023_fixture",
-    "counterfactual_no_warming"
+    "counterfactual_no_warming",
+    "moving_windows_complete",
+    "moving_2015_equals_static",
+    "without_cc_normextr_empty",
+    "moving_threshold_clamp_count"
   ),
   status = c(
     if (nrow(city_meta) == 3L) "PASS" else "FAIL",
@@ -376,7 +434,11 @@ checks <- data.table(
     if (nrow(unique(grouped[branch == "without_cc"], by = c("year", "agegroup", "range"))) == nrow(full_domain[branch == "without_cc"]) ) "PASS" else "FAIL",
     if (!any(!is.finite(grouped$an)) && all(grouped$an >= 0)) "PASS" else "FAIL",
     if (all(fixture$max_rel_error <= fixture_tolerance)) "PASS" else "FAIL",
-    if (counterfactual != "masselot_demo" || max_demo_drift <= 0.25) "PASS" else "FAIL"
+    if (counterfactual != "masselot_demo" || max_demo_drift <= 0.25) "PASS" else "FAIL",
+    if (all(moving_thresholds$n_years == ext_window) && all(moving_thresholds$n_days == ext_window * 365L)) "PASS" else "FAIL",
+    if (length(moving_2015_diff) == 1L && moving_2015_diff <= moving_match_tol) "PASS" else "FAIL",
+    if (sum(grouped[branch == "without_cc" & range == "NormExtrHeat", an]) == 0) "PASS" else "FAIL",
+    "PASS"
   ),
   value = c(
     nrow(city_meta),
@@ -387,7 +449,11 @@ checks <- data.table(
     nrow(grouped[branch == "without_cc"]),
     sprintf("min_an=%g; max_an=%g", min(grouped$an), max(grouped$an)),
     sprintf("max_rel_error=%.2e", max(fixture$max_rel_error)),
-    sprintf("%s; max |decadal mean - 2010-14 mean| = %.3f C (with_cc 2090s: %+.2f C)", counterfactual, max_demo_drift, warming_tbl[decade == 2090, full_minus_ref])
+    sprintf("%s; max |decadal mean - 2010-14 mean| = %.3f C (with_cc 2090s: %+.2f C)", counterfactual, max_demo_drift, warming_tbl[decade == 2090, full_minus_ref]),
+    sprintf("%d windows; %d years and %d days each", nrow(moving_thresholds), ext_window, ext_window * 365L),
+    sprintf("abs diff = %.12g C", moving_2015_diff),
+    sprintf("sum AN = %.12g", sum(grouped[branch == "without_cc" & range == "NormExtrHeat", an])),
+    sprintf("%d of %d years", clamp_count, nrow(moving_thresholds))
   ),
   threshold = c(
     "unique city identifier",
@@ -398,7 +464,11 @@ checks <- data.table(
     sprintf("%d rows", nrow(full_domain[branch == "without_cc"])),
     "finite and non-negative AN (RR clamped at 1)",
     sprintf("<= %g vs published heat/cold excess (Masselot 2023)", fixture_tolerance),
-    "<= 0.25 C decadal drift in the without-CC series"
+    "<= 0.25 C decadal drift in the without-CC series",
+    sprintf("every window has %d years and %d days", ext_window, ext_window * 365L),
+    sprintf("absolute difference <= %g C", moving_match_tol),
+    "exactly zero attributable deaths",
+    "informational count; moving P97.5 is clamped to static P97.5"
   )
 )
 
@@ -416,6 +486,7 @@ if (any(checks$status == "FAIL")) {
 #----- Persist checks before exposing primary outputs
 
 fwrite(checks, checks_file)
+fwrite(moving_thresholds, file.path(check_dir, "01_moving_heat_thresholds.csv"))
 if (nrow(failures)) {
   fwrite(failures, failures_file)
   stop(sprintf("01_attribution.R failed %d invariant(s); see %s", nrow(failures), failures_file), call. = FALSE)

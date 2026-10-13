@@ -7,8 +7,10 @@
 #
 # Pipeline Part 00: Prepare temperature and demographic inputs
 #   Follows the role of Masselot & Gasparrini (2025) 02_prep_data.R. The
-#   temperature mode prepares the common ERA5 series, MMTs and extreme-range
-#   thresholds. The demographic mode prepares one city's grouped and
+#   temperature mode prepares the common ERA5 series, MMTs and static
+#   extreme-range thresholds. Static P2.5/P97.5 use ERA5-Land 2000-2014,
+#   Masselot's historical calibration period; the ERF basis remains based on
+#   the full 1990-2019 series in Part 01. The demographic mode prepares one city's grouped and
 #   single-age population and deaths from the Wittgenstein projections.
 #
 #   PREP_SCOPE=temperature  common input, run once
@@ -95,7 +97,7 @@ if (prep_scope %in% c("temperature", "all")) {
       if (all(is.finite(obs_data$tmean_obs))) "PASS" else "FAIL",
       if (!anyNA(thresholds[, .(p2_5, p97_5, mmt)])) "PASS" else "FAIL",
       if (all(thresholds$p2_5 < thresholds$p97_5)) "PASS" else "FAIL",
-      if (all(range(year(obs_data$date)) == threshold_years)) "PASS" else "FAIL",
+      if (all(range(year(obs_data[year(date) %between% threshold_years]$date)) == threshold_years)) "PASS" else "FAIL",
       if (all(is.finite(thresholds$mmt))) "PASS" else "FAIL"
     )
   )
@@ -104,8 +106,8 @@ if (prep_scope %in% c("temperature", "all")) {
     stop("Temperature preparation failed its invariant checks.", call. = FALSE)
   }
 
-  save(obs_data, thresholds, cities, file = "data/prep_data.RData")
-  message("Saved data/prep_data.RData (", length(cities), " cities)")
+  save(obs_data, thresholds, cities, file = prep_data_file)
+  message("Saved ", prep_data_file, " (", length(cities), " cities)")
 }
 
 if (prep_scope == "temperature") quit(save = "no")

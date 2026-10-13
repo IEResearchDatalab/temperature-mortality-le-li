@@ -26,21 +26,23 @@ if [ "${1:-}" = "--config" ]; then
 
   IFS= read -r header < "$RUN_CONFIG"
   header=${header%$'\r'}
-  expected_header='ssp,enabled,cities,ncores,n_horiuchi,decomp_annual'
+  expected_header='ssp,enabled,cities,ncores,n_horiuchi,decomp_annual,ssp1_assr_patch,skip_mx_plausibility_check'
   [ "$header" = "$expected_header" ] || {
     echo "ERROR: config header must be: $expected_header"
     exit 2
   }
 
   nruns=0
-  while IFS=, read -r run_ssp enabled cities ncores n_horiuchi decomp_annual extra; do
+  while IFS=, read -r run_ssp enabled cities ncores n_horiuchi decomp_annual ssp1_assr_patch skip_mx_plausibility_check extra; do
     run_ssp=${run_ssp%$'\r'}
     enabled=${enabled%$'\r'}
     cities=${cities%$'\r'}
     ncores=${ncores%$'\r'}
     n_horiuchi=${n_horiuchi%$'\r'}
     decomp_annual=${decomp_annual%$'\r'}
-    [ -z "$run_ssp$enabled$cities$ncores$n_horiuchi$decomp_annual${extra:-}" ] && continue
+    ssp1_assr_patch=${ssp1_assr_patch%$'\r'}
+    skip_mx_plausibility_check=${skip_mx_plausibility_check%$'\r'}
+    [ -z "$run_ssp$enabled$cities$ncores$n_horiuchi$decomp_annual$ssp1_assr_patch$skip_mx_plausibility_check${extra:-}" ] && continue
     [ -z "${extra:-}" ] || { echo "ERROR: too many fields in config row for SSP $run_ssp"; exit 2; }
     case "$enabled" in
       true) ;;
@@ -51,10 +53,18 @@ if [ "${1:-}" = "--config" ]; then
       0|1) ;;
       *) echo "ERROR: decomp_annual must be 0 or 1 for SSP $run_ssp"; exit 2 ;;
     esac
+    case "$skip_mx_plausibility_check" in
+      0|1) ;;
+      *) echo "ERROR: skip_mx_plausibility_check must be 0 or 1 for SSP $run_ssp"; exit 2 ;;
+    esac
+    if [ -n "$ssp1_assr_patch" ] && [ "$run_ssp" != "1" ]; then
+      echo "ERROR: ssp1_assr_patch may be set only for SSP1"; exit 2
+    fi
 
     nruns=$((nruns + 1))
     echo "$(date '+%F %T') config run $nruns: SSP$run_ssp, cities=$cities, cores=$ncores"
     if ! RUN_CONFIG_SOURCE="$RUN_CONFIG" N_HORIUCHI="$n_horiuchi" DECOMP_ANNUAL="$decomp_annual" \
+        SSP1_ASSR_PATCH="$ssp1_assr_patch" SKIP_MX_PLAUSIBILITY_CHECK="$skip_mx_plausibility_check" \
         "$0" "$run_ssp" "$cities" "$ncores"; then
       echo "ERROR: config stopped after SSP$run_ssp failed. Later scenarios were not started."
       exit 1
@@ -75,6 +85,13 @@ case "$SSP" in 1|2|3) ;; *) echo "ERROR: SSP must be 1, 2 or 3"; exit 2 ;; esac
 case "${DECOMP_ANNUAL:-0}" in 0|1) ;; *) echo "ERROR: DECOMP_ANNUAL must be 0 or 1"; exit 2 ;; esac
 [ "$CITIES" = "all" ] || [ -s "$CITIES" ] || { echo "ERROR: missing or empty cities file: $CITIES"; exit 2; }
 case "${SKIP_MX_PLAUSIBILITY_CHECK:-0}" in 0|1) ;; *) echo "ERROR: SKIP_MX_PLAUSIBILITY_CHECK must be 0 or 1"; exit 2 ;; esac
+if [ -n "${SSP1_ASSR_PATCH:-}" ]; then
+  [ "$SSP" = "1" ] || { echo "ERROR: SSP1_ASSR_PATCH is valid only for SSP1"; exit 2; }
+  [ -z "${ASSR_ONE_REPLACEMENT:-}" ] || [ "$ASSR_ONE_REPLACEMENT" = "$SSP1_ASSR_PATCH" ] || {
+    echo "ERROR: SSP1_ASSR_PATCH and ASSR_ONE_REPLACEMENT disagree"; exit 2;
+  }
+  ASSR_ONE_REPLACEMENT=$SSP1_ASSR_PATCH
+fi
 if [ -n "${ASSR_ONE_REPLACEMENT:-}" ]; then
   awk -v x="$ASSR_ONE_REPLACEMENT" 'BEGIN { exit !(x + 0 == x && x > 0 && x < 1) }' || {
     echo "ERROR: ASSR_ONE_REPLACEMENT must be a number strictly between 0 and 1"
@@ -97,6 +114,7 @@ if [ "${SKIP_MX_PLAUSIBILITY_CHECK:-0}" = "1" ] || [ -n "${ASSR_ONE_REPLACEMENT:
   override_root=$(realpath -m "$BATCH_ROOT_OVERRIDE")
   case "$override_root/" in
     "$canonical_root"/sensitivities/?*) ;;
+    "$canonical_root"/heatsplit_?*) ;;
     "$canonical_root"/*)
       echo "ERROR: BATCH_ROOT_OVERRIDE resolves into the canonical results tree: $override_root"
       echo "       Use a path outside $canonical_root or below $canonical_root/sensitivities/"
@@ -109,6 +127,8 @@ export ROOT="$BATCH_ROOT/ssp${SSP}" SSP
 export SKIP_MX_PLAUSIBILITY_CHECK=${SKIP_MX_PLAUSIBILITY_CHECK:-0}
 export ASSR_ONE_REPLACEMENT=${ASSR_ONE_REPLACEMENT:-}
 export DECOMP_ANNUAL=${DECOMP_ANNUAL:-0}
+export BUILD_PREP_CACHE=${BUILD_PREP_CACHE:-0}
+case "$BUILD_PREP_CACHE" in 0|1) ;; *) echo "ERROR: BUILD_PREP_CACHE must be 0 or 1"; exit 2 ;; esac
 # Horiuchi steps: N = 50 as in Lloyd et al. (2024); on Madrid the results equal
 # N = 400 to 6 decimals (closure error 8e-8), at 1/8 of the cost
 export N_HORIUCHI=${N_HORIUCHI:-50}
@@ -139,6 +159,56 @@ Rscript -e 'suppressMessages(source("pipeline/00_pkg_params.R")); invisible(arro
 GCMS=$(Rscript -e 'suppressMessages(source("pipeline/00_pkg_params.R")); cat(gcmlist, sep = "\n")')
 [ -n "$GCMS" ] || { echo "ERROR: could not read the GCM list from 00_pkg_params.R"; exit 1; }
 
+#----- Versioned temperature-preparation cache (Issue 5)
+# The cache is local to the batch root. Reuse is allowed only when its
+# fingerprint matches the three data inputs and the exact Part 00 source
+# contents. A missing or mismatched fingerprint is fatal; only the explicit
+# BUILD_PREP_CACHE=1 switch may create a previously absent cache.
+export PREP_DATA_FILE="$BATCH_ROOT/shared/prep_data.RData"
+prep_fingerprint="$PREP_DATA_FILE.fingerprint.txt"
+fingerprint_current="$BATCH_ROOT/shared/prep_data.current.$$"
+write_prep_fingerprint() {
+  echo "fingerprint_version=1"
+  echo "era5_md5=$(md5sum data/era5series.gz.parquet | awk '{print $1}')"
+  echo "coefs_md5=$(md5sum data/coefs.csv | awk '{print $1}')"
+  echo "city_results_md5=$(md5sum data/city_results.csv | awk '{print $1}')"
+  echo "prep_code_blob=$(git hash-object pipeline/00_prep_data.R)"
+  echo "params_code_blob=$(git hash-object pipeline/00_pkg_params.R)"
+  echo "git_commit=$(git rev-parse HEAD)"
+  [ ! -s "$PREP_DATA_FILE" ] || echo "cache_md5=$(md5sum "$PREP_DATA_FILE" | awk '{print $1}')"
+}
+write_prep_fingerprint > "$fingerprint_current"
+if [ -s "$PREP_DATA_FILE" ]; then
+  [ -s "$prep_fingerprint" ] || {
+    rm -f "$fingerprint_current"
+    echo "ERROR: prep cache exists without a fingerprint: $PREP_DATA_FILE"
+    echo "       Keep it untouched and choose a new BATCH_ROOT_OVERRIDE."; exit 2;
+  }
+  if ! diff -u <(grep -v '^git_commit=' "$prep_fingerprint") <(grep -v '^git_commit=' "$fingerprint_current") >/dev/null; then
+    echo "ERROR: prep cache fingerprint mismatch: $prep_fingerprint"
+    echo "       The cache was not rebuilt. Choose a new BATCH_ROOT_OVERRIDE and set BUILD_PREP_CACHE=1."
+    diff -u <(grep -v '^git_commit=' "$prep_fingerprint") <(grep -v '^git_commit=' "$fingerprint_current") || true
+    rm -f "$fingerprint_current"; exit 2
+  fi
+elif [ -e "$PREP_DATA_FILE" ] || [ -e "$prep_fingerprint" ]; then
+  rm -f "$fingerprint_current"
+  echo "ERROR: prep cache/fingerprint pair is incomplete under $BATCH_ROOT/shared"; exit 2
+elif [ "$BUILD_PREP_CACHE" != "1" ]; then
+  rm -f "$fingerprint_current"
+  echo "ERROR: no versioned prep cache exists at $PREP_DATA_FILE"
+  echo "       To create it deliberately in this new root, rerun with BUILD_PREP_CACHE=1."; exit 2
+else
+  echo "$(date '+%F %T') step 00: observed temperature and thresholds (new versioned cache)"
+  env PREP_SCOPE=temperature CHECK_DIR="$BATCH_ROOT/shared/checks" PREP_DATA_FILE="$PREP_DATA_FILE" \
+    Rscript pipeline/00_prep_data.R > "$BATCH_ROOT/shared/temperature.log" 2>&1 || {
+      rm -f "$fingerprint_current"
+      echo "ERROR: temperature preparation failed; see $BATCH_ROOT/shared/temperature.log"; exit 1;
+    }
+  write_prep_fingerprint > "$prep_fingerprint"
+fi
+rm -f "$fingerprint_current"
+prep_fingerprint_md5=$(md5sum "$prep_fingerprint" | awk '{print $1}')
+
 #----- Provenance of resumed outputs
 # Finished jobs are skipped through .done markers, so rerunning into an
 # existing scenario root reuses its outputs. Resume only when the scientific
@@ -161,6 +231,7 @@ if [ -s "$manifest" ]; then
   [ "$(manifest_value decomp_annual '')" = "$DECOMP_ANNUAL" ] || mismatch+=" decomp_annual"
   [ "$(manifest_value skip_mx_plausibility_check 0)" = "$SKIP_MX_PLAUSIBILITY_CHECK" ] || mismatch+=" skip_mx_plausibility_check"
   [ "$(manifest_value assr_one_replacement none)" = "${ASSR_ONE_REPLACEMENT:-none}" ] || mismatch+=" assr_one_replacement"
+  [ "$(manifest_value prep_fingerprint_md5 '')" = "$prep_fingerprint_md5" ] || mismatch+=" prep_fingerprint"
   first_commit=$(manifest_value git_commit '')
   if ! git cat-file -e "${first_commit}^{commit}" 2>/dev/null; then
     mismatch+=" git_commit(unknown)"
@@ -203,6 +274,7 @@ if [ "$resume" = 1 ]; then
     echo "resume_git_worktree=$git_worktree"
     echo "resume_run_config=${RUN_CONFIG_SOURCE:-command_line}"
     echo "resume_cities=$CITIES"
+    echo "resume_prep_fingerprint_md5=$prep_fingerprint_md5"
   } >> "$manifest"
 else
   {
@@ -218,6 +290,9 @@ else
     echo "batch_root=$BATCH_ROOT"
     echo "skip_mx_plausibility_check=$SKIP_MX_PLAUSIBILITY_CHECK"
     echo "assr_one_replacement=${ASSR_ONE_REPLACEMENT:-none}"
+    echo "prep_data_file=$PREP_DATA_FILE"
+    echo "prep_fingerprint_file=$prep_fingerprint"
+    echo "prep_fingerprint_md5=$prep_fingerprint_md5"
     echo "n_cities=$(printf '%s\n' $CITY_LIST | wc -l)"
     echo "n_gcms=$(printf '%s\n' $GCMS | wc -l)"
     [ -z "$prior_outputs" ] || echo "prior_outputs=$prior_outputs"
@@ -287,14 +362,6 @@ geo_job() {  # geo_job <level> <id>
   fi
 }
 export -f run_part dem_job gcm_job ens_job geo_job
-
-if [ ! -s data/prep_data.RData ]; then
-  echo "$(date '+%F %T') step 00: observed temperature and thresholds"
-  env PREP_SCOPE=temperature CHECK_DIR="$BATCH_ROOT/shared/checks" \
-    Rscript pipeline/00_prep_data.R > "$BATCH_ROOT/shared/temperature.log" 2>&1 || {
-      echo "ERROR: temperature preparation failed; see $BATCH_ROOT/shared/temperature.log"; exit 1;
-    }
-fi
 
 echo "$(date '+%F %T') step 00: demography"
 printf '%s\n' $CITY_LIST | xargs -P "$NCORES" -I{} bash -c 'dem_job "$1"' _ {}
