@@ -25,10 +25,14 @@ heat_causes <- c("ModHeat", "NormExtrHeat", "ExtrHeat")
 group_colours <- c(cold = "#24558A", heat = "#AD1A2B")
 ssp_labels <- c(
   `1` = "SSP1-2.6 — survival ratios patched (WCDE rounding)",
-  `2` = "SSP2-4.5 — including 12 Swiss cities",
+  `2` = "SSP2-4.5",
   `3` = "SSP3-7.0"
 )
 age_levels <- c("65-69", "70-74", "75-79", "80-84", "85-89", "90-94", "95-99", "100+")
+ssp_set <- as.integer(strsplit(Sys.getenv("SSP_SET", "1,2,3"), ",", fixed = TRUE)[[1]])
+if (!length(ssp_set) || anyNA(ssp_set) || any(!ssp_set %in% 1:3)) {
+  stop("SSP_SET must be a comma-separated subset of 1,2,3.", call. = FALSE)
+}
 
 age_band <- function(age) {
   fifelse(age >= 100L, "100+", sprintf("%d-%d", (age %/% 5L) * 5L, (age %/% 5L) * 5L + 4L))
@@ -54,7 +58,7 @@ read_ssp <- function(ssp) {
   x
 }
 
-d <- rbindlist(lapply(1:3, read_ssp))
+d <- rbindlist(lapply(ssp_set, read_ssp))
 d[, ssp_label := factor(ssp_label, levels = ssp_labels[c("1", "2", "3")])]
 geo_label <- as.character(unique(d[["label"]]))
 if (length(geo_label) != 1L) stop("Geography label is not unique.", call. = FALSE)
@@ -143,6 +147,13 @@ rest_vector[, `:=`(x = x / rest_norm * xy_scale * 0.70,
 
 x_rng <- range(c(0, plane_steps$x, rest_vector$x), na.rm = TRUE)
 y_rng <- range(c(0, plane_steps$y, rest_vector$y), na.rm = TRUE)
+label_offset <- 0.035 * diff(x_rng)
+endpoints[, `:=`(
+  label_x = x + fifelse(x < 0, -label_offset, label_offset),
+  label_y = y,
+  label_hjust = fifelse(x < 0, 1, 0),
+  label_vjust = 0.5
+)]
 p_plane <- ggplot(plane_steps, aes(x, y, colour = cause_group,
                                   linetype = ssp_label,
                                   group = interaction(ssp, cause_group))) +
@@ -161,8 +172,9 @@ p_plane <- ggplot(plane_steps, aes(x, y, colour = cause_group,
     inherit.aes = FALSE, linewidth = 0.8,
     arrow = arrow(length = unit(0.13, "inches"), type = "closed")
   ) +
-  geom_text(data = endpoints,
-            aes(label = paste0("SSP", ssp)), hjust = -0.05, vjust = 0.5,
+  geom_text(data = if (length(ssp_set) > 1L) endpoints else endpoints[0],
+            aes(x = label_x, y = label_y, label = paste0("SSP", ssp),
+                hjust = label_hjust, vjust = label_vjust),
             size = 2.6, show.legend = FALSE) +
   geom_segment(data = rest_vector,
                aes(x = 0, y = 0, xend = x, yend = y), inherit.aes = FALSE,
@@ -170,15 +182,19 @@ p_plane <- ggplot(plane_steps, aes(x, y, colour = cause_group,
                arrow = arrow(length = unit(0.11, "inches"))) +
   annotate("text", x = rest_vector$x, y = rest_vector$y,
            label = "direction of social progress\n(all other causes)",
-           colour = "#777777", size = 2.6, hjust = 0) +
-  annotate("text", x = x_rng[1], y = y_rng[1], label = "Shorter, more\nequal lives",
+           colour = "#777777", size = 2.6,
+           hjust = ifelse(rest_vector$x >= 0, 1, 0)) +
+  annotate("text", x = x_rng[1] + 0.18 * diff(x_rng), y = y_rng[1],
+           label = "Shorter, more\nequal lives",
            hjust = 0, vjust = 0, size = 2.7, fontface = "italic", colour = "#9B1C31") +
   annotate("text", x = x_rng[2], y = y_rng[1], label = "Longer, more\nequal lives",
            hjust = 1, vjust = 0, size = 2.7, fontface = "italic", colour = "#24558A") +
   scale_colour_manual(values = group_colours, labels = c(cold = "Cold", heat = "Heat")) +
   scale_linetype_manual(
-    values = c("solid", "dashed", "dotdash"),
-    labels = c("SSP1-2.6", "SSP2-4.5", "SSP3-7.0")
+    values = setNames(c("solid", "dashed", "dotdash"), ssp_labels[c("1", "2", "3")]),
+    breaks = ssp_labels[as.character(ssp_set)],
+    labels = setNames(c("SSP1-2.6", "SSP2-4.5", "SSP3-7.0"),
+                      ssp_labels[c("1", "2", "3")])[ssp_labels[as.character(ssp_set)]]
   ) +
   labs(
     title = "Where cold and heat take older people",

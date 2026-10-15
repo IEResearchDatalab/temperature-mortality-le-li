@@ -31,11 +31,15 @@ range_colours <- c(
 )
 ssp_labels <- c(
   `1` = "SSP1-2.6 — survival ratios patched (WCDE rounding)",
-  `2` = "SSP2-4.5 — including 12 Swiss cities",
+  `2` = "SSP2-4.5",
   `3` = "SSP3-7.0"
 )
 ssp_order <- c("1", "3", "2")
 age_levels <- c("65-69", "70-74", "75-79", "80-84", "85-89", "90-94", "95-99", "100+")
+ssp_set <- as.integer(strsplit(Sys.getenv("SSP_SET", "1,2,3"), ",", fixed = TRUE)[[1]])
+if (!length(ssp_set) || anyNA(ssp_set) || any(!ssp_set %in% 1:3)) {
+  stop("SSP_SET must be a comma-separated subset of 1,2,3.", call. = FALSE)
+}
 
 age_band <- function(age) {
   fifelse(age >= 100L, "100+", sprintf("%d-%d", (age %/% 5L) * 5L, (age %/% 5L) * 5L + 4L))
@@ -61,7 +65,7 @@ read_ssp <- function(ssp) {
   x
 }
 
-d <- rbindlist(lapply(1:3, read_ssp))
+d <- rbindlist(lapply(ssp_set, read_ssp))
 d[, ssp_label := factor(ssp_label, levels = ssp_labels[ssp_order])]
 geo_label <- unique(d$label)
 if (length(geo_label) != 1L) stop("Geography label is not unique.", call. = FALSE)
@@ -77,7 +81,7 @@ p_when <- ggplot(when, aes(period_to, value, fill = cause)) +
   geom_point(data = when_net, aes(period_to, value), inherit.aes = FALSE,
              shape = 18, size = 2.2, colour = "black") +
   geom_hline(yintercept = 0, linewidth = 0.35) +
-  facet_grid(ssp_label ~ ., scales = "free_y") +
+  facet_grid(ssp_label ~ ., scales = "fixed") +
   scale_fill_manual(values = range_colours, labels = range_labels, drop = FALSE) +
   labs(title = "a  When", subtitle = "Every 5-year step", x = NULL,
        y = "Months of LE65 per decade") +
@@ -104,7 +108,7 @@ make_age_panel <- function(start_period, end_period, title, subtitle) {
       geom_point(data = net, aes(age_band, value), inherit.aes = FALSE,
                  shape = 18, size = 2.2, colour = "black") +
       geom_hline(yintercept = 0, linewidth = 0.35) +
-      facet_grid(ssp_label ~ ., scales = "free_y") +
+      facet_grid(ssp_label ~ ., scales = "fixed") +
       scale_fill_manual(values = range_colours, labels = range_labels, drop = FALSE) +
       labs(title = title, subtitle = subtitle, x = "Age group",
            y = "Months of LE65 per decade", fill = NULL) +
@@ -122,15 +126,22 @@ make_age_panel <- function(start_period, end_period, title, subtitle) {
 first <- make_age_panel(2020L, 2055L, "b  For whom: first half", "2020-24 → 2055-59")
 second <- make_age_panel(2055L, 2095L, "c  For whom: second half", "2055-59 → 2095-99")
 
+figure_title <- paste0(geo_label, ": temperature-related contributions to change in LE65 with climate change")
+if (nchar(figure_title) > 92L) {
+  figure_title <- sub(": ", ":\n", figure_title, fixed = TRUE)
+}
+
 p <- (p_when | first$plot | second$plot) +
   plot_layout(widths = c(2.25, 1, 1), guides = "collect") +
   plot_annotation(
-    title = paste0(geo_label, ": temperature-related contributions to change in LE65 with climate change"),
+    title = figure_title,
     subtitle = "Positive contributions add to LE65 gains; negative contributions erode them; black diamonds are net temperature contributions",
     caption = paste(
-      "Contributions compare 5-year-period mean mortality schedules and are scaled to months of LE65 per decade.",
+      "In panel a, each bar compares the labelled 5-year-period mean mortality schedule with the immediately preceding 5-year period; contributions are scaled to months of LE65 per decade.",
+      "Black diamonds sum the five displayed temperature categories and exclude all other causes (social progress).",
       "Static ERA5-Land baseline 2000-2014; moving P97.5 uses the preceding 15 years and is anchored as observed baseline plus calibrated GCM change.",
-      "Central estimate, no uncertainty intervals."
+      "Central estimate, no uncertainty intervals.",
+      sep = "\n"
     ),
     theme = theme(
       plot.title = element_text(face = "bold", size = 15),

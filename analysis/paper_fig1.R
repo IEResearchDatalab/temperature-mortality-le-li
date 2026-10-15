@@ -30,11 +30,15 @@ range_colours <- c(
 )
 ssp_labels <- c(
   `1` = "SSP1-2.6\nsurvival ratios patched (WCDE rounding)",
-  `2` = "SSP2-4.5\nincluding 12 Swiss cities",
+  `2` = "SSP2-4.5",
   `3` = "SSP3-7.0"
 )
 age_levels <- c("65-69", "70-74", "75-79", "80-84", "85-89", "90-94", "95+")
 period_levels <- c("2055-2059", "2095-2099")
+ssp_set <- as.integer(strsplit(Sys.getenv("SSP_SET", "1,2,3"), ",", fixed = TRUE)[[1]])
+if (!length(ssp_set) || anyNA(ssp_set) || any(!ssp_set %in% 1:3)) {
+  stop("SSP_SET must be a comma-separated subset of 1,2,3.", call. = FALSE)
+}
 
 age_band <- function(age) {
   cut(age, breaks = c(64, 69, 74, 79, 84, 89, 94, Inf),
@@ -73,7 +77,7 @@ read_ssp <- function(ssp) {
   ans
 }
 
-plot_data <- rbindlist(lapply(1:3, read_ssp))
+plot_data <- rbindlist(lapply(ssp_set, read_ssp))
 if (any(!is.finite(plot_data$rate)) || any(plot_data$rate < 0)) {
   stop("Figure 1 rates are missing, non-finite or negative.", call. = FALSE)
 }
