@@ -127,7 +127,8 @@ if (any(!is.finite(all_tables$deaths_per_100k))) {
 scenario_tag <- paste0("ssp", paste(sort(ssp_set), collapse = "_ssp"))
 fwrite(all_tables, file.path(out_dir, paste0("table1_", scenario_tag, "_geographies.csv")))
 for (ssp in ssp_set) {
-  fwrite(all_tables[ssp == ..ssp],
+  current_ssp <- ssp
+  fwrite(all_tables[ssp == current_ssp],
          file.path(out_dir, paste0("table1_ssp", ssp, "_geographies.csv")))
 }
 
@@ -187,7 +188,10 @@ make_scenario_pdf <- function(tab, ssp) {
          width = 17, height = 11.5, units = "in", device = cairo_pdf)
 }
 
-for (ssp in ssp_set) make_scenario_pdf(all_tables[ssp == ..ssp], ssp)
+for (ssp in ssp_set) {
+  current_ssp <- ssp
+  make_scenario_pdf(all_tables[ssp == current_ssp], ssp)
+}
 
 if (all(1:3 %in% ssp_set)) {
   main <- all_tables[order_group <= 2L]
