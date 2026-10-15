@@ -147,10 +147,12 @@ rest_vector[, `:=`(x = x / rest_norm * xy_scale * 0.70,
 
 x_rng <- range(c(0, plane_steps$x, rest_vector$x), na.rm = TRUE)
 y_rng <- range(c(0, plane_steps$y, rest_vector$y), na.rm = TRUE)
-label_offset <- 0.035 * diff(x_rng)
+label_offset <- 0.050 * diff(x_rng)
+label_vertical_offset <- 0.025 * diff(y_rng)
 endpoints[, `:=`(
   label_x = x + fifelse(x < 0, -label_offset, label_offset),
-  label_y = y,
+  label_y = y + fifelse(ssp == 1L, label_vertical_offset,
+                       fifelse(ssp == 3L, -label_vertical_offset, 0)),
   label_hjust = fifelse(x < 0, 1, 0),
   label_vjust = 0.5
 )]
