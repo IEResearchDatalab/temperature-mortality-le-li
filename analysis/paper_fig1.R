@@ -84,7 +84,7 @@ if (any(!is.finite(plot_data$rate)) || any(plot_data$rate < 0)) {
 plot_data[, `:=`(
   age_band = factor(age_band, levels = age_levels),
   period = factor(period, levels = period_levels),
-  ssp_label = factor(ssp_labels[as.character(ssp)], levels = ssp_labels[c("1", "2", "3")]),
+  ssp_label = factor(ssp_labels[as.character(ssp)], levels = ssp_labels[c("1", "3", "2")]),
   range = factor(range, levels = range_levels),
   y = as.numeric(age_band) + fifelse(branch == "with_cc", 0.16, -0.16)
 )]

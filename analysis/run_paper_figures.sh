@@ -49,4 +49,5 @@ elif [ "$GEO_SCOPE" != "main" ]; then
 fi
 
 Rscript analysis/paper_table1.R > "$FIGURE_ROOT/logs/table1.log" 2>&1
+Rscript analysis/paper_table_comparison.R > "$FIGURE_ROOT/logs/table_comparison.log" 2>&1
 echo "$(date '+%F %T') paper figures and Table 1 complete"
