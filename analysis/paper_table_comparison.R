@@ -21,7 +21,7 @@ if (!length(ssp_set) || anyNA(ssp_set) || any(!ssp_set %in% 1:3)) {
 }
 
 ssp_names <- c(`1` = "SSP1-2.6", `2` = "SSP2-4.5", `3` = "SSP3-7.0")
-ssp_order <- c(1L, 3L, 2L)
+ssp_order <- c(1L, 2L, 3L)
 range_levels <- c("ExtrCold", "ModCold", "ModHeat", "NormExtrHeat", "ExtrHeat")
 heat_levels <- c("ModHeat", "NormExtrHeat", "ExtrHeat")
 period_start <- function(x) as.integer(substr(x, 1L, 4L))
@@ -232,7 +232,7 @@ if (all(1:3 %in% ssp_set)) {
     scale_y_reverse(limits = c(nrow(display) + 2.2, -1.2), expand = c(0, 0)) +
     coord_cartesian(xlim = c(-0.2, 18.5), clip = "off") +
     labs(
-      title = "SSP1-2.6, SSP3-7.0 and SSP2-4.5 comparison in 2095-99",
+      title = "SSP1-2.6, SSP2-4.5 and SSP3-7.0 comparison in 2095-99",
       subtitle = "Europe and four regions; central estimates for people aged 65+",
       caption = paste(
         "SSP1 uses the documented 0.9995 survival-ratio replacement; SSP2 retains its mortality-shape warning.",

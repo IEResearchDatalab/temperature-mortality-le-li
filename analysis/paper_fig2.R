@@ -34,7 +34,7 @@ ssp_labels <- c(
   `2` = "SSP2-4.5",
   `3` = "SSP3-7.0"
 )
-ssp_order <- c("1", "3", "2")
+ssp_order <- c("1", "2", "3")
 age_levels <- c("65-69", "70-74", "75-79", "80-84", "85-89", "90-94", "95-99", "100+")
 ssp_set <- as.integer(strsplit(Sys.getenv("SSP_SET", "1,2,3"), ",", fixed = TRUE)[[1]])
 if (!length(ssp_set) || anyNA(ssp_set) || any(!ssp_set %in% 1:3)) {

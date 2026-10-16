@@ -59,7 +59,7 @@ read_ssp <- function(ssp) {
 }
 
 d <- rbindlist(lapply(ssp_set, read_ssp))
-d[, ssp_label := factor(ssp_label, levels = ssp_labels[c("1", "3", "2")])]
+d[, ssp_label := factor(ssp_label, levels = ssp_labels[c("1", "2", "3")])]
 geo_label <- as.character(unique(d[["label"]]))
 if (length(geo_label) != 1L) stop("Geography label is not unique.", call. = FALSE)
 
@@ -193,10 +193,10 @@ p_plane <- ggplot(plane_steps, aes(x, y, colour = cause_group,
            hjust = 1, vjust = 0, size = 2.7, fontface = "italic", colour = "#24558A") +
   scale_colour_manual(values = group_colours, labels = c(cold = "Cold", heat = "Heat")) +
   scale_linetype_manual(
-    values = setNames(c("solid", "dashed", "dotdash"), ssp_labels[c("1", "3", "2")]),
+    values = setNames(c("solid", "dashed", "dotdash"), ssp_labels[c("1", "2", "3")]),
     breaks = ssp_labels[as.character(ssp_set)],
-    labels = setNames(c("SSP1-2.6", "SSP3-7.0", "SSP2-4.5"),
-                      ssp_labels[c("1", "3", "2")])[ssp_labels[as.character(ssp_set)]]
+    labels = setNames(c("SSP1-2.6", "SSP2-4.5", "SSP3-7.0"),
+                      ssp_labels[c("1", "2", "3")])[ssp_labels[as.character(ssp_set)]]
   ) +
   labs(
     title = "Where cold and heat take older people",
