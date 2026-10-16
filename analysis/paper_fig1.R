@@ -29,7 +29,7 @@ range_colours <- c(
   ModHeat = "#F3C623", NormExtrHeat = "#F06B18", ExtrHeat = "#AD1A2B"
 )
 ssp_labels <- c(
-  `1` = "SSP1-2.6\nsurvival ratios patched (WCDE rounding)",
+  `1` = "SSP1-2.6",
   `2` = "SSP2-4.5",
   `3` = "SSP3-7.0"
 )
@@ -119,6 +119,7 @@ p <- ggplot(plot_data, aes(x = rate_signed, y = y, fill = range, alpha = branch)
       "Static thresholds: ERA5-Land 2000-2014. The moving P97.5 is the observed baseline plus the",
       "change in the calibrated GCM P97.5 over the 15 preceding years; the current year is excluded.",
       "Without climate change the normal-extreme band is empty by construction.",
+      "For SSP1, WCDE survival ratios rounded to exactly one were replaced with 0.9995.",
       "Central estimate, no uncertainty intervals."
     )
   ) +

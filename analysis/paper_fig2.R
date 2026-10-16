@@ -30,7 +30,7 @@ range_colours <- c(
   ModHeat = "#F3C623", NormExtrHeat = "#F06B18", ExtrHeat = "#AD1A2B"
 )
 ssp_labels <- c(
-  `1` = "SSP1-2.6 — survival ratios patched (WCDE rounding)",
+  `1` = "SSP1-2.6",
   `2` = "SSP2-4.5",
   `3` = "SSP3-7.0"
 )
@@ -140,6 +140,7 @@ p <- (p_when | first$plot | second$plot) +
       "In panel a, each bar compares the labelled 5-year-period mean mortality schedule with the immediately preceding 5-year period; contributions are scaled to months of LE65 per decade.",
       "Black diamonds sum the five displayed temperature categories and exclude all other causes (social progress).",
       "Static ERA5-Land baseline 2000-2014; moving P97.5 uses the preceding 15 years and is anchored as observed baseline plus calibrated GCM change.",
+      "For SSP1, WCDE survival ratios rounded to exactly one were replaced with 0.9995.",
       "Central estimate, no uncertainty intervals.",
       sep = "\n"
     ),
