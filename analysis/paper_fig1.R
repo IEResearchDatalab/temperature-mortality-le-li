@@ -120,7 +120,8 @@ p <- ggplot(plot_data, aes(x = rate_signed, y = y, fill = range, alpha = branch)
       "change in the calibrated GCM P97.5 over the 15 preceding years; the current year is excluded.",
       "Without climate change the normal-extreme band is empty by construction.",
       "For SSP1, WCDE survival ratios rounded to exactly one were replaced with 0.9995.",
-      "Central estimate, no uncertainty intervals."
+      "Central estimate, no uncertainty intervals.",
+      sep = "\n"
     )
   ) +
   theme_minimal(base_size = 10.5) +

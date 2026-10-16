@@ -219,7 +219,8 @@ p <- (p_bars | p_plane) +
       "Bars are contributions between 5-year-period mean mortality schedules, expressed as days of LI65+ per decade; shading begins at the data-derived cold crossover age.",
       "Static ERA5-Land baseline 2000-2014; moving P97.5 uses the preceding 15 years and is anchored as observed baseline plus calibrated GCM change.",
       "For SSP1, WCDE survival ratios rounded to exactly one were replaced with 0.9995.",
-      "Central estimate, no uncertainty intervals."
+      "Central estimate, no uncertainty intervals.",
+      sep = "\n"
     ),
     theme = theme(
       plot.title = element_text(face = "bold", size = 15),
