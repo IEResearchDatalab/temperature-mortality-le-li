@@ -50,7 +50,7 @@ if (any(!is.finite(grouped_an$an))) {
 }
 
 full_dem_grid <- CJ(year = future_years, agegroup = agelabs)
-full_an_grid <- CJ(year = future_years, agegroup = agelabs, range = c("ExtrCold", "ModCold", "ModHeat", "ExtrHeat"), branch = c("with_cc", "without_cc"))
+full_an_grid <- CJ(year = future_years, agegroup = agelabs, range = range_levels, branch = branch_levels)
 
 dem_keys <- grouped_dem[, .(year, agegroup)]
 an_keys <- grouped_an[, .(year, agegroup, range, branch)]
@@ -113,7 +113,7 @@ for (yr in sort(unique(grouped_dem$year))) {
     }
 
     for (br in c("with_cc", "without_cc")) {
-      for (rg in c("ExtrCold", "ModCold", "ModHeat", "ExtrHeat")) {
+      for (rg in range_levels) {
         an_row <- grouped_an[year == yr & agegroup == grp & branch == br & range == rg]
         if (nrow(an_row) != 1L) stop(sprintf("Missing grouped AN row for %s/%s/%s/%s.", yr, br, grp, rg), call. = FALSE)
         group_an <- an_row$an

@@ -6,9 +6,9 @@
 #
 # This script checks both parts of the mechanism:
 #   1. the shape of every city-age ERF between its MMT and fixed ERA5
-#      1990-2019 p97.5 threshold; and
-#   2. the observed split of projected heat-attributable deaths between the
-#      moderate- and extreme-heat categories in Object 1.
+#      2000-2014 p97.5 threshold; and
+#   2. the observed split of projected heat-attributable deaths among the
+#      moderate-, normal-extreme- and extreme-heat categories in Object 1.
 ################################################################################
 
 source("pipeline/00_pkg_params.R")
@@ -17,9 +17,9 @@ obj1_file <- Sys.getenv("OBJECT1_FILE", "results/europe/collected/object1_datase
 diag_dir <- Sys.getenv("DIAG_DIR", "results/europe/diagnostics")
 dir.create(diag_dir, recursive = TRUE, showWarnings = FALSE)
 if (!file.exists(obj1_file)) stop("Missing Object 1: ", obj1_file, call. = FALSE)
-if (!file.exists("data/prep_data.RData")) stop("Missing data/prep_data.RData.", call. = FALSE)
+if (!file.exists(prep_data_file)) stop("Missing prepared temperature cache: ", prep_data_file, call. = FALSE)
 
-load("data/prep_data.RData")
+load(prep_data_file)
 setDT(obs_data); setDT(thresholds)
 coef_dt <- fread("data/coefs.csv")[agegroup %in% agelabs]
 meta <- unique(fread("data/city_results.csv")[, .(URAU_CODE, region, country = CNTR_CODE)])
@@ -89,7 +89,7 @@ fwrite(erf_summary, file.path(diag_dir, "moderate_heat_erf_summary.csv"))
 years_keep <- c(2020:2024, 2095:2099)
 q <- open_dataset(obj1_file) %>%
   filter(ssp == !!as.integer(ssp_name), year %in% !!years_keep,
-    cause %in% c("ModHeat", "ExtrHeat")) %>%
+    cause %in% c("ModHeat", "NormExtrHeat", "ExtrHeat")) %>%
   group_by(city, region, scenario, year, cause) %>%
   summarise(AN = sum(deaths, na.rm = TRUE)) %>%
   collect() %>%
@@ -111,10 +111,19 @@ madrid_an <- madrid_an[, .(annual_mean_AN = mean(AN)), by = .(geography, scenari
 heat <- rbind(europe_an, region_an, madrid_an)
 heat <- dcast(heat, geography + scenario + period ~ cause, value.var = "annual_mean_AN", fill = 0)
 heat[, `:=`(
-  total_heat_AN = ModHeat + ExtrHeat,
-  moderate_share_of_heat_AN = fifelse(ModHeat + ExtrHeat > 0, ModHeat / (ModHeat + ExtrHeat), NA_real_)
+  total_heat_AN = ModHeat + NormExtrHeat + ExtrHeat,
+  moderate_share_of_heat_AN = fifelse(
+    ModHeat + NormExtrHeat + ExtrHeat > 0,
+    ModHeat / (ModHeat + NormExtrHeat + ExtrHeat), NA_real_
+  ),
+  normal_extreme_share_of_heat_AN = fifelse(
+    ModHeat + NormExtrHeat + ExtrHeat > 0,
+    NormExtrHeat / (ModHeat + NormExtrHeat + ExtrHeat), NA_real_
+  )
 )]
-if (nrow(heat) != 6L * length(branch_levels) * 2L || any(!is.finite(heat$moderate_share_of_heat_AN))) {
+if (nrow(heat) != 6L * length(branch_levels) * 2L ||
+    any(!is.finite(heat$moderate_share_of_heat_AN)) ||
+    any(!is.finite(heat$normal_extreme_share_of_heat_AN))) {
   stop("Heat-AN summary grid is incomplete or invalid.", call. = FALSE)
 }
 fwrite(heat, file.path(diag_dir, "moderate_heat_attributable_summary.csv"))
@@ -124,13 +133,15 @@ fwrite(heat, file.path(diag_dir, "moderate_heat_attributable_summary.csv"))
 heat_delta <- dcast(
   heat,
   geography + period ~ scenario,
-  value.var = c("ModHeat", "ExtrHeat")
+  value.var = c("ModHeat", "NormExtrHeat", "ExtrHeat")
 )
 heat_delta[, `:=`(
   incremental_mod_heat_AN = ModHeat_with_cc - ModHeat_without_cc,
+  incremental_normextr_heat_AN = NormExtrHeat_with_cc - NormExtrHeat_without_cc,
   incremental_extr_heat_AN = ExtrHeat_with_cc - ExtrHeat_without_cc
 )]
-heat_delta[, incremental_heat_AN := incremental_mod_heat_AN + incremental_extr_heat_AN]
+heat_delta[, incremental_heat_AN :=
+  incremental_mod_heat_AN + incremental_normextr_heat_AN + incremental_extr_heat_AN]
 heat_delta[, moderate_share_of_incremental_heat_AN := fifelse(
   incremental_heat_AN != 0,
   incremental_mod_heat_AN / incremental_heat_AN,
@@ -163,7 +174,7 @@ p <- ggplot(heat[scenario == "with_cc"], aes(period, moderate_share_of_heat_AN, 
   )) +
   labs(
     title = "Moderate heat as a share of projected heat-attributable deaths",
-    subtitle = sprintf("%s, central ERF, fixed ERA5 1990-2019 thresholds", ssplabs[ssp_name]),
+    subtitle = sprintf("%s, central ERF, ERA5 2000-2014 static threshold", ssplabs[ssp_name]),
     x = NULL, y = "Moderate-heat share", colour = NULL
   ) +
   theme_minimal(base_size = 11) +
@@ -173,7 +184,7 @@ ggsave(file.path(diag_dir, "moderate_heat_share.png"), p, width = 10, height = 6
 heat_long <- melt(
   heat[period == "2095-2099"],
   id.vars = c("geography", "scenario", "period"),
-  measure.vars = c("ModHeat", "ExtrHeat"),
+  measure.vars = c("ModHeat", "NormExtrHeat", "ExtrHeat"),
   variable.name = "cause",
   value.name = "annual_mean_AN"
 )
@@ -185,11 +196,19 @@ p_deaths <- ggplot(
   facet_wrap(~ geography, scales = "free_y", ncol = 3) +
   scale_x_discrete(labels = branch_labels) +
   scale_fill_manual(
-    values = c(ModHeat = range_colors[["ModHeat"]], ExtrHeat = range_colors[["ExtrHeat"]]),
-    labels = c(ModHeat = "Moderate heat", ExtrHeat = "Extreme heat")
+    values = c(
+      ModHeat = range_colors[["ModHeat"]],
+      NormExtrHeat = range_colors[["NormExtrHeat"]],
+      ExtrHeat = range_colors[["ExtrHeat"]]
+    ),
+    labels = c(
+      ModHeat = "Moderate heat",
+      NormExtrHeat = "Normal extreme heat",
+      ExtrHeat = "Extreme heat"
+    )
   ) +
   labs(
-    title = "Moderate- and extreme-heat attributable deaths",
+    title = "Three-way heat-attributable deaths",
     subtitle = sprintf("%s, annual mean in 2095-2099", ssplabs[ssp_name]),
     x = NULL, y = "Attributable deaths per year", fill = NULL
   ) +

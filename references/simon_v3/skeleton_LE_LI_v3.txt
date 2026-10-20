@@ -1,0 +1,340 @@
+Beyond the climate change increment: future temperature-related mortality, life expectancy and lifespan inequality in older Europeans
+
+[Working title only]
+
+Simon J Lloyd, Daniel Precioso Garcelan, … , David Gomez Ullate.
+
+1. Introduction [to be shortened]
+
+Exposure to non-optimal temperatures is a well-established cause of death. In Europe, as globally, most temperature-related deaths have historically been attributed to cold, with roughly ten cold-related deaths for every heat-related death (Gasparrini et al., 2015; Masselot et al., 2023; Zhao et al., 2021). Yet the burden of heat is substantial and growing: more than 60,000 deaths in Europe were attributed to heat in the summer of 2022 alone (Ballester et al., 2023). Both heat- and cold-related risks rise steeply with age (Achebak et al., 2019; Masselot et al., 2023) . Population ageing, by increasing the proportion of older people, tends to increase the population-level burden (Chen et al., 2024). This, however, may be partly offset by the improvements in health that accompany rising longevity, which reduce individual vulnerability at any given age (Lloyd et al., 2024b).
+
+Projections of temperature-related mortality under climate and social scenarios aim to inform responses to this challenge. In Europe, such projections have been made at national (de Schrijver et al., 2023; Huber et al., 2020) and regional scales (García-León et al., 2024; Martínez-Solanas et al., 2021), and in multi-country analyses that include Europe (Gasparrini et al., 2017). They consistently project rising heat-related mortality with warming, with the magnitude depending on the emissions scenario, the region, and assumptions about demographic change and adaptation. The most comprehensive European study to date, by Masselot et al. (2025) , combined city- and age-specific exposure–response functions for 854 cities with three scenarios of climate and social change. Without adaptation, the increase in heat-related deaths exceeded the decrease in cold-related deaths under all three. Under their most pessimistic scenario (SSP3-7.0: regional rivalry, rising inequalities and little mitigation), it estimated 2.3 million climate change-related deaths between 2015 and 2099, with the Mediterranean and Eastern Europe most affected.
+
+These estimates are, by design, doubly net. Increases in heat-related deaths are netted against decreases in cold-related deaths. And, the burden attributed to climate change is the net difference between a world with projected warming and one in which the 2000–2014 temperature distribution persists, under identical demographic trajectories. This design isolates the contribution of climate change, controls for population ageing, and is well suited to asking what mitigation could avoid. Future populations, health systems and policymakers, however, will not only face the climate change-attributable increment. They will face the full burden of temperature-related mortality under whichever social and climate pathway materialises, much of which is concealed when only that increment is reported.
+
+Put simply, Masselot et al. (2025) estimated how much climate change would add to temperature-related mortality in future worlds; to complement this, we use the same underlying methods and data to examine some implications of temperature-related mortality as a whole - of which that increment is one part - in those same worlds. We suggest three ways of doing so, each addressing a question that projections to date have not been designed to answer.
+
+The first is to consider the total risk of temperature-related mortality under a given scenario, rather than only the change in risk attributable to climate change. Whereas Masselot et al.(2025) reported climate change-attributable excess death rates, we show the full rates of temperature-attributable death under each scenario. Populations live under combined social and climatic conditions: social change shapes not only the climate change-attributable increment but also the remaining burden, which would occur even under the 2000–2014 climate. Reporting only the increment therefore conceals how social change shapes future impacts, and so the scope for general public health actions to reduce them.
+
+The second is to disaggregate temperature-related deaths by age and into components that call for different responses. Heat and cold differ in their causes, in the people they affect, in the certainty of the underlying evidence and in the interventions they require (Arbuthnott et al., 2018; Ebi and Mills, 2013; Kinney et al., 2015), so netting one against the other can misrepresent both risk and response. There are also important differences within each. Cold and heat can each be divided into moderate and extreme components, conventionally separated at the 2.5th and 97.5th percentiles of the temperature distribution, and most temperature-attributable deaths occur at moderate temperatures(Gasparrini et al., 2015). The mechanisms, and so the responses they call for, may differ between moderate and extreme temperatures for both cold (Arbuthnott et al., 2018) and heat (Lloyd et al., 2023), yet many projections do not distinguish them (exceptions include: Martínez-Solanas et al., 2021; Rodrigues & Carvalho, 2025). We therefore divide cold-related deaths into moderate and extreme components and, for heat-related deaths, go further, adopting a three-way split.
+
+We split heat three ways because, with thresholds fixed in a historical period, as in previous projections that separate moderate from extreme heat (Martínez-Solanas et al., 2021), much of the projected rise in extreme heat deaths occurs at temperatures that, with warming, become a regular feature of summer. We distinguish: (i) Moderate heat. Deaths occurring between the minimum mortality temperature and the historical 97.5th percentile are unlikely to be prevented by emergency measures and depend largely on the general health of the population (Lloyd et al., 2023; Margolis, 2021; WHO Europe, 2021). (ii) "Normal extreme" heat. Deaths at temperatures historically considered extreme, but which with warming become a regular feature of summer (we define these as between the historical and projected 97.5th percentiles), call for structural, heat-focused measures such as changes to housing and urban design (Iungman et al., 2023; Jay et al., 2021). (iii) Extreme heat. Deaths at temperatures extreme relative to the projected climate (above its 97.5th percentile) remain the domain of episodic responses such as heat-health warning systems, which can only be issued on a limited number of days if they are to remain effective (Casanueva et al., 2019; Chandra N and Lee, 2025; Vaidyanathan et al., 2019). The relative size of these components, and how it changes over time and differs between age groups, indicates what kinds of protective effort would be needed, and for whom.
+
+The third is to look beyond deaths to their consequences for longevity, the rise of which is arguably the most remarkable achievement of the modern era (Riley, 2001). Counts of deaths conflate changes in risk with changes in population size and age structure, and weight a death at 66 equally with one at 98. Life expectancy, derived from age-specific death rates, reflects how much life is lost. This allows temperature-related mortality to be set against the gains in longevity expected from general social progress. Lifespan inequality adds a distributional dimension, capturing how unequally those losses are spread across individual lifespans (Aburto et al., 2020). In an historical analysis of Spain, Lloyd et al (2024a) found that changes in temperature-related mortality, including from heat, contributed to gains in life expectancy at age 65 (LE65) but to slight increases in lifespan inequality above age 65 (LI65+). They also suggested that heat may soon begin to undermine the effect of social progress on LE65. Whether, when and where this may happen has not been examined prospectively.
+
+In this paper, we adopt these three perspectives to re-examine future temperature-related mortality in 854 European cities. Using the openly available data and code of Masselot et al. (2025), we replicate their methods to estimate temperature-attributable deaths for each year from 2000 to 2099 under three climate and social scenarios, each with and without further warming. We then use epidemiological and demographic methods to translate these deaths into consequences for risk and longevity by age, temperature range and location. Specifically, we assess: (i) trajectories of the absolute risk of temperature-related death, expressed as age-specific attributable death rates; (ii) contributions to changes in LE65 over time, using decomposition methods; and (iii) the corresponding analyses for LI65+. In doing so, we ask two questions. First, what spectrum of adaptation does future temperature-related mortality imply, from general public health, through structural heat-focused measures, to episodic emergency responses, and for whom? Second, under which scenarios, when and where may temperature-related mortality begin to undermine the longevity benefits of general social progress among older Europeans? Together, these perspectives shift attention from how many additional deaths climate change may cause to what temperature-related mortality as a whole may mean for the length and equality of older Europeans' lives, and what it will take to protect them.
+
+2. Methods [Working: need to map to what we actually did; references not yet added]
+
+ADDITIONS
+
+Calculating thresholds for categorizing heat
+
+Based on a trailing 15-year window. For each city, the thresholds are defined on the distribution of daily mean temperature over the whole year:
+
+-   Minimum mortality temperature (MMT). This is taken from the city- and age group-specific exposure–response function and held fixed in absolute temperature throughout. It separates cold from heat. Because it differs by age group, so does the boundary between moderate cold and moderate heat.
+
+-   Historical 2.5th and 97.5th percentiles. These are calculated from the 2000–2014 temperature distribution and held fixed in absolute temperature throughout. 2000–2014 is the historical period of Masselot et al. (2025): the period to which the GCM series are calibrated and against which the “without climate change” sub-scenario is defined. It is a reference period for the projections rather than the period over which the ERFs were estimated; the ERFs were fitted on city-specific mortality series covering different sub-periods of 1990–2019 (Masselot et al., 2023).
+
+-   Projected 97.5th percentile. This is recalculated for each year t from the preceding 15 years (t−15 to t−1), separately for each city, GCM, scenario and sub-scenario (with or without climate change). The window matches the length of the historical period, so both percentiles are estimated from the same number of days. For 2000–2014, the projected 97.5th percentile equals the historical one. For 2015, the trailing window is 2000–2014 itself, so the two thresholds start identical and diverge only as the climate warms. Because the window trails, the threshold tracks warming with a lag, as operational heat-warning thresholds do, since these are set from past observations and revised infrequently. Annual updating makes our threshold, if anything, less lagged than practice.
+
+All percentiles are computed from the calibrated GCM series, whose 2000–2014 distribution matches ERA5-Land after calibration.
+
+Each day is then assigned to one of five ranges:
+
+  Range                   Daily mean temperature
+  ----------------------- -------------------------------------
+  Extreme cold            below historical P2.5
+  Moderate cold           historical P2.5 to MMT
+  Moderate heat           MMT to historical P97.5
+  “Normal extreme” heat   historical P97.5 to projected P97.5
+  Extreme heat            above projected P97.5
+
+If the projected P97.5 is at or below the historical P97.5, the “normal extreme” band is empty and extreme heat begins at the historical P97.5. This is the usual situation without climate change.
+
+Two edge cases are handled as follows. If the MMT lies above a heat threshold, the band(s) below it are empty and all heat deaths fall in the higher band(s). If the MMT lies below the historical P2.5, all cold deaths are classed as extreme.
+
+Interpretation of the extreme heat threshold. In a stable climate, about 2.5% of days, roughly nine per year, exceed the projected 97.5th percentile. Nearly all fall in summer, so this corresponds approximately to the hottest 10% of days in June–August. With warming, more days exceed it, because the trailing threshold lags behind.
+
+Our metric differs from those used by heat-health warning systems. These typically use summer maximum and/or minimum temperatures, apparent temperature or mortality-based thresholds, often with persistence criteria and graded alert levels (Casanueva et al., 2019). In terms of the number of days, however, our threshold is comparable to, or less restrictive than, current practice. For example, Spain’s national thresholds (the 95th percentile of summer maximum and minimum temperatures, both exceeded on the same day) were exceeded on fewer than ten days over 1995–2004 in half of 52 provincial capitals (Tobias et al., 2012).
+
+The three heat bands indicate the primary type of response each calls for, not an exclusive one. Warnings may also be issued on “normal extreme” days, and structural measures also reduce risk on extreme days.
+
+We could consider doing a sensitivity analyses. Could test two alternatives:
+
+-   a 30-year trailing window, closest to climate-normal practice and with the greatest lag;
+
+-   a trailing 95th percentile (about 18 days per year in a stable climate), representing greater capacity for episodic warnings.
+
+Both would test whether the shift of heat deaths towards “normal extreme” heat depends on these choices.
+
+Absolute contribution of temperature-related mortality to LE65 and LI65+ in 2020-2024
+
+Cause-deleted lifetables. Provides a base to which the change decomposition can be related.
+
+2.1. Study design and overview
+
+Our study combines two existing sets of methods. To estimate temperature-attributable deaths (attributable numbers, ANs) in European cities under future climate and demographic scenarios, we replicated the health impact projection framework of Masselot et al. (2025), which builds on the exposure–response functions (ERFs) derived by Masselot et al. (2023). To estimate the consequences for longevity, we applied the demographic methods we used previously to assess the influence of temperature-related mortality on remaining life expectancy at age 65y (LE65) and lifespan inequality amongst people aged 65y+ (LI65+) in Spain (Lloyd et al., 2024).
+
+In brief, for each city, scenario and time step over 2000 to 2099 (Section 2.5), we first calculated ANs for three age groups (65–74y, 75–84y, 85y+) and four temperature ranges (extreme cold, moderate cold, moderate heat, extreme heat), for social futures both with and without climate change. We then disaggregated the ANs into single years of age and combined them with projected population counts and all-cause deaths to construct a dataset containing, for each city, scenario and time step, population and deaths by cause (i.e. each temperature range, and all other causes) by single year of age from 65y to 100y+. From this dataset we generated life tables and calculated LE65 and LI65+. Finally, we used demographic decomposition to quantify the contribution of temperature-related mortality, by temperature range and age, to changes in LE65 and LI65+ over time, and to differences in LE65 and LI65+ between futures with and without climate change. (For a schematic of the approach, see Fig S1.)
+
+Three points of departure from the source studies should be noted. First, whereas Masselot et al. (2025) reported heat- and cold-attributable deaths, we split each into moderate and extreme components. Second, whereas in Lloyd et al. (2024) the ANs were a component of observed all-cause deaths, here the projected all-cause deaths represent futures in which the climate does not change; consequently, only deaths attributable to climate change are additional to projected deaths (Section 2.5). Third, we did not distinguish between sexes, as the ERFs were not sex-specific. Throughout, we adopt a period rather than cohort perspective (Lloyd et al., 2024).
+
+2.2. Study area and period
+
+We included the 854 cities studied by Masselot et al. (2023), which comprise all Urban Audit cities (Eurostat, 2023) with populations above 50,000 in the 27 EU member states, Norway, Switzerland and the UK, other than overseas territories with climates unlike the European mainland. Around two in five residents of these 30 countries live in the study cities (Masselot et al., 2023). We considered the period 2000 to 2099 as in Masselot et al. (2025), treating 2000 to 2014 as the historical period, which we use as a common baseline and which broadly overlaps the years from which the ERFs were derived, and 2015 to 2099 as the projection period. We restricted the analysis to people aged 65y+. [Confirm how results are aggregated for reporting: Europe, the four UN M49 regions (Northern, Western, Eastern, Southern) as in Masselot et al., countries, and/or cities.]
+
+2.3. Data sources
+
+Exposure–response functions. We obtained city- and age group-specific ERFs for the 854 cities from the repository accompanying Masselot et al. (2023) (Masselot and Gasparrini, 2023). The ERFs had been derived using a three-stage approach. In the first stage, quasi-Poisson time series regression with distributed lag non-linear models (Gasparrini et al., 2010) was applied to daily mortality and mean temperature series in 232 cities with observed data from the Multi-Country Multi-City (MCC) Collaborative Research Network, producing 577 age group-specific ERFs. In the second stage, these were pooled in a multivariate multilevel meta-regression (Sera et al., 2019) that included a continuous age term, indicators for the four European regions, and a small number of composite predictors, derived by partial least squares from 22 city-level socioeconomic, environmental and climatic characteristics, representing between-city differences in vulnerability; spatial variation in risk not accounted for by these terms was captured by kriging of the city-level random effects. In the third stage, the fitted model was used to predict ERFs for five age groups (20–44y, 45–64y, 65–74y, 75–84y, 85y+) in all 854 cities; each ERF corresponds to the mean age at death within that group in that city (for the open-ended 85y+ group, to an age derived from remaining life expectancy at 85y). We used the ERFs for the three age groups aged 65y+. The repository also provides simulated sets of ERF coefficients from the Monte Carlo uncertainty analysis of the original study, of which we used 500, as in Masselot et al. (2025), to characterise epidemiological uncertainty (Section 2.4.5). Full details are given in the original paper and its appendix (Masselot et al., 2023).
+
+Temperature. We used daily mean temperature series for each city from 19 general circulation models (GCMs) participating in the sixth phase of the Coupled Model Intercomparison Project (CMIP6) (Eyring et al., 2016), taken from the NASA Earth Exchange Global Daily Downscaled Projections (NEX-GDDP-CMIP6) database (Thrasher et al., 2022), in which CMIP6 output has been statistically downscaled to a fine grid; the database covers the historical experiment (to 2014) and each future scenario (from 2015). Following Masselot et al. (2025), we then calibrated the series for each city and GCM against daily mean air temperature at 2 m from the ERA5-Land reanalysis (Muñoz-Sabater et al., 2021) over 2000 to 2014, using the trend-preserving ISIMIP3BASD bias adjustment method (Lange, 2019). The ERA5-Land series, obtained by averaging grid cells with centroids within each city's boundaries, were those used in the estimation of the ERFs (Masselot et al., 2023). [Confirm: calibrated GCM series used for the entire 2000–2099 period, including the historical period.] The GCMs are listed in Table S[x].
+
+Population and deaths. For each scenario, we obtained country-level projections of population and survival ratios by five-year age group (to 100y+) and five-year period from the Wittgenstein Centre Human Capital Data Explorer (KC and Lutz, 2017; Lutz et al., 2018). Following Masselot et al. (2025), we derived the number of deaths in each five-year period from the survival ratios applied to the population at the start of the period, and obtained city-level values by scaling the country-level projections by the ratio of city to national values observed in 2010 to 2014 (Eurostat). Cities are therefore assumed to share the demographic trajectory of their country. Projected deaths took a single value for each five-year period. [Confirm: (a) treatment of population within five-year periods, constant or interpolated; (b) source of population and deaths for 2000 to 2014, presumably Eurostat, since the Wittgenstein Centre projections begin in 2015.] We assume that the Wittgenstein Centre projections, which extrapolate observed mortality trends, represent demographic futures in the absence of climate change (Section 2.5).
+
+2.4. Estimation of temperature-attributable deaths
+
+2.4.1. Attributable numbers. We calculated ANs using a standard approach (Gasparrini and Leone, 2014; Vicedo-Cabrera et al., 2019), replicating the procedure and code of Masselot et al. (2025) (Masselot et al., 2024). For each city i, age group a, GCM j and day t, the AN was calculated as:
+
+AN_ijat = d_iat × (RR_ia(x_ijt) − 1) / RR_ia(x_ijt)
+
+where d_iat is the projected daily number of deaths, and RR_ia(x_ijt) is the relative risk at the daily mean temperature x_ijt relative to the minimum mortality temperature (MMT), obtained from the city- and age group-specific ERF. Where projected temperatures fell outside the range observed historically, the ERF was extended log-linearly (Vicedo-Cabrera et al., 2019); as in Masselot et al. (2025), RRs were not permitted to fall below 1, which prevents the extended cold tail of the ERF from generating spurious negative ANs on exceptionally cold days. The ERFs, including the MMT, were held constant over the study period. Each day was assigned to a temperature range (Section 2.4.2) according to its daily mean temperature, and daily ANs were summed to give annual ANs for each city, age group, temperature range and GCM. As a check on the replication, we compared our estimates of heat- and cold-attributable deaths (i.e. moderate and extreme combined) with those published by Masselot et al. (2025) (Table S[x]).
+
+2.4.2. Temperature ranges. Rather than distinguishing only heat and cold, we split the ANs into four temperature ranges following standard definitions (Gasparrini et al., 2015; Lloyd et al., 2024): extreme cold (below the 2.5th percentile of daily mean temperature), moderate cold (2.5th percentile to the MMT), moderate heat (MMT to the 97.5th percentile), and extreme heat (above the 97.5th percentile). Percentiles were calculated for each city from the observed (ERA5-Land) temperature distribution over 2000 to 2014 and, like the MMT, were held constant in absolute terms over the study period. Under this definition, the number of days falling in each range changes as the temperature distribution shifts. Because the MMT is age group-specific, the boundary between moderate cold and moderate heat differs by age group within a city. Where the MMT lay above the 97.5th percentile (or below the 2.5th percentile), all heat-attributable (or cold-attributable) deaths were assigned to the extreme range. [Placeholder, pending decision: As a sensitivity analysis, we also defined the percentiles relative to the temperature distribution of each decade, such that extreme cold and extreme heat each comprised 2.5% of days in all periods (Table S[x]).]
+
+2.4.3. Climate and demographic scenarios. We considered three combined Shared Socioeconomic Pathway (SSP) scenarios (O'Neill et al., 2014; Kok et al., 2019), as in Masselot et al. (2025): SSP1-2.6, in which Europe moves towards sustainability and greater equity with strong mitigation, and global warming peaks at about 1.5°C; SSP2-4.5, in which current trends and inequalities persist, progress is slow, and warming is likely to stay under 3°C; and SSP3-7.0, in which regional rivalry, instability and inequality grow, little is done to mitigate, and warming approaches or exceeds 4°C. Each SSP combines a climate trajectory with a corresponding demographic trajectory (population size, age structure and mortality).
+
+For each SSP, we estimated ANs under two sub-scenarios. In the "with climate change" sub-scenario, ANs were calculated using the calibrated temperature projections described in Section 2.3. In the "without climate change" sub-scenario, following Masselot et al. (2025), we recalibrated the projected series decade by decade so that the quantiles of each decade's temperature distribution matched those of the historical period, again using ISIMIP3BASD; the projected day-to-day sequence of weather is preserved but the long-term warming trend is removed. The two sub-scenarios share identical demographic trajectories and, by construction, near-identical temperature distributions in the historical period; they differ only in the evolution of the temperature distribution from 2015 onwards. Deaths attributable to climate change were calculated as the difference in ANs between the two sub-scenarios, for each temperature range.
+
+2.4.4. Adaptation. [Placeholder. Options under consideration: (i) no adaptation only, i.e. ERFs held constant; (ii) attenuation of heat-related RRs across the whole heat range, as in Masselot et al. (2025); (iii) attenuation of RRs at extreme temperatures only, representing targeted measures such as heat-health warning systems and cooling centres; (iv) a modest attenuation of RRs across the entire temperature range, representing generalised reductions in vulnerability, for instance through healthier ageing, possibly operationalised by evaluating the ERF at an age below chronological age. If (iii) and/or (iv) are adopted, describe the attenuation formula, RR_φ(x) = 1 + φ(RR(x) − 1), the ranges to which it is applied, and how any discontinuity at range boundaries is handled.]
+
+2.4.5. Uncertainty. We accounted for climate uncertainty by repeating the calculations for each of the 19 GCMs, and for epidemiological uncertainty by repeating them for 500 Monte Carlo samples of the ERF coefficients; empirical 95% confidence intervals were taken as the 2.5th and 97.5th percentiles of the resulting 9,500 estimates (Masselot et al., 2025). [Placeholder, confirm approach: For the life table and decomposition analyses (Sections 2.6 and 2.7), we used the mean of the point-estimate ANs across the 19 GCMs. To characterise uncertainty in LE65, LI65+ and their decomposition, we repeated these analyses for each GCM separately [and for a subset of Monte Carlo samples], reporting the range across GCMs.]
+
+2.5. Construction of the dataset for analysis
+
+For each city, SSP and sub-scenario, we first disaggregated the annual age group-specific ANs (65–74y, 75–84y, 85y+) for each temperature range into single years of age from 65y to 100y+ using spline-based penalized composite link models (Rizzi et al., 2015), as implemented in the R package "ungroup" (Pascariu et al., 2018). We applied the same procedure to the projected population counts and all-cause deaths, which were available by five-year age group. [Confirm two points: (a) whether the ungrouping was applied to the "with" and "without climate change" ANs separately, or to the "without" ANs and the climate-change difference; the latter guarantees that deaths from other causes are identical across sub-scenarios. (b) Alternative to consider: rather than ungrouping the ANs directly, apply the age group-specific attributable fraction (AN/d) to the ungrouped single-age deaths, so that ANs inherit the within-group age pattern of all-cause mortality and cannot exceed projected deaths at any age.]
+
+We then constructed death counts by cause for each single year of age. In the "without climate change" sub-scenario, the projected all-cause deaths (d) already include deaths attributable to temperature under the historical climate, since the Wittgenstein Centre projections extrapolate observed mortality. Accordingly, deaths not attributable to temperature were calculated as d minus the total AN, and deaths attributable to each temperature range were the corresponding ANs, as in Lloyd et al. (2024). In the "with climate change" sub-scenario, the additional deaths due to climate change (i.e. for each temperature range, the AN with climate change minus the AN without climate change) are not contained in d and were therefore added to it. Deaths not attributable to temperature were thus identical in the two sub-scenarios, and total deaths in the "with climate change" sub-scenario equalled d plus the net number of deaths attributable to climate change (which may be negative where reductions in cold-related deaths outweigh increases in heat-related deaths). Death counts were not rounded to integers, as all inputs were smooth model-based estimates rather than observed counts.
+
+The resulting dataset contained, for each city, SSP, sub-scenario and time step, population counts and deaths due to extreme cold, moderate cold, moderate heat, extreme heat, and all other causes, by single year of age from 65y to 100y+ (Fig S1). [Confirm time step: annual, or five-year periods matching the demographic projections. Annual ANs vary with simulated weather, which averages out when contributions are summed to periods but would make yearly results noisy.]
+
+2.6. Life tables, life expectancy and lifespan inequality
+
+From this dataset, we calculated all-cause mortality rates by single year of age and constructed period life tables from 65y to 100y+ using standard methods, assuming a piecewise constant hazard within single years of age (Chiang, 1960; Preston et al., 2001; Aburto et al., 2022). From each life table we obtained remaining life expectancy at 65y (LE65) and lifespan inequality amongst people aged 65y+ (LI65+), the latter measured as the standard deviation of the age-at-death distribution conditional on survival to 65y (Aburto et al., 2022; for details see Text S1 of Lloyd et al., 2024). Higher values of LI65+ indicate greater inequality in length of life.
+
+Life tables were constructed for each city, SSP, sub-scenario and time step. Because city-level population, deaths and ANs are all smooth model-based estimates rather than observed counts, city-level life tables are not subject to the small-number instability that would affect observed data for small cities. [Placeholder: To obtain results for countries, regions and Europe as a whole, we summed population and deaths by cause across the constituent cities before constructing life tables.]
+
+2.7. Decomposition of change in LE65 and LI65+
+
+We used linear integral decomposition (Horiuchi et al., 2008), as implemented by Aburto et al. (2022), to decompose differences in LE65 and LI65+ between two mortality schedules into contributions by single year of age and cause (the four temperature ranges and all other causes). The contributions are additive, so they can be summed across ages to give contributions by age group, and across consecutive time steps to give contributions over longer periods (Lloyd et al., 2024). [Sample code in Appendix B of Lloyd et al. (2024).]
+
+We applied the decomposition in two ways. First, within each SSP and sub-scenario, we decomposed changes in LE65 and LI65+ between consecutive time steps over the study period, and summed the contributions over [placeholder: periods, e.g. 2000–2014, 2015–2049, 2050–2099, and/or global warming levels] and age groups. This quantifies the contribution of changing patterns of temperature-related mortality to changes in longevity within a given social and climatic future; it encompasses both the influence of declining baseline mortality on temperature-attributable deaths and the influence of climate change. Second, for each SSP and time step, we decomposed the difference in LE65 and LI65+ between the "with" and "without climate change" sub-scenarios by age and temperature range. Because the sub-scenarios share identical population counts and deaths from other causes, the contribution of other causes is zero by construction, and the decomposition isolates the effect of climate change on longevity, by temperature range and age, at a given point in time.
+
+2.8. Software
+
+All analyses were performed in R (version [x]) (R Core Team, [year]), using the packages [dlnm], ungroup and [others].
+
+Methods References
+
+Aburto, J.M., Tilstra, A.M., Floridi, G., Dowd, J.B., 2022. Significant impacts of the COVID-19 pandemic on race/ethnic differences in US mortality. Proc Natl Acad Sci U S A 119, e2205813119. https://doi.org/10.1073/pnas.2205813119
+
+Chiang, C.L., 1960. A stochastic study of the life table and its applications. II. Sample variance of the observed expectation of life and other biometric functions. Hum Biol 32, 221–238.
+
+Eurostat, 2023. Cities (Urban Audit) [WWW Document]. URL https://ec.europa.eu/eurostat/web/cities/background (accessed [date]).
+
+Eyring, V., Bony, S., Meehl, G.A., Senior, C.A., Stevens, B., Stouffer, R.J., Taylor, K.E., 2016. Overview of the Coupled Model Intercomparison Project Phase 6 (CMIP6) experimental design and organization. Geosci Model Dev 9, 1937–1958. https://doi.org/10.5194/gmd-9-1937-2016
+
+Gasparrini, A., Armstrong, B., Kenward, M.G., 2010. Distributed lag non-linear models. Stat Med 29, 2224–2234. https://doi.org/10.1002/sim.3940
+
+Gasparrini, A., Guo, Y., Hashizume, M., Lavigne, E., Zanobetti, A., Schwartz, J., Tobias, A., Tong, S., Rocklöv, J., Forsberg, B., Leone, M., De Sario, M., Bell, M.L., Guo, Y.-L.L., Wu, C., Kan, H., Yi, S.-M., de Sousa Zanotti Stagliorio Coelho, M., Saldiva, P.H.N., Honda, Y., Kim, H., Armstrong, B., 2015. Mortality risk attributable to high and low ambient temperature: a multicountry observational study. Lancet 386, 369–375. https://doi.org/10.1016/S0140-6736(14)62114-0
+
+Gasparrini, A., Leone, M., 2014. Attributable risk from distributed lag models. BMC Med Res Methodol 14, 55. https://doi.org/10.1186/1471-2288-14-55
+
+Horiuchi, S., Wilmoth, J.R., Pletcher, S.D., 2008. A decomposition method based on a model of continuous change. Demography 45, 785–801. https://doi.org/10.1353/dem.0.0033
+
+KC, S., Lutz, W., 2017. The human core of the shared socioeconomic pathways: population scenarios by age, sex and level of education for all countries to 2100. Glob Environ Change 42, 181–192. https://doi.org/10.1016/j.gloenvcha.2014.06.004
+
+Kok, K., Pedde, S., Gramberger, M., Harrison, P.A., Holman, I.P., 2019. New European socio-economic scenarios for climate change research: operationalising concepts to extend the shared socio-economic pathways. Reg Environ Change 19, 643–654. https://doi.org/10.1007/s10113-018-1400-0
+
+Lange, S., 2019. Trend-preserving bias adjustment and statistical downscaling with ISIMIP3BASD (v1.0). Geosci Model Dev 12, 3055–3070. https://doi.org/10.5194/gmd-12-3055-2019
+
+Lloyd, S.J., Striessnig, E., Aburto, J.M., Achebak, H., Hajat, S., Muttarak, R., Quijal-Zamorano, M., Vielma, C., Ballester, J., 2024. The reciprocal relation between rising longevity and temperature-related mortality risk in older people, Spain 1980–2018. Environ Int 193, 109050. https://doi.org/10.1016/j.envint.2024.109050
+
+Lutz, W., Goujon, A., KC, S., Stonawski, M., Stilianakis, N. (Eds.), 2018. Demographic and Human Capital Scenarios for the 21st Century: 2018 Assessment for 201 Countries. Publications Office of the European Union, Luxembourg. https://doi.org/10.2760/41776
+
+Masselot, P., Gasparrini, A., 2023. Temperature-related mortality exposure-response functions for 854 cities in Europe. Zenodo. https://zenodo.org/records/10288665
+
+Masselot, P., Mistry, M., Vanoli, J., Schneider, R., Iungman, T., Garcia-Leon, D., Ciscar, J.-C., Feyen, L., Orru, H., Urban, A., Breitner, S., Huber, V., Schneider, A., Samoli, E., Stafoggia, M., de'Donato, F., Rao, S., Armstrong, B., Nieuwenhuijsen, M., Vicedo-Cabrera, A.M., Gasparrini, A., 2023. Excess mortality attributed to heat and cold: a health impact assessment study in 854 cities in Europe. Lancet Planet Health 7, e271–e281. https://doi.org/10.1016/S2542-5196(23)00023-2
+
+Masselot, P., Mistry, M.N., Gasparrini, A., 2024. Projection of temperature-related mortality in 854 European cities under climate change and adaptation scenarios. Zenodo. https://doi.org/10.5281/zenodo.14004322
+
+Masselot, P., Mistry, M.N., Rao, S., Huber, V., Monteiro, A., Samoli, E., Stafoggia, M., de'Donato, F., Garcia-Leon, D., Ciscar, J.-C., Feyen, L., Schneider, A., Katsouyanni, K., Vicedo-Cabrera, A.M., Aunan, K., Gasparrini, A., 2025. Estimating future heat-related and cold-related mortality under climate change, demographic and adaptation scenarios in 854 European cities. Nat Med 31, 1294–1302. https://doi.org/10.1038/s41591-024-03452-2
+
+Muñoz-Sabater, J., Dutra, E., Agustí-Panareda, A., Albergel, C., Arduini, G., Balsamo, G., Boussetta, S., Choulga, M., Harrigan, S., Hersbach, H., Martens, B., Miralles, D.G., Piles, M., Rodríguez-Fernández, N.J., Zsoter, E., Buontempo, C., Thépaut, J.-N., 2021. ERA5-Land: a state-of-the-art global reanalysis dataset for land applications. Earth Syst Sci Data 13, 4349–4383. https://doi.org/10.5194/essd-13-4349-2021
+
+O'Neill, B.C., Kriegler, E., Riahi, K., Ebi, K.L., Hallegatte, S., Carter, T.R., Mathur, R., van Vuuren, D.P., 2014. A new scenario framework for climate change research: the concept of shared socioeconomic pathways. Clim Change 122, 387–400. https://doi.org/10.1007/s10584-013-0905-2
+
+Pascariu, M.D., Dańko, M.J., Schöley, J., Rizzi, S., 2018. ungroup: An R package for efficient estimation of smooth distributions from coarsely binned data. J Open Source Softw 3, 937. https://doi.org/10.21105/joss.00937
+
+Preston, S.H., Heuveline, P., Guillot, M., 2001. Demography: Measuring and Modeling Population Processes. Blackwell, Oxford.
+
+R Core Team, [year]. R: A language and environment for statistical computing. R Foundation for Statistical Computing, Vienna. https://www.R-project.org/
+
+Rizzi, S., Gampe, J., Eilers, P.H.C., 2015. Efficient estimation of smooth distributions from coarsely grouped data. Am J Epidemiol 182, 138–147. https://doi.org/10.1093/aje/kwv020
+
+Sera, F., Armstrong, B., Blangiardo, M., Gasparrini, A., 2019. An extended mixed-effects framework for meta-analysis. Stat Med 38, 5429–5444. https://doi.org/10.1002/sim.8362
+
+Thrasher, B., Wang, W., Michaelis, A., Melton, F., Lee, T., Nemani, R., 2022. NASA Global Daily Downscaled Projections, CMIP6. Sci Data 9, 262. https://doi.org/10.1038/s41597-022-01393-4
+
+Vicedo-Cabrera, A.M., Sera, F., Gasparrini, A., 2019. Hands-on tutorial on a modeling framework for projections of climate change impacts on health. Epidemiology 30, 321–329. https://doi.org/10.1097/EDE.0000000000000982
+
+3. Results
+
+Throughout, a problem is that we have tonnes of results (regions, countries, timeslices, scenarios, “counterfactuals”)! Need to decide what to show: for the moment, the figures in the main text are at Europe-level.
+
+3.1 Absolute risk of temperature-related death by age and temperature range
+
+[The image is a graph showing the projected increase in temperature-attributable deaths across various age groups in Europe from 2055 to 2059 and 2095 to 2099 under different climate scenarios. AI-generated content may be incorrect.]
+
+[Need to better show colours of with CC vs without CC bars]
+
+Figure 1
+
+Things we could look for in the real results:
+
+-   Most of the future burden is not climate-attributable, and social progress shapes it. Increment-only reporting leaves out most of the burden. General public health and social progress act on all of it, and our model gives a lower bound on how much they can achieve. (strategy 1). (N.B. If most of the burden falls on older people, and most of the between-scenario gains in survival are small in the old-old, then social progress won’t help much! This would be an important point)
+
+-   Climate change adds a heat burden that depends on both warming and the social pathway, and falls mainly on the old-old. What are usually referred to as "Climate change-attributable" deaths are attributable to climate change in a given social world, so mitigation and social progress both shape them. The concentration at the oldest ages sets up the LE65 and LI65+ results in 3.2 and 3.3.
+
+-   The added heat burden calls for structural measures, not only warnings. As warming increases, the balance of needed responses shifts towards structural measures, while the general public health task stays as large as before. (strategy 2)
+
+-   Netting conceals a transformed burden. A net figure near zero can hide a large change in who is at risk and which responses are needed, and Europe still needs to act on cold.
+
+-   (Likely to be regional differences for some of these)
+
+Table 1 SSP3-7
+
+  Region-country   Temperature- attributable deaths/100,000, 65+, 2095-99   Climate change-attributable share (%)   Moderate share (%)   “Normal extreme” share (%)   LE65: heat erosion ratio, 2020-24 to 2095-99 (%)   LE65: all-temperature erosion ratio, 2020-24 to 2095-99 (%)
+  ---------------- -------------------------------------------------------- --------------------------------------- -------------------- ---------------------------- -------------------------------------------------- -------------------------------------------------------------
+                                                                                                                                                                                                                         
+                                                                                                                                                                                                                         
+                                                                                                                                                                                                                         
+                                                                                                                                                                                                                         
+
+-   Columns 2 to 5: burden at 2095-99; columns 6-7: change over the century
+
+-   Strategy 1. Column 2 vs 3: burden populations will actually face vs increment
+
+-   Strategy 2. Columns 4 & 5: share for general public health and structural measures (cf. episodic measures).
+
+-   Strategy 3. Columns 6 vs 7: share of LE65 gain expected from social progress that is lost due to climate-drive increases in heat mortality vs net of reduced cold mortality.
+
+-   Metric contrast: deaths rates influence by age structure; LE65 is age-standardized. Aslo, one is absolute and the other is change. Country impact ranking by differ by metric.
+
+[Erosion ratio: (LE65 gain without CC – LE65 gain with CC) / (LE65 gain without CC), considering just the heat components for column 6 and all components for column 7; for small denominators may be unstable: perhaps requires a threshold (< x months)]
+
+3.2 Contributions of temperature-related mortality to changes in LE65
+
+[The image is a graph displaying temperature-related contributions to changes in life expectancy (LE65) in Europe under various climate scenarios (SSP3-7.0 and SSP1-2.6) from 2020 to 2094, illustrating the impact of climate change on mortality due to temperature extremes. AI-generated content may be incorrect.]
+
+[We sould include SSP3 as well (i.e. as the middle row). Worth considering whether we show Southern Europe]
+
+Figure 2.
+
+Things we might see in the real results:
+
+-   Heat already drags on LE65 gains in the 2020s, even where temperature overall still adds to them. (A heat–cold net or a climate increment alone would show a modest, late-century effect. Un-netting heat from cold, and decomposing change within each scenario, reveals that the "undermining" Lloyd 2024a anticipated has effectively begun. This answers the "when" and "where" of the undermining question.)
+
+-   The drag falls on the oldest, and moves older over the century. Heat's negative contributions are concentrated at 85+ and shift from 85–89 towards 90+. At 65–74 they fade, and even turn slightly positive late in the century in the South: falling background mortality is outpacing heat. Only age-specific decomposition on the LE scale shows this. It answers the 'for whom' of the adaptation spectrum question: general public health comes close to keeping pace with heat among the young-old, but the oldest old need protection that general progress isn't delivering.
+
+-   The climate signal in heat lies almost entirely above the historical 97.5th percentile. The five-range split then shows how much of that falls in "normal extreme" heat (structural measures) versus extreme heat (episodic responses). That is the core of the adaptation spectrum question.
+
+-   Whether heat undermines longevity is a race between social progress and warming. At each age, heat drags LE65 down only when its attributable fraction rises faster than background mortality falls. Under SSP3, heat drags on gains at every age, but the drag is smallest at 65–74 and largest at the oldest ages, where the race is clearly being lost.. Under SSP1 the race may be lost only temporarily, if heat drag fades once warming plateaus. Faster progress may also raise the LE65 cost of each remaining heat death.
+
+3.3 Contributions of temperature-related mortality to changes in LI65+
+
+[The image shows a graphical representation of how climate change (cold and heat mortality) impacts lifespan inequality (LI65+) in Europe from 2020 to 2099, depicting that cold mortality reduces lifespan inequality at younger ages and increases it at older ages, while rising heat mortality has a smaller impact, leading to a net change in lifespan inequality. AI-generated content may be incorrect.]
+
+Framing sentence: the changes in LI65+ are small (days, against a century-long fall of about nine months), but how they are produced matters more than their size.
+
+Candidate messages
+
+-   Cold behaves like social progress; heat works against it. As cold mortality falls, it lowers lifespan inequality at younger ages and raises it at the oldest ages, the same pattern as general mortality decline. Heat, rising with climate change, does the reverse at both ends.
+
+-   A small net change conceals opposing effects at different ages. Heat raises LI65+ by cutting lives short below the crossover age and lowers it, by more, above it. Its net effect is a few days per decade, but the effects at each end are several times larger. Interventions must therefore reach people of different ages, not only the oldest.
+
+-   Heat moves older Europeans towards shorter, more equal lives. Cold and social progress move populations towards longer lives; heat is the only influence pushing towards shorter ones. Lifespans become more equal because the longest are cut short: compression for the wrong reasons, which shows why LI65+ must always be read alongside LE65.
+
+-   The scenarios differ in how far heat takes populations, and possibly in direction. Under SSP3-7.0, heat’s effects grow steadily over the century. Under SSP1-2.6, they may fade or reverse once warming plateaus, as falling heat mortality starts to behave like social progress.
+
+3.4 ?MAPS OF SOMETHING?
+
+4. Discussion
+
+Headlines. Social progress vs warming.
+
+Expand the headlines with policy implications.
+
+Limitations (and suggested future work)
+
+5. Conclusions
+
+Why we’re cool.
+
+6. References
+
+Aburto, J.M., Villavicencio, F., Basellini, U., Kjærgaard, S., Vaupel, J.W., 2020. Dynamics of life expectancy and life span equality. Proceedings of the National Academy of Sciences 117, 5250–5259. https://doi.org/10.1073/pnas.1915884117
+
+Achebak, H., Devolder, D., Ballester, J., 2019. Trends in temperature-related age-specific and sex-specific mortality from cardiovascular diseases in Spain: a national time-series analysis. Lancet Planet. Health 3, e297–e306. https://doi.org/10.1016/S2542-5196(19)30090-7
+
+Arbuthnott, K., Hajat, S., Heaviside, C., Vardoulakis, S., 2018. What is cold-related mortality? A multi-disciplinary perspective to inform climate change impact assessments. Environ. Int. 121, 119–129. https://doi.org/https://doi.org/10.1016/j.envint.2018.08.053
+
+Ballester, J., Quijal-Zamorano, M., Méndez Turrubiates, R.F., Pegenaute, F., Herrmann, F.R., Robine, J.M., Basagaña, X., Tonne, C., Antó, J.M., Achebak, H., 2023. Heat-related mortality in Europe during the summer of 2022. Nat. Med. 29, 1857–1866. https://doi.org/10.1038/s41591-023-02419-z
+
+Casanueva, A., Burgstall, A., Kotlarski, S., Messeri, A., Morabito, M., Flouris, A.D., Nybo, L., Spirig, C., Schwierz, C., 2019. Overview of Existing Heat-Health Warning Systems in Europe. Int. J. Environ. Res. Public Health 16, 2657. https://doi.org/10.3390/ijerph16152657
+
+Chandra N, S.V.S., Lee, J.K.W., 2025. A Systematic Review of Heat Health Warning Systems: Enhancing the Framework Towards Effective Health Outcomes. Curr. Environ. Health Rep. 12, 31. https://doi.org/10.1007/s40572-025-00496-5
+
+Chen, K., de Schrijver, E., Sivaraj, S., Sera, F., Scovronick, N., Jiang, L., Roye, D., Lavigne, E., Kyselý, J., Urban, A., Schneider, A., Huber, V., Madureira, J., Mistry, M.N., Cvijanovic, I., Armstrong, B., Schneider, R., Tobias, A., Astrom, C., Guo, Y., Honda, Y., Abrutzky, R., Tong, S., de Sousa Zanotti Stagliorio Coelho, M., Saldiva, P.H.N., Correa, P.M., Ortega, N.V., Kan, H., Osorio, S., Orru, H., Indermitte, E., Jaakkola, J.J.K., Ryti, N., Pascal, M., Katsouyanni, K., Analitis, A., Mayvaneh, F., Entezari, A., Goodman, P., Zeka, A., Michelozzi, P., de’Donato, F., Hashizume, M., Alahmad, B., Diaz, M.H., De la Cruz Valencia, C., Overcenco, A., Houthuijs, D., Ameling, C., Rao, S., Carrasco-Escobar, G., Seposo, X., da Silva, S.P., Holobaca, I.H., Acquaotta, F., Kim, H., Lee, W., Íñiguez, C., Forsberg, B., Ragettli, M.S., Guo, Y.-L.L., Pan, S.-C., Li, S., Colistro, V., Zanobetti, A., Schwartz, J., Dang, T.N., Van Dung, D., Carlsen, H.K., Cauchi, J.P., Achilleos, S., Raz, R., Gasparrini, A., Vicedo-Cabrera, A.M., Network, M.C.C.C.R., 2024. Impact of population aging on future temperature-related mortality at different global warming levels. Nat. Commun. 15, 1796. https://doi.org/10.1038/s41467-024-45901-z
+
+de Schrijver, E., Sivaraj, S., Raible, C.C., Franco, O.H., Chen, K., Vicedo-Cabrera, A.M., 2023. Nationwide projections of heat- and cold-related mortality impacts under various climate change and population development scenarios in Switzerland. Environmental Research Letters 18, 094010. https://doi.org/10.1088/1748-9326/ace7e1
+
+Ebi, K.L., Mills, D., 2013. Winter mortality in a warming climate: a reassessment. WIREs Climate Change 4, 203–212. https://doi.org/https://doi.org/10.1002/wcc.211
+
+García-León, D., Masselot, P., Mistry, M.N., Gasparrini, A., Motta, C., Feyen, L., Ciscar, J.-C., 2024. Temperature-related mortality burden and projected change in 1368 European regions: a modelling study. Lancet Public Health 9, e644–e653. https://doi.org/10.1016/S2468-2667(24)00179-8
+
+Gasparrini, A., Guo, Y., Hashizume, M., Lavigne, E., Zanobetti, A., Schwartz, J., Tobias, A., Tong, S., Rocklöv, J., Forsberg, B., Leone, M., De Sario, M., Bell, M.L., Guo, Y.-L.L., Wu, C., Kan, H., Yi, S.-M., de Sousa Zanotti Stagliorio Coelho, M., Saldiva, P.H.N., Honda, Y., Kim, H., Armstrong, B., 2015. Mortality risk attributable to high and low ambient temperature: a multicountry observational study. The Lancet 386, 369–375. https://doi.org/https://doi.org/10.1016/S0140-6736(14)62114-0
+
+Gasparrini, A., Guo, Y., Sera, F., Vicedo-Cabrera, A.M., Huber, V., Tong, S., de Sousa Zanotti Stagliorio Coelho, M., Nascimento Saldiva, P.H., Lavigne, E., Matus Correa, P., Valdes Ortega, N., Kan, H., Osorio, S., Kyselý, J., Urban, A., Jaakkola, J.J.K., Ryti, N.R.I., Pascal, M., Goodman, P.G., Zeka, A., Michelozzi, P., Scortichini, M., Hashizume, M., Honda, Y., Hurtado-Diaz, M., Cesar Cruz, J., Seposo, X., Kim, H., Tobias, A., Iñiguez, C., Forsberg, B., Åström, D.O., Ragettli, M.S., Guo, Y.L., Wu, C., Zanobetti, A., Schwartz, J., Bell, M.L., Dang, T.N., Van, D. Do, Heaviside, C., Vardoulakis, S., Hajat, S., Haines, A., Armstrong, B., 2017. Projections of temperature-related excess mortality under climate change scenarios. Lancet Planet. Health 1, e360–e367. https://doi.org/10.1016/S2542-5196(17)30156-0
+
+Huber, V., Krummenauer, L., Peña-Ortiz, C., Lange, S., Gasparrini, A., Vicedo-Cabrera, A.M., Garcia-Herrera, R., Frieler, K., 2020. Temperature-related excess mortality in German cities at 2 °C and higher degrees of global warming. Environ. Res. 186, 109447. https://doi.org/https://doi.org/10.1016/j.envres.2020.109447
+
+Iungman, T., Cirach, M., Marando, F., Barboza, E.P., Khomenko, S., Masselot, P., Quijal-Zamorano, M., Mueller, N., Gasparrini, A., Urquiza, J., Heris, M., Thondoo, M., Nieuwenhuijsen, M., 2023. Cooling cities through urban green infrastructure: a health impact assessment of European cities. The Lancet 0. https://doi.org/10.1016/S0140-6736(22)02585-5
+
+Jay, O., Capon, A., Berry, P., Broderick, C., de Dear, R., Havenith, G., Honda, Y., Kovats, R.S., Ma, W., Malik, A., Morris, N.B., Nybo, L., Seneviratne, S.I., Vanos, J., Ebi, K.L., 2021. Reducing the health effects of hot weather and heat extremes: from personal cooling strategies to green cities. The Lancet 398, 709–724. https://doi.org/10.1016/S0140-6736(21)01209-5
+
+Kinney, P.L., Schwartz, J., Pascal, M., Petkova, E., Tertre, A. Le, Medina, S., Vautard, R., 2015. Winter season mortality: will climate warming bring benefits? Environmental Research Letters 10, 064016. https://doi.org/10.1088/1748-9326/10/6/064016
+
+Lloyd, S.J., Quijal-Zamorano, M., Achebak, H., Hajat, S., Muttarak, R., Striessnig, E., Ballester, J., 2023. The Direct and Indirect Influences of Interrelated Regional-Level Sociodemographic Factors on Heat-Attributable Mortality in Europe: Insights for Adaptation Strategies. Environ. Health Perspect. 131, 087013. https://doi.org/10.1289/EHP11766
+
+Lloyd, S.J., Striessnig, E., Aburto, J.M., Achebak, H., Hajat, S., Muttarak, R., Quijal-Zamorano, M., Vielma, C., Ballester, J., 2024a. The reciprocal relation between rising longevity and temperature-related mortality risk in older people, Spain 1980–2018. Environ. Int. 193, 109050. https://doi.org/https://doi.org/10.1016/j.envint.2024.109050
+
+Lloyd, S.J., Striessnig, E., Muttarak, R., KC, S., Ballester, J., 2024b. Avoiding overestimates of climate risks from population ageing. NPJ Clim. Atmos. Sci. 7, 88. https://doi.org/10.1038/s41612-024-00641-1
+
+Margolis, H.G., 2021. Heat Waves and Rising Temperatures: Human Health Impacts and the Determinants of Vulnerability 123–161. https://doi.org/10.1007/978-3-030-54746-2_7
+
+Martínez-Solanas, È., Quijal-Zamorano, M., Achebak, H., Petrova, D., Robine, J.-M., Herrmann, F.R., Rodó, X., Ballester, J., 2021. Projections of temperature-attributable mortality in Europe: a time series analysis of 147 contiguous regions in 16 countries. Lancet Planet. Health 5, e446–e454. https://doi.org/https://doi.org/10.1016/S2542-5196(21)00150-9
+
+Masselot, P., Mistry, M., Vanoli, J., Schneider, R., Iungman, T., Garcia-Leon, D., Ciscar, J.-C., Feyen, L., Orru, H., Urban, A., Breitner, S., Huber, V., Schneider, A., Samoli, E., Stafoggia, M., de’Donato, F., Rao, S., Armstrong, B., Nieuwenhuijsen, M., Vicedo-Cabrera, A.M., Gasparrini, A., Achilleos, S., Kyselý, J., Indermitte, E., Jaakkola, J.J.K., Ryti, N., Pascal, M., Katsouyanni, K., Analitis, A., Goodman, P., Zeka, A., Michelozzi, P., Houthuijs, D., Ameling, C., Rao, S., das Neves Pereira da Silva, S., Madureira, J., Holobaca, I.-H., Tobias, A., Íñiguez, C., Forsberg, B., Åström, C., Ragettli, M.S., Analitis, A., Katsouyanni, K., Surname, F. name, Zafeiratou, S., Vazquez Fernandez, L., Monteiro, A., Rai, M., Zhang, S., Aunan, K., 2023. Excess mortality attributed to heat and cold: a health impact assessment study in 854 cities in Europe. Lancet Planet. Health 7, e271–e281. https://doi.org/10.1016/S2542-5196(23)00023-2
+
+Masselot, P., Mistry, M.N., Rao, S., Huber, V., Monteiro, A., Samoli, E., Stafoggia, M., de’Donato, F., Garcia-Leon, D., Ciscar, J.-C., Feyen, L., Schneider, A., Katsouyanni, K., Vicedo-Cabrera, A.M., Aunan, K., Gasparrini, A., 2025. Estimating future heat-related and cold-related mortality under climate change, demographic and adaptation scenarios in 854 European cities. Nat. Med. 31, 1294–1302. https://doi.org/10.1038/s41591-024-03452-2
+
+Riley, J.C., 2001. Rising Life Expectancy. Cambridge University Press, Cambridge.
+
+Vaidyanathan, A., Saha, S., Vicedo-Cabrera, A.M., Gasparrini, A., Abdurehman, N., Jordan, R., Hawkins, M., Hess, J., Elixhauser, A., 2019. Assessment of extreme heat and hospitalizations to inform early warning systems. Proceedings of the National Academy of Sciences 116, 5420–5427. https://doi.org/10.1073/pnas.1806393116
+
+WHO Europe, 2021. Heat and health in the WHO European Region: updated evidence for effective prevention. Copenhagen.
+
+Zhao, Q., Guo, Y., Ye, T., Gasparrini, A., Tong, S., Overcenco, A., Urban, A., Schneider, A., Entezari, A., Vicedo-Cabrera, A.M., Zanobetti, A., Analitis, A., Zeka, A., Tobias, A., Nunes, B., Alahmad, B., Armstrong, B., Forsberg, B., Pan, S.-C., Íñiguez, C., Ameling, C., De la Cruz Valencia, C., Åström, C., Houthuijs, D., Dung, D. Van, Royé, D., Indermitte, E., Lavigne, E., Mayvaneh, F., Acquaotta, F., De’Donato, F., Di Ruscio, F., Sera, F., Carrasco-Escobar, G., Kan, H., Orru, H., Kim, H., Holobaca, I.-H., Kyselý, J., Madureira, J., Schwartz, J., Jaakkola, J.J.K., Katsouyanni, K., Hurtado Diaz, M., Ragettli, M.S., Hashizume, M., Pascal, M., de Sousa Zanotti Stagliorio Coélho, M., Valdés Ortega, N., Ryti, N., Scovronick, N., Michelozzi, P., Matus Correa, P., Goodman, P., Nascimento Saldiva, P.H., Abrutzky, R., Osorio, S., Rao, S., Fratianni, S., Dang, T.N., Colistro, V., Huber, V., Lee, W., Seposo, X., Honda, Y., Guo, Y.L., Bell, M.L., Li, S., 2021. Global, regional, and national burden of mortality associated with non-optimal ambient temperatures from 2000 to 2019: a three-stage modelling study. Lancet Planet. Health 5, e415–e425. https://doi.org/https://doi.org/10.1016/S2542-5196(21)00081-4
+
+ 

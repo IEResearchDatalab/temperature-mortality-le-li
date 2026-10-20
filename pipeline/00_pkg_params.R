@@ -96,13 +96,15 @@ predper <- c(seq(0, 1, 0.1), 2:98, seq(99, 100, 0.1))
 
 #----- Temperature ranges (Lloyd et al. 2024)
 
-range_levels <- c("ExtrCold", "ModCold", "ModHeat", "ExtrHeat")
+range_levels <- c("ExtrCold", "ModCold", "ModHeat", "NormExtrHeat", "ExtrHeat")
 cause_levels <- c(range_levels, "rest")
 
-# Percentiles delimiting extreme cold / heat, and the ERA5 period they come from
-# (the ERF estimation window). Open point: Simon's methods draft says 2000-2014.
+# Percentiles delimiting extreme cold / heat. These static thresholds use
+# Masselot's 2000-2014 historical calibration period. The ERF basis below
+# remains based on the full 1990-2019 ERA5-Land series.
 extreme_probs <- c(p2_5 = 0.025, p97_5 = 0.975)
-threshold_years <- c(1990L, 2019L)
+threshold_years <- c(2000L, 2014L)
+ext_window <- 15L
 
 #----- Scenarios
 
@@ -127,7 +129,7 @@ closure_tol <- 1e-6
 
 # Part 04 options: year-on-year decomposition (158 Horiuchi steps, the costly
 # part) and levels-only runs (per-GCM uncertainty in batch runs)
-decomp_annual <- Sys.getenv("DECOMP_ANNUAL", "1") == "1"
+decomp_annual <- Sys.getenv("DECOMP_ANNUAL", "0") == "1"
 levels_only <- Sys.getenv("LEVELS_ONLY", "0") == "1"
 
 #------------------------
@@ -137,6 +139,7 @@ levels_only <- Sys.getenv("LEVELS_ONLY", "0") == "1"
 out_dir <- Sys.getenv("OUT_DIR", "results/phase1_madrid")
 check_dir <- Sys.getenv("CHECK_DIR", "results/checks")
 fig_dir <- Sys.getenv("FIG_DIR", "results/figures")
+prep_data_file <- Sys.getenv("PREP_DATA_FILE", "data/prep_data.RData")
 # Part 00 outputs (shared by all GCMs of a city in batch runs)
 dem_dir <- Sys.getenv("DEMOG_DIR", out_dir)
 for (d in c(out_dir, check_dir, fig_dir, dem_dir)) dir.create(d, recursive = TRUE, showWarnings = FALSE)
@@ -146,9 +149,10 @@ for (d in c(out_dir, check_dir, fig_dir, dem_dir)) dir.create(d, recursive = TRU
 #------------------------
 
 range_labels <- c(ExtrCold = "Extreme cold", ModCold = "Moderate cold",
-  ModHeat = "Moderate heat", ExtrHeat = "Extreme heat")
+  ModHeat = "Moderate heat", NormExtrHeat = "Normal extreme heat",
+  ExtrHeat = "Extreme heat")
 range_colors <- c(ExtrCold = "#2166ac", ModCold = "#67a9cf",
-  ModHeat = "#ef8a62", ExtrHeat = "#b2182b")
+  ModHeat = "#f1c232", NormExtrHeat = "#f28e2b", ExtrHeat = "#b2182b")
 branch_labels <- c(with_cc = "With climate change", without_cc = "Without climate change")
 branch_colors <- c(with_cc = "#b2182b", without_cc = "#2166ac")
 ssplabs <- c("1" = "SSP1-2.6", "2" = "SSP2-4.5", "3" = "SSP3-7.0")
