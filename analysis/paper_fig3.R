@@ -208,7 +208,7 @@ p_bars <- ggplot(bars, aes(age_index, value, fill = display_cause)) +
   labs(x = "Age group", y = "Days of LI65+ per decade", fill = NULL) +
   theme_minimal(base_size = 9) +
   theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.x = element_text(angle = 0, hjust = 0.5),
     panel.grid.minor = element_blank(), panel.grid.major.x = element_blank(),
     strip.placement = "outside",
     strip.text.y.left = element_text(face = "bold", angle = 0, size = 10),
@@ -377,7 +377,8 @@ p_plane <- ggplot(plane_main, aes(li_days, le_months,
     plot.title.position = "plot",
     plot.title = element_text(face = "bold", size = 10, margin = margin(b = 1)),
     plot.subtitle = element_text(size = 7, margin = margin(b = 2)),
-    plot.margin = margin(0, 2, 0, 2)
+    plot.margin = margin(0, 2, 0, 2),
+    aspect.ratio = 0.8
   ) +
   guides(colour = guide_legend(override.aes = list(
     linetype = 0, shape = 22, fill = unname(group_colours), size = 4
@@ -392,12 +393,18 @@ caption_paragraphs <- c(
   "Without climate change, each temperature range's contributions follow the age pattern of falling mortality from all causes (its attributable fraction is fixed); heat contributions that reverse this pattern signal warming outpacing that decline. A five-range version is in the Supplementary Material. Historical P2.5 and P97.5: ERA5-Land, 2000–2014. Projected P97.5: the historical P97.5 plus the change in the calibrated GCM P97.5 over the 15 preceding years.",
   "For SSP1, Wittgenstein Centre survival ratios stored as exactly 1 were set to 0.9995. Central estimates, mean of 19 GCMs; no uncertainty intervals."
 )
+supplement_paragraph_2 <- sub(
+  "A five-range version is in the Supplementary Material. ", "",
+  caption_paragraphs[2], fixed = TRUE
+)
 five_range_caption <- caption_paragraphs
+five_range_caption[2] <- supplement_paragraph_2
 five_range_caption[1] <- paste(
   "Panels a and b show the same contributions as Figure 3 split into five",
   "temperature ranges."
 )
 step_plane_caption <- caption_paragraphs
+step_plane_caption[2] <- supplement_paragraph_2
 step_plane_caption[1] <- paste(
   "The plane shows the five-year cumulative paths of changes in cold (or heat)",
   "mortality alone to LE65 and LI65+ since 2020–24. Dots mark 2055–59 and",
@@ -419,7 +426,7 @@ format_caption <- function(paragraphs) {
 five_range_figure_caption <- format_caption(five_range_caption)
 step_plane_figure_caption <- format_caption(step_plane_caption)
 p <- (p_bars | p_plane) +
-  plot_layout(widths = c(1.65, 1.2), guides = "collect") +
+  plot_layout(widths = c(1.45, 1.4), guides = "collect") +
   plot_annotation(
     title = figure_title,
     subtitle = "Positive contributions raise LI65+ (lifespans more unequal); negative contributions lower it. Grey shading: ages above the crossover age, where an added death lowers LI65+.",
@@ -542,7 +549,7 @@ five_extent <- five_range[, .(
 ), by = .(ssp, ssp_label, interval, age_band)]
 five_limits <- range(c(0, five_range$value, five_extent$positive,
                        five_extent$negative, five_net$value))
-five_limits <- five_limits + c(-1, 1) * diff(five_limits) * 0.12
+five_limits <- five_limits + c(-0.12, 0.24) * diff(five_limits)
 five_axis_checks <- five_extent[, .(
   data_min = min(negative),
   data_max = max(positive)
@@ -579,6 +586,23 @@ five_plot <- ggplot(five_range, aes(age_index, value, fill = display_cause)) +
   geom_point(data = five_net, aes(age_index, value), inherit.aes = FALSE,
              shape = 18, size = 1.8, colour = "black") +
   geom_hline(yintercept = 0, linewidth = 0.35) +
+  geom_vline(
+    data = crossovers[is.finite(crossover)],
+    aes(xintercept = crossover - 0.5), inherit.aes = FALSE,
+    colour = "#777777", linewidth = 0.35, linetype = "dotted"
+  ) +
+  geom_text(
+    data = crossovers[is.finite(crossover)],
+    aes(x = crossover - 0.5, y = five_limits[2] - 0.04 * diff(five_limits),
+        label = crossover_side_label),
+    inherit.aes = FALSE, hjust = 0.5, vjust = 1, size = 2.4, colour = "#666666"
+  ) +
+  geom_text(
+    data = crossovers[is.finite(crossover)],
+    aes(x = pmin(crossover + 0.1, 7.9), y = five_limits[2] - 0.12 * diff(five_limits),
+        label = crossover_label),
+    inherit.aes = FALSE, hjust = 0, vjust = 1, size = 2.4, colour = "#444444"
+  ) +
   facet_grid(ssp_label ~ interval, switch = "y") +
   scale_x_continuous(breaks = seq_along(age_levels), labels = age_levels) +
   scale_fill_manual(values = range_colours, labels = range_labels, drop = FALSE) +
@@ -590,10 +614,10 @@ five_plot <- ggplot(five_range, aes(age_index, value, fill = display_cause)) +
   ) +
   theme_minimal(base_size = 8) +
   theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.x = element_text(angle = 0, hjust = 0.5),
     panel.grid.minor = element_blank(),
     strip.placement = "outside",
-    strip.text.y.left = element_text(face = "bold", angle = 0),
+    strip.text.y.left = element_text(face = "bold", angle = 0, size = 10),
     strip.text.x = element_text(face = "bold"),
     legend.position = "bottom"
   )

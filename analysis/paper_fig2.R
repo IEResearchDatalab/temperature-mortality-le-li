@@ -163,7 +163,7 @@ p_when <- plot_stacked(
   when, "decade_label", when_net, NULL, "Months of LE65 per decade", TRUE
 ) +
   labs(title = "a. Over time (each 10-year step)") +
-  theme(axis.text.x = element_text(angle = 55, hjust = 1, size = 7))
+  theme(axis.text.x = element_text(angle = 0, hjust = 0.5, size = 8))
 
 make_age_panel <- function(start_period, end_period, title, subtitle) {
   years <- end_period - start_period

@@ -257,6 +257,11 @@ make_plot <- function(d) {
               fontface = "bold", size = 2.8, colour = "#333333") +
     facet_grid(scenario ~ period, scales = "fixed", switch = "y") +
     scale_x_continuous(limits = c(-half_width, half_width),
+      breaks = function(lim) {
+        step <- if (max(abs(lim)) > 1500) 500 else 250
+        m <- floor(max(abs(lim)) / step) * step
+        seq(-m, m, by = step)
+      },
       labels = function(z) format(abs(z), big.mark = ",", trim = TRUE), expand = expansion(mult = 0)) +
     scale_y_continuous(breaks = seq_along(age_levels), labels = age_levels,
                        limits = c(0.6, 7.9), expand = expansion(mult = 0)) +
