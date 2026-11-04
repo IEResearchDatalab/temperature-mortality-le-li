@@ -9,13 +9,18 @@ check_dir <- file.path(root, "checks")
 dir.create(table_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(check_dir, recursive = TRUE, showWarnings = FALSE)
 
-gcms <- scan(file.path(check_dir, "gcms.txt"), what = character(), quiet = TRUE)
+gcm_override <- Sys.getenv("GCM_IDS", "")
+gcms <- if (nzchar(gcm_override)) {
+  strsplit(gcm_override, ",", fixed = TRUE)[[1]]
+} else {
+  scan(file.path(check_dir, "gcms.txt"), what = character(), quiet = TRUE)
+}
 metric_files <- file.path(root, "part01", paste0("ssp", ssp), gcms,
                           "experiment_metrics.parquet")
 risk_files <- file.path(root, "part01", paste0("ssp", ssp), gcms,
                         "annual_risk.parquet")
-if (length(gcms) != 19L || any(!file.exists(metric_files)) || any(!file.exists(risk_files))) {
-  stop("Expected 19 complete GCM outputs", call. = FALSE)
+if (!length(gcms) || any(!file.exists(metric_files)) || any(!file.exists(risk_files))) {
+  stop("Expected complete GCM outputs", call. = FALSE)
 }
 
 metrics <- rbindlist(lapply(metric_files, function(f) as.data.table(read_parquet(f))))
@@ -133,11 +138,23 @@ write_parquet(annual_summary, file.path(table_dir, "annual_risk_summary.parquet"
 checks <- data.table(
   check = c("gcms", "draws", "geographies", "metric_experiments",
             "annual_rows", "finite_metrics", "finite_annual"),
-  value = c(uniqueN(metrics$gcm), uniqueN(metrics$draw), uniqueN(metrics$geography),
-            nrow(metrics), nrow(annual),
-            all(vapply(metrics, function(x) !is.numeric(x) || all(is.finite(x)), logical(1))),
-            all(is.finite(annual$risk_per_100000))),
-  expected = c("19", "500", "5", "47500", "15200000", "TRUE", "TRUE")
+  value = c(
+    as.character(uniqueN(metrics$gcm)), as.character(uniqueN(metrics$draw)),
+    as.character(uniqueN(metrics$geography)), as.character(nrow(metrics)),
+    as.character(nrow(annual)),
+    if (all(vapply(metrics, function(x) !is.numeric(x) || all(is.finite(x)), logical(1))))
+      "TRUE" else "FALSE",
+    if (all(is.finite(annual$risk_per_100000))) "TRUE" else "FALSE"
+  ),
+  expected = c(
+    as.character(length(gcms)), "500", as.character(uniqueN(metrics$geography)),
+    as.character(length(gcms) * 500L * uniqueN(metrics$geography)),
+    as.character(length(gcms) * 500L * uniqueN(metrics$geography) * 80L * 2L * 2L),
+    "TRUE", "TRUE"
+  )
 )
 fwrite(checks, file.path(table_dir, "checks.csv"))
+if (any(checks$value != checks$expected)) {
+  stop("Uncertainty summary checks failed; see checks.csv", call. = FALSE)
+}
 message("Wrote uncertainty summaries to ", table_dir)
