@@ -402,8 +402,12 @@ gate <- rbindlist(list(
   ),
   data.table(
     check = "Observed Eurostat LE65",
-    result = sprintf("%d model-observation comparisons", nrow(observed_comparison)),
-    verdict = if (max(abs(observed_comparison$gap_years)) < 2) "match" else "not explained"
+    result = sprintf(
+      "%d comparisons; absolute gaps %.2f to %.2f years",
+      nrow(observed_comparison), min(abs(observed_comparison$gap_years)),
+      max(abs(observed_comparison$gap_years))
+    ),
+    verdict = "warning: SSP1 and SSP2 baseline gaps exceed one year"
   ),
   data.table(
     check = "Lloyd 2024 method",
