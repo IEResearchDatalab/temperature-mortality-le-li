@@ -303,6 +303,7 @@ gc()
 # Life-table and Table 1 metrics for each experiment.
 metric_rows <- vector("list", D * G)
 k <- 0L
+max_rest_relative_roundoff <- 0
 for (di in seq_len(D)) {
   for (gi in seq_len(G)) {
     k <- k + 1L
@@ -311,7 +312,17 @@ for (di in seq_len(D)) {
       temp <- pool_single[di, gi, bi, , , , drop = TRUE]
       temp_without <- pool_single[di, gi, 2L, , , , drop = TRUE]
       rest <- pool_death[gi, , ] - apply(temp_without, c(1, 2), sum)
-      if (min(rest) < -1e-6) stop("Negative rest mortality")
+      rest_floor <- min(rest)
+      rest_scale <- max(pool_death[gi, , ], 1)
+      relative_roundoff <- max(0, -rest_floor / rest_scale)
+      max_rest_relative_roundoff <- max(max_rest_relative_roundoff, relative_roundoff)
+      if (relative_roundoff > 1e-8) {
+        stop(sprintf(
+          "Attributable mortality exceeds all-cause mortality: min rest=%g, relative excess=%g",
+          rest_floor, relative_roundoff
+        ))
+      }
+      rest <- pmax(rest, 0)
       make_period <- function(indices) {
         temp_rates <- sweep(
           temp[indices, , , drop = FALSE],
@@ -397,7 +408,10 @@ annual_risk <- rbindlist(risk_rows)
 write_parquet(annual_risk, file.path(out_dir, "annual_risk.parquet"), compression = "zstd")
 
 checks <- data.table(
-  check = c("draws", "geographies", "tier_closure_max_abs_pp", "finite_metrics", "rest_nonnegative"),
+  check = c(
+    "draws", "geographies", "tier_closure_max_abs_pp", "finite_metrics",
+    "rest_nonnegative", "rest_roundoff_clamped_max_relative"
+  ),
   value = c(
     as.character(uniqueN(metrics$draw)),
     as.character(uniqueN(metrics$geography)),
@@ -405,9 +419,10 @@ checks <- data.table(
                            metrics$episodic_tier_pct - 100))),
     if (all(vapply(metrics, function(x) !is.numeric(x) || all(is.finite(x)), logical(1))))
       "TRUE" else "FALSE",
-    "TRUE"
+    "TRUE",
+    as.character(max_rest_relative_roundoff)
   ),
-  expected = c(as.character(D), as.character(G), "<=1e-8", "TRUE", "TRUE")
+  expected = c(as.character(D), as.character(G), "<=1e-8", "TRUE", "TRUE", "<=1e-8")
 )
 fwrite(checks, file.path(out_dir, "checks.csv"))
 if (as.numeric(checks[check == "tier_closure_max_abs_pp", value]) > 1e-8 ||

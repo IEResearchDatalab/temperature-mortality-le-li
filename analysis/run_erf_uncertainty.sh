@@ -9,6 +9,7 @@ ncores=${2:-19}
 case "$ssp" in 2|3) ;; *) echo "SSP must be 2 or 3" >&2; exit 2 ;; esac
 root=${UNCERTAINTY_ROOT:-results/europe/uncertainty_20261104}
 mkdir -p "$root/logs/ssp${ssp}" "$root/checks"
+: > "$root/checks/ssp${ssp}_failed.txt"
 
 gcms=(
   ACCESS_CM2 ACCESS_ESM1_5 BCC_CSM2_MR CMCC_ESM2 CanESM5
