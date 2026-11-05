@@ -62,7 +62,7 @@ x[, period := fifelse(year %in% period_years[[1]], names(period_years)[1],
 pool <- rbindlist(list(
   x[, .(an = sum(an)), by = .(variant, ssp, geography = region, period, branch, range)],
   x[, .(an = sum(an)), by = .(variant, ssp, period, branch, range)][, geography := "Europe"]
-))
+), use.names = TRUE)
 
 metrics <- pool[, {
   with <- .SD[branch == "with_cc"]
