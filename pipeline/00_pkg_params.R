@@ -102,9 +102,26 @@ cause_levels <- c(range_levels, "rest")
 # Percentiles delimiting extreme cold / heat. These static thresholds use
 # Masselot's 2000-2014 historical calibration period. The ERF basis below
 # remains based on the full 1990-2019 ERA5-Land series.
-extreme_probs <- c(p2_5 = 0.025, p97_5 = 0.975)
+extreme_cold_prob <- as.numeric(Sys.getenv("EXTREME_COLD_PROB", "0.025"))
+extreme_heat_prob <- as.numeric(Sys.getenv("EXTREME_HEAT_PROB", "0.975"))
+if (!is.finite(extreme_cold_prob) || !is.finite(extreme_heat_prob) ||
+    extreme_cold_prob <= 0 || extreme_cold_prob >= 0.5 ||
+    extreme_heat_prob <= 0.5 || extreme_heat_prob >= 1 ||
+    extreme_cold_prob >= extreme_heat_prob) {
+  stop(
+    "EXTREME_COLD_PROB and EXTREME_HEAT_PROB must be finite probabilities, ",
+    "ordered on either side of 0.5.", call. = FALSE
+  )
+}
+extreme_probs <- c(p2_5 = extreme_cold_prob, p97_5 = extreme_heat_prob)
 threshold_years <- c(2000L, 2014L)
-ext_window <- 15L
+ext_window <- as.integer(Sys.getenv("EXTREME_WINDOW_YEARS", "15"))
+if (length(ext_window) != 1L || is.na(ext_window) || ext_window < 5L ||
+    ext_window > 30L) {
+  stop("EXTREME_WINDOW_YEARS must be one integer from 5 to 30.", call. = FALSE)
+}
+# Non-default values are scientific sensitivities and must use isolated output
+# roots. They are recorded by the dedicated threshold-sensitivity runner.
 
 #----- Scenarios
 
