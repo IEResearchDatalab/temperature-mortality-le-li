@@ -435,6 +435,7 @@ p <- (p_bars | p_plane) +
       plot.title = element_text(face = "bold", size = 15),
       plot.subtitle = element_text(size = 10, colour = "#555555"),
       plot.caption = element_text(size = 8, hjust = 0),
+      plot.margin = margin(t = 8, r = 8, b = 8, l = 60),
       legend.position = "bottom"
     )
   )
