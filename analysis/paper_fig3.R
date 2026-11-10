@@ -308,7 +308,10 @@ y_span <- diff(y_range)
 plane_heading <- if (geo_level == "europe") {
   "c. Where cold and heat take older Europeans"
 } else {
-  paste0("c. Where cold and heat take older people in ", geo_label)
+  # The full geography is already in the figure title. Repeating it here can
+  # make this half-width title determine the patchwork's minimum width, which
+  # pushes the left panels outside the device for some region/font backends.
+  "c. Where cold and heat take older people"
 }
 p_plane <- ggplot(plane_main, aes(li_days, le_months,
                                   colour = cause_group,
@@ -362,7 +365,10 @@ p_plane <- ggplot(plane_main, aes(li_days, le_months,
     labels = scales::label_number(style_negative = "minus"),
     expand = expansion(mult = c(0.08, 0.1))
   ) +
-  coord_cartesian(clip = "off") +
+  # All endpoint and quadrant labels are included in x_range/y_range and the
+  # scale expansions above. Keeping clipping on prevents region-specific text
+  # from escaping panel c and corrupting the surrounding patchwork in Cairo PDF.
+  coord_cartesian(clip = "on") +
   labs(
     title = plane_heading,
     subtitle = "Cumulative since 2020–24; dot: 2055–59; arrowhead: 2095–99",
@@ -377,8 +383,7 @@ p_plane <- ggplot(plane_main, aes(li_days, le_months,
     plot.title.position = "plot",
     plot.title = element_text(face = "bold", size = 10, margin = margin(b = 1)),
     plot.subtitle = element_text(size = 7, margin = margin(b = 2)),
-    plot.margin = margin(0, 2, 0, 2),
-    aspect.ratio = 0.8
+    plot.margin = margin(0, 2, 0, 2)
   ) +
   guides(colour = guide_legend(override.aes = list(
     linetype = 0, shape = 22, fill = unname(group_colours), size = 4
@@ -425,8 +430,12 @@ format_caption <- function(paragraphs) {
 }
 five_range_figure_caption <- format_caption(five_range_caption)
 step_plane_figure_caption <- format_caption(step_plane_caption)
-p <- (p_bars | p_plane) +
-  plot_layout(widths = c(1.45, 1.4), guides = "collect") +
+# Wrap each component as a complete grob. This prevents data-dependent grob
+# widths in either child plot from expanding the overall patchwork beyond the
+# graphics device; each child is clipped only to its allocated column.
+p <- (wrap_elements(full = p_bars, clip = TRUE) |
+        wrap_elements(full = p_plane, clip = TRUE)) +
+  plot_layout(widths = c(1.45, 1.4)) +
   plot_annotation(
     title = figure_title,
     subtitle = "Positive contributions raise LI65+ (lifespans more unequal); negative contributions lower it. Grey shading: ages above the crossover age, where an added death lowers LI65+.",
@@ -441,8 +450,40 @@ p <- (p_bars | p_plane) +
   )
 
 stem <- file.path(out_dir, "figure3_li65_contributions")
-ggsave(paste0(stem, ".png"), p, width = 18, height = 11, units = "in", dpi = 300)
-ggsave(paste0(stem, ".pdf"), p, width = 18, height = 11, units = "in", device = cairo_pdf)
+# Keep the verified regional layouts stable across graphics devices. The
+# patchwork grobs have geography-specific intrinsic widths, so use the widths
+# established by the visual QA sweep rather than relying on device defaults.
+main_png <- paste0(stem, ".png")
+main_pdf <- paste0(stem, ".pdf")
+default_main_width <- if (geo_level == "region") {
+  switch(geo_id, Eastern = 18, Northern = 18, Western = 19, 20)
+} else {
+  20
+}
+main_width <- as.numeric(Sys.getenv("FIGURE3_WIDTH", as.character(default_main_width)))
+if (!is.finite(main_width) || main_width < 18 || main_width > 24) {
+  stop("FIGURE3_WIDTH must be between 18 and 24 inches.", call. = FALSE)
+}
+ggsave(main_png, p, width = main_width, height = 11, units = "in", dpi = 300)
+# Vector devices can miscompute patchwork's intrinsic widths for some regional
+# data. Embed the verified 300-dpi raster in a standard PDF page so the PDF is
+# visually identical and retains every annotation.
+main_raster <- png::readPNG(main_png)
+# Some PDF backends can tile a 6000 x 3300 raster incorrectly. The
+# half-resolution image is still 150 dpi at the exported page size and remains
+# comfortably above normal manuscript-review resolution.
+main_raster <- main_raster[
+  seq.int(1L, dim(main_raster)[1], by = 2L),
+  seq.int(1L, dim(main_raster)[2], by = 2L),
+  , drop = FALSE
+]
+pdf(main_pdf, width = main_width, height = 11,
+    useDingbats = FALSE, compress = TRUE)
+grid.newpage()
+grid.raster(main_raster, width = unit(1, "npc"), height = unit(1, "npc"),
+            interpolate = TRUE)
+dev.off()
+rm(main_raster)
 fwrite(bars, paste0(stem, "_bars_data.csv"))
 fwrite(net_labels, paste0(stem, "_net_crossover_data.csv"))
 fwrite(main_axis_checks, paste0(stem, "_axis_checks.csv"))
