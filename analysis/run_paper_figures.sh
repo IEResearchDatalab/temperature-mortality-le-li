@@ -6,9 +6,10 @@
 set -euo pipefail
 
 export BATCH_ROOT=${BATCH_ROOT:-results/europe/heatsplit_20261013}
-export FIGURE_ROOT=${FIGURE_ROOT:-results/paper_figures/20261013}
+export FIGURE_ROOT=${FIGURE_ROOT:-results/figures_simon_20oct}
 export SSP_SET=${SSP_SET:-1,2,3}
 export GEO_SCOPE=${GEO_SCOPE:-all}
+export RESUME_FIGURES=${RESUME_FIGURES:-0}
 mkdir -p "$FIGURE_ROOT/logs"
 
 IFS=',' read -r -a requested_ssps <<< "$SSP_SET"
@@ -26,13 +27,26 @@ for f in object1_dataset.parquet object2_contributions.parquet object3_levels.pa
 done
 
 run_geo() {
-  local level=$1 id=$2 log
+  local level=$1 id=$2 log out
   log="$FIGURE_ROOT/logs/${level}_${id}.log"
+  out="$FIGURE_ROOT/$level/$id"
+  if [ "$RESUME_FIGURES" = "1" ] &&
+     [ -s "$out/figure2_le65_contributions.pdf" ] &&
+     [ -s "$out/figure2_le65_contributions_panel_c_data.csv" ] &&
+     [ -s "$out/figure3_li65_contributions.pdf" ] &&
+     [ -s "$out/figure3_supplement_five_ranges.pdf" ] &&
+     [ -s "$out/figure3_supplement_plane_steps.pdf" ]; then
+    echo "$(date '+%F %T') figures already complete: $level/$id"
+    return
+  fi
   echo "$(date '+%F %T') figures: $level/$id"
-  env GEO_LEVEL="$level" GEO_ID="$id" Rscript analysis/paper_fig1.R > "$log" 2>&1
-  env GEO_LEVEL="$level" GEO_ID="$id" Rscript analysis/paper_fig2.R >> "$log" 2>&1
+  env GEO_LEVEL="$level" GEO_ID="$id" Rscript analysis/paper_fig2.R > "$log" 2>&1
   env GEO_LEVEL="$level" GEO_ID="$id" Rscript analysis/paper_fig3.R >> "$log" 2>&1
 }
+
+# Figure 1 pools exact-band city inputs for Europe and the four regions in one run.
+echo "$(date '+%F %T') figure 1: Europe and regions"
+env GEO_LEVEL=all Rscript analysis/paper_fig1.R > "$FIGURE_ROOT/logs/figure1.log" 2>&1
 
 # Europe first, then four regions, then 30 countries for supplementary material.
 run_geo europe EUROPE
@@ -48,6 +62,9 @@ elif [ "$GEO_SCOPE" != "main" ]; then
   exit 1
 fi
 
-Rscript analysis/paper_table1.R > "$FIGURE_ROOT/logs/table1.log" 2>&1
+TABLE1_DIR="$FIGURE_ROOT/table1" TABLE1_STAGE=all Rscript analysis/paper_table1.R > "$FIGURE_ROOT/logs/table1.log" 2>&1
 Rscript analysis/paper_table_comparison.R > "$FIGURE_ROOT/logs/table_comparison.log" 2>&1
+EXTREME_OUTPUT_DIR="${EXTREME_OUTPUT_DIR:-$FIGURE_ROOT/extreme_temperature}" \
+  Rscript analysis/extreme_temperature_thresholds.R \
+    > "$FIGURE_ROOT/logs/extreme_temperature_thresholds.log" 2>&1
 echo "$(date '+%F %T') paper figures and Table 1 complete"
