@@ -256,9 +256,38 @@ for (ci in seq_along(selected_cities)) {
       summed <- rowsum(weighted, group_id, reorder = FALSE)
       full <- matrix(0, Y * R, D)
       full[as.integer(rownames(summed)), ] <- summed
-      arr <- array(t(full), c(D, Y, R))
+      # `full` is ordered year-major with temperature range varying fastest.
+      # Build [draw, year, range] explicitly; array(t(full), ...) interleaves
+      # the year and range dimensions and can assign deaths to the wrong year.
+      arr <- aperm(array(full, dim = c(R, Y, D)), c(3, 2, 1))
+
+      # Attributable deaths partition the daily total, so they cannot exceed
+      # annual all-cause deaths for any draw/year before geographic pooling.
+      annual_deaths <- dem_group[agegroup == ag][match(years, year), death]
+      death_matrix <- matrix(annual_deaths, nrow = D, ncol = Y, byrow = TRUE)
+      attributed_total <- apply(arr, c(1, 2), sum)
+      relative_excess <- pmax(attributed_total - death_matrix, 0) /
+        pmax(death_matrix, 1)
+      max_relative_excess <- max(relative_excess)
+      if (max_relative_excess > 1e-8) {
+        idx <- arrayInd(which.max(relative_excess), dim(relative_excess))
+        stop(sprintf(
+          paste0(
+            "City-level attribution exceeds all-cause deaths: city=%s, ",
+            "branch=%s, agegroup=%s, draw=%s, year=%s, attributed=%g, ",
+            "deaths=%g, relative excess=%g"
+          ),
+          city, branch, ag, draw_ids[idx[1, 1]], years[idx[1, 2]],
+          attributed_total[idx[1, 1], idx[1, 2]],
+          death_matrix[idx[1, 1], idx[1, 2]], max_relative_excess
+        ), call. = FALSE)
+      }
       for (gi in geo_idx) {
-        pool_group[, gi, bi, , ai, ] <- pool_group[, gi, bi, , ai, ] + arr
+        current <- array(
+          pool_group[, gi, bi, , ai, , drop = FALSE],
+          dim = c(D, Y, R)
+        )
+        pool_group[, gi, bi, , ai, ] <- current + arr
       }
 
       if (ag == "85+") {
@@ -267,7 +296,11 @@ for (ci in seq_along(selected_cities)) {
         ), by = year][order(year)]$share95
         arr95 <- sweep(arr, 2, share95, "*")
         for (gi in geo_idx) {
-          pool_95[, gi, bi, , ] <- pool_95[, gi, bi, , ] + arr95
+          current <- array(
+            pool_95[, gi, bi, , , drop = FALSE],
+            dim = c(D, Y, R)
+          )
+          pool_95[, gi, bi, , ] <- current + arr95
         }
       }
 
@@ -280,8 +313,12 @@ for (ci in seq_along(selected_cities)) {
           xi <- match(ages_ag[xx], ages)
           add <- arr[, yi, ] * weights[xx]
           for (gi in geo_idx) {
+            current <- array(
+              pool_single[, gi, bi, ei, xi, , drop = FALSE],
+              dim = c(D, R)
+            )
             pool_single[, gi, bi, ei, xi, ] <-
-              pool_single[, gi, bi, ei, xi, ] + add
+              current + array(add, dim = c(D, R))
           }
         }
       }
@@ -312,15 +349,21 @@ for (di in seq_len(D)) {
       temp <- pool_single[di, gi, bi, , , , drop = TRUE]
       temp_without <- pool_single[di, gi, 2L, , , , drop = TRUE]
       rest <- pool_death[gi, , ] - apply(temp_without, c(1, 2), sum)
-      rest_floor <- min(rest)
-      rest_scale <- max(pool_death[gi, , ], 1)
-      relative_roundoff <- max(0, -rest_floor / rest_scale)
+      relative_excess <- pmax(-rest, 0) / pmax(pool_death[gi, , ], 1)
+      relative_roundoff <- max(relative_excess)
       max_rest_relative_roundoff <- max(max_rest_relative_roundoff, relative_roundoff)
       if (relative_roundoff > 1e-8) {
+        idx <- arrayInd(which.max(relative_excess), dim(relative_excess))
         stop(sprintf(
-          "Attributable mortality exceeds all-cause mortality: min rest=%g, relative excess=%g",
-          rest_floor, relative_roundoff
-        ))
+          paste0(
+            "Attributable mortality exceeds all-cause mortality: draw=%s, ",
+            "geography=%s, year=%s, age=%s, rest=%g, deaths=%g, ",
+            "relative excess=%g"
+          ),
+          draw_ids[di], geographies[gi], endpoint_years[idx[1, 1]],
+          ages[idx[1, 2]], rest[idx[1, 1], idx[1, 2]],
+          pool_death[gi, idx[1, 1], idx[1, 2]], relative_roundoff
+        ), call. = FALSE)
       }
       rest <- pmax(rest, 0)
       make_period <- function(indices) {
@@ -382,7 +425,11 @@ k <- 0L
 for (gi in seq_len(G)) {
   for (si in 1:2) {
     k <- k + 1L
-    source <- if (si == 1L) pool_group[, gi, , , 3L, , drop = TRUE] else pool_95[, gi, , , , drop = TRUE]
+    source <- if (si == 1L) {
+      array(pool_group[, gi, , , 3L, , drop = FALSE], dim = c(D, B, Y, R))
+    } else {
+      array(pool_95[, gi, , , , drop = FALSE], dim = c(D, B, Y, R))
+    }
     denom <- pool_pop_scope[gi, , si + 1L]
     with <- apply(source[, 1L, , , drop = FALSE], c(1, 3), sum)
     without <- apply(source[, 2L, , , drop = FALSE], c(1, 3), sum)
