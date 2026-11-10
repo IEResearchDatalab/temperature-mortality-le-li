@@ -228,11 +228,15 @@ city_results <- list()
 #----- Calibrated series (Masselot 2025): "full" = with climate change,
 # "demo" = recalibrated without additional warming
 
+# A longer threshold sensitivity needs model years before 2000. They are
+# calibrated with the same 2000-2014 observed/model reference distribution;
+# the canonical 15-year setting still starts at 2000 and is unchanged.
+calibration_start <- min(histrange[1], min(future_years) - 5L - ext_window)
 cal_src <- rbind(
-  tmean_all[ssp == "hist" & year %between% histrange],
+  tmean_all[ssp == "hist" & year %between% c(calibration_start, histrange[2])],
   tmean_all[ssp == ssp_name & year >= min(projrange)]
 )
-cal_src[, calperiod := cut(year, c(histrange[1], projrange), right = FALSE)]
+cal_src[, calperiod := cut(year, c(calibration_start, projrange), right = FALSE)]
 if (anyNA(cal_src$calperiod)) stop("Temperature years fall outside the calibration periods.", call. = FALSE)
 cal_src[, full := {
   m <- .BY$month
@@ -281,7 +285,10 @@ moving_thresholds <- rbindlist(lapply(moving_years, function(target_year) {
   )
 }))
 if (any(moving_thresholds$n_years != ext_window) || any(moving_thresholds$n_days != ext_window * 365L)) {
-  stop("A moving P97.5 window is incomplete; expected 15 complete 365-day years.", call. = FALSE)
+  stop(sprintf(
+    "A moving heat-threshold window is incomplete; expected %d complete 365-day years.",
+    ext_window
+  ), call. = FALSE)
 }
 moving_thresholds[, `:=`(
   static_p97_5 = static_p97,
@@ -453,7 +460,8 @@ checks <- data.table(
     if (all(fixture$max_rel_error <= fixture_tolerance)) "PASS" else "FAIL",
     if (counterfactual != "masselot_demo" || max_demo_drift <= 0.25) "PASS" else "FAIL",
     if (all(moving_thresholds$n_years == ext_window) && all(moving_thresholds$n_days == ext_window * 365L)) "PASS" else "FAIL",
-    if (length(moving_2015_diff) == 1L && moving_2015_diff <= moving_match_tol) "PASS" else "FAIL",
+    if (ext_window != 15L ||
+        (length(moving_2015_diff) == 1L && moving_2015_diff <= moving_match_tol)) "PASS" else "FAIL",
     if (sum(grouped[branch == "without_cc" & range == "NormExtrHeat", an]) == 0) "PASS" else "FAIL",
     "PASS"
   ),
@@ -483,7 +491,8 @@ checks <- data.table(
     sprintf("<= %g vs published heat/cold excess (Masselot 2023)", fixture_tolerance),
     "<= 0.25 C decadal drift in the without-CC series",
     sprintf("every window has %d years and %d days", ext_window, ext_window * 365L),
-    sprintf("absolute difference <= %g C", moving_match_tol),
+    if (ext_window == 15L) sprintf("absolute difference <= %g C", moving_match_tol) else
+      "informational for non-canonical trailing-window sensitivity",
     "exactly zero attributable deaths",
     "informational count; moving P97.5 is clamped to static P97.5"
   )
