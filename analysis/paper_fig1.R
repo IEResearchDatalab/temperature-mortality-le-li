@@ -25,7 +25,7 @@ range_colours <- c(ExtrCold = "#24558A", ModCold = "#86BCE2",
                    ModHeat = "#F3C623", NormExtrHeat = "#F06B18", ExtrHeat = "#AD1A2B")
 stack_order <- c("ModCold", "ExtrCold", "ModHeat", "NormExtrHeat", "ExtrHeat")
 ssp_labels <- c(`1` = "SSP1–2.6", `2` = "SSP2–4.5", `3` = "SSP3–7.0")
-period_labels <- c(`2055` = "2055–59", `2095` = "2095–99")
+period_labels <- c(`2020` = "2020–24", `2055` = "2055–59", `2095` = "2095–99")
 source_bands <- c("65--69", "70--74", "75--79", "80--84",
                   "85--89", "90--94", "95--99", "100+")
 age_levels <- c("65–69", "70–74", "75–79", "80–84", "85–89", "90–94", "95+")
@@ -34,7 +34,13 @@ age_map <- data.table(
   age_band = c(age_levels[1:6], "95+", "95+"),
   agegroup = c(rep("65-74", 2), rep("75-84", 2), rep("85+", 4))
 )
-starts <- c(2055L, 2095L)
+starts <- c(2020L, 2055L, 2095L)
+figure_years <- unlist(lapply(starts, function(start) start:(start + 4L)), use.names = FALSE)
+period_start <- function(year) {
+  ans <- rep(NA_integer_, length(year))
+  for (start in starts) ans[year %in% start:(start + 4L)] <- start
+  ans
+}
 
 needed <- c("data/city_results.csv", "data/wittgenstein_pop.csv", "data/wittgenstein_assr.csv")
 if (any(!file.exists(needed))) stop("Missing input: ", paste(needed[!file.exists(needed)], collapse = ", "))
@@ -96,10 +102,10 @@ read_city <- function(ssp, city) {
   path <- file.path(batch_root, paste0("ssp", ssp), city, "ENSEMBLE", "01_attribution_grouped.csv")
   if (!file.exists(path)) stop("Missing attribution file: ", path)
   x <- fread(path)[
-    year %in% c(2055:2059, 2095:2099) & branch %chin% c("with_cc", "without_cc") & range %chin% ranges,
+    year %in% figure_years & branch %chin% c("with_cc", "without_cc") & range %chin% ranges,
     .(an = sum(an)),
     by = .(city = geo_id, branch, agegroup, range,
-           year_start = fifelse(year <= 2059L, 2055L, 2095L))]
+           year_start = period_start(year))]
   x[, ssp := as.integer(ssp)]
   x
 }
@@ -110,7 +116,7 @@ attribution <- rbindlist(lapply(ssp_set, function(s) {
   if (length(cities) != 854L) stop("Expected 854 ensemble city files for SSP", s, ".")
   rbindlist(lapply(cities, function(city) read_city(s, city)))
 }))
-expected <- length(ssp_set) * 854L * 2L * 3L * 5L * 2L
+expected <- length(ssp_set) * 854L * 2L * 3L * 5L * length(starts)
 if (nrow(attribution) != expected || any(!is.finite(attribution$an))) stop("Incomplete attribution domain.")
 
 allocated <- merge(attribution, weights, by = c("city", "ssp", "year_start", "agegroup"),
@@ -161,8 +167,8 @@ master_checks <- rbindlist(lapply(seq_len(nrow(specs)), function(i) {
   rbindlist(lapply(ssp_set, function(s) {
     path <- file.path(batch_root, "geographies", paste0("ssp", s), spec$level, spec$id,
                       "03_master_table.csv")
-    x <- fread(path)[year %in% c(2055:2059, 2095:2099) & range %chin% ranges,
-      .(master_an = sum(an)), by = .(ssp, branch, year_start = fifelse(year <= 2059L, 2055L, 2095L))]
+    x <- fread(path)[year %in% figure_years & range %chin% ranges,
+      .(master_an = sum(an)), by = .(ssp, branch, year_start = period_start(year))]
     y <- plot_data[geo_id == spec$id & ssp == s, .(figure_an = sum(band_an)),
                    by = .(ssp, branch, year_start)]
     merge(x, y, by = c("ssp", "branch", "year_start"))[
@@ -219,8 +225,10 @@ fwrite(pooling_example, file.path(figure_root, "data", "figure1_pooling_example.
 
 footnote <- paste(
   "Absolute risk is the annual probability of a temperature-attributable death among people alive at the start of the year, by 5-year age group; deaths at all non-optimal temperatures are included, not only those attributable to climate change.",
-  "Historical 2.5th and 97.5th percentiles (P2.5, P97.5): ERA5-Land, 2000–2014. Projected P97.5: the historical P97.5 plus the change in the calibrated GCM P97.5 over the 15 preceding years.",
-  "Without climate change, the normal extreme band is empty or nearly so. 95+ includes 100+. For SSP1, Wittgenstein survival ratios stored as exactly 1 were set to 0.9995. Central estimates, mean of 19 GCMs; no uncertainty intervals.",
+  "Heat ranges: moderate = MMT to historical (2000–2014) P97.5; normal extreme = historical to projected P97.5; extreme = above projected P97.5.",
+  "Cold ranges: extreme = below historical P2.5; moderate = historical P2.5 to MMT. Pale bars use the same colours as the upper bars.",
+  "Projected P97.5 is the historical P97.5 plus the change in the calibrated GCM P97.5 over the 15 preceding years. Without climate change, the normal extreme band is empty or nearly so.",
+  "95+ includes 100+. For SSP1, Wittgenstein survival ratios stored as exactly 1 were set to 0.9995. Central estimates, mean of 19 GCMs; no uncertainty intervals.",
   sep = "\n")
 
 make_plot <- function(d) {
@@ -231,6 +239,10 @@ make_plot <- function(d) {
     scenario = factor(ssp_labels[as.character(ssp)], levels = ssp_labels[as.character(ssp_set)]),
     period = factor(period_labels[as.character(year_start)], levels = period_labels),
     range_stack = factor(range, levels = stack_order),
+    legend_key = factor(
+      paste(branch, range, sep = ":"),
+      levels = c(paste("with_cc", ranges, sep = ":"),
+                 paste("without_cc", ranges, sep = ":"))),
     direction = fifelse(range %chin% c("ExtrCold", "ModCold"), "cold", "heat"),
     y = as.numeric(factor(age_band, levels = age_levels)) + fifelse(branch == "with_cc", 0.16, -0.16))]
   setorder(d, scenario, period, branch, age_band, direction, range_stack)
@@ -247,9 +259,16 @@ make_plot <- function(d) {
   sides <- unique(d[, .(scenario, period)])
   sides <- rbind(sides[, .(scenario, period, x = -0.55 * half_width, y = 7.65, text = "Cold")],
                  sides[, .(scenario, period, x = 0.55 * half_width, y = 7.65, text = "Heat")])
+  legend_values <- c(
+    setNames(range_colours[ranges], paste("with_cc", ranges, sep = ":")),
+    setNames(grDevices::adjustcolor(range_colours[ranges], alpha.f = 0.32),
+             paste("without_cc", ranges, sep = ":")))
+  legend_labels <- c(
+    paste0(range_labels[ranges], " (with climate change)"),
+    paste0(range_labels[ranges], " (without climate change)"))
   p <- ggplot(d) +
     geom_rect(aes(xmin = xmin, xmax = xmax, ymin = y - 0.135, ymax = y + 0.135,
-                  fill = range_stack, alpha = branch), colour = NA) +
+                  fill = legend_key), colour = NA) +
     geom_vline(xintercept = 0, linewidth = 0.35, colour = "#333333") +
     geom_text(data = bar_labels, aes(x, y, label = text), inherit.aes = FALSE,
               hjust = 0, size = 2.15, colour = "#333333") +
@@ -265,14 +284,11 @@ make_plot <- function(d) {
       labels = function(z) format(abs(z), big.mark = ",", trim = TRUE), expand = expansion(mult = 0)) +
     scale_y_continuous(breaks = seq_along(age_levels), labels = age_levels,
                        limits = c(0.6, 7.9), expand = expansion(mult = 0)) +
-    scale_fill_manual(values = range_colours, labels = range_labels,
-                      breaks = ranges, drop = FALSE, name = NULL) +
-    scale_alpha_manual(values = c(with_cc = 1, without_cc = 0.32),
-      breaks = c("with_cc", "without_cc"),
-      labels = c("With climate change", "Without climate change"), name = NULL) +
-    guides(fill = guide_legend(order = 1, nrow = 1),
-           alpha = guide_legend(order = 2, override.aes = list(fill = "#555555"))) +
+    scale_fill_manual(values = legend_values, labels = legend_labels,
+                      breaks = names(legend_values), drop = FALSE, name = NULL) +
+    guides(fill = guide_legend(nrow = 2, byrow = TRUE)) +
     labs(title = paste0(label, ": absolute risk of temperature-attributable death by age and temperature range"),
+      subtitle = "Each age group: upper bar with climate change, lower (pale) bar without; 5-year period means.",
       x = "Annual risk of temperature-attributable death per 100,000 people (cold to the left; heat to the right)",
       y = "Age group", caption = footnote) +
     theme_minimal(base_size = 10.5) +
@@ -281,6 +297,7 @@ make_plot <- function(d) {
       strip.text = element_text(face = "bold", colour = "black"),
       strip.text.y.left = element_text(angle = 0, hjust = 1),
       plot.title = element_text(face = "bold", size = 15),
+      plot.subtitle = element_text(colour = "#555555"),
       plot.caption = element_text(size = 7.8, hjust = 0),
       legend.position = "bottom", legend.box = "vertical",
       panel.spacing = unit(0.75, "lines"))

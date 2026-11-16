@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Rerun only Part 01 for a moving-window / heat-percentile sensitivity. The
+# Rerun only Part 01 for a moving-window / threshold-percentile sensitivity. The
 # canonical demographic outputs are read only. Usage:
-#   analysis/run_threshold_sensitivity.sh LABEL HEAT_PROB WINDOW_YEARS [NCORES]
+#   analysis/run_threshold_sensitivity.sh LABEL HEAT_PROB WINDOW_YEARS [NCORES] [COLD_PROB]
+# Example for the paired P95/P5 sensitivity requested for the supplement:
+#   analysis/run_threshold_sensitivity.sh trailing15_p95_p05 0.95 15 28 0.05
 
 label=${1:?label}
 heat_prob=${2:?heat percentile as probability, e.g. 0.95}
 window_years=${3:?trailing window years}
 ncores=${4:-28}
+cold_prob=${5:-0.025}
 canonical=${CANONICAL_ROOT:-results/europe/heatsplit_20261013}
 root=${THRESHOLD_ROOT:-results/europe/threshold_sensitivities_20261104}/${label}
 
@@ -17,6 +20,7 @@ root=${THRESHOLD_ROOT:-results/europe/threshold_sensitivities_20261104}/${label}
 mkdir -p "$root/shared/checks" "$root/logs"
 
 export EXTREME_HEAT_PROB=$heat_prob
+export EXTREME_COLD_PROB=$cold_prob
 export EXTREME_WINDOW_YEARS=$window_years
 export PREP_DATA_FILE="$root/shared/prep_data.RData"
 
@@ -51,11 +55,12 @@ run_threshold_job() {
       OUT_DIR="$out" CHECK_DIR="$out/checks" \
       DEMOG_DIR="$canonical/ssp${ssp}/${city}/demography" \
       PREP_DATA_FILE="$PREP_DATA_FILE" \
+      EXTREME_COLD_PROB="$EXTREME_COLD_PROB" \
       EXTREME_HEAT_PROB="$EXTREME_HEAT_PROB" \
       EXTREME_WINDOW_YEARS="$EXTREME_WINDOW_YEARS" \
       Rscript pipeline/01_attribution.R > "$out/run.log" 2>&1; then
-    printf 'label=%s\nheat_prob=%s\nwindow_years=%s\nfinished=%s\n' \
-      "$label" "$EXTREME_HEAT_PROB" "$EXTREME_WINDOW_YEARS" "$(date -Iseconds)" \
+    printf 'label=%s\ncold_prob=%s\nheat_prob=%s\nwindow_years=%s\nfinished=%s\n' \
+      "$label" "$EXTREME_COLD_PROB" "$EXTREME_HEAT_PROB" "$EXTREME_WINDOW_YEARS" "$(date -Iseconds)" \
       > "$done_file"
   else
     printf '%s\t%s\t%s\n' "$ssp" "$city" "$gcm" >> "$root/failed.tsv"
@@ -63,7 +68,7 @@ run_threshold_job() {
   fi
 }
 export -f run_threshold_job
-export label root canonical PREP_DATA_FILE EXTREME_HEAT_PROB EXTREME_WINDOW_YEARS
+export label root canonical PREP_DATA_FILE EXTREME_COLD_PROB EXTREME_HEAT_PROB EXTREME_WINDOW_YEARS
 
 echo "$(date '+%F %T') running $(wc -l < "$jobs") Part 01 jobs with $ncores workers"
 set +e
@@ -73,8 +78,8 @@ set -e
 
 done_count=$(find "$root" -name .done_attribution -type f | wc -l)
 job_count=$(wc -l < "$jobs")
-printf 'label=%s\nheat_prob=%s\nwindow_years=%s\njobs=%s\ncompleted=%s\ngit_commit=%s\n' \
-  "$label" "$heat_prob" "$window_years" "$job_count" "$done_count" "$(git rev-parse HEAD)" \
+printf 'label=%s\ncold_prob=%s\nheat_prob=%s\nwindow_years=%s\njobs=%s\ncompleted=%s\ngit_commit=%s\n' \
+  "$label" "$cold_prob" "$heat_prob" "$window_years" "$job_count" "$done_count" "$(git rev-parse HEAD)" \
   > "$root/run_manifest.txt"
 if [ "$status" -ne 0 ] || [ "$done_count" -ne "$job_count" ]; then
   echo "threshold run incomplete: $done_count/$job_count" >&2
