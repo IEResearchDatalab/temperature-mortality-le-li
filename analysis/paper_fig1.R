@@ -304,7 +304,7 @@ make_plot <- function(d) {
       plot.subtitle = element_text(colour = "#555555"),
       plot.caption = element_text(size = 7.8, hjust = 0),
       legend.position = "bottom", legend.box = "vertical",
-      panel.spacing = unit(0.75, "lines"))
+      panel.spacing.x = unit(2, "lines"), panel.spacing.y = unit(0.75, "lines"))
   list(plot = p, half_width = half_width)
 }
 
