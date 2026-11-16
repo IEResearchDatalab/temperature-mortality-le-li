@@ -268,8 +268,8 @@ make_plot <- function(d) {
     setNames(grDevices::adjustcolor(range_colours[ranges], alpha.f = 0.32),
              paste("without_cc", ranges, sep = ":")))
   legend_labels <- c(
-    paste0(range_labels[ranges], " (with climate change)"),
-    paste0(range_labels[ranges], " (without climate change)"))
+    paste0(range_labels[ranges], " (with CC)"),
+    paste0(range_labels[ranges], " (without CC)"))
   p <- ggplot(d) +
     geom_rect(aes(xmin = xmin, xmax = xmax, ymin = y - 0.135, ymax = y + 0.135,
                   fill = legend_key), colour = NA) +
@@ -309,6 +309,7 @@ make_plot <- function(d) {
 }
 
 message("[Figure 1] Rendering figures...")
+figure_width <- 5 + 4.5 * length(starts)
 for (i in seq_len(nrow(specs))) {
   spec <- specs[i]
   d <- plot_data[geo_id == spec$id]
@@ -316,8 +317,8 @@ for (i in seq_len(nrow(specs))) {
   out <- file.path(figure_root, spec$level, spec$id)
   dir.create(out, recursive = TRUE, showWarnings = FALSE)
   stem <- file.path(out, "figure1_absolute_risk")
-  ggsave(paste0(stem, ".png"), built$plot, width = 14, height = 14, units = "in", dpi = 300)
-  ggsave(paste0(stem, ".pdf"), built$plot, width = 14, height = 14, units = "in", device = cairo_pdf)
+  ggsave(paste0(stem, ".png"), built$plot, width = figure_width, height = 14, units = "in", dpi = 300)
+  ggsave(paste0(stem, ".pdf"), built$plot, width = figure_width, height = 14, units = "in", device = cairo_pdf)
   d[, `:=`(scenario = ssp_labels[as.character(ssp)], period = period_labels[as.character(year_start)])]
   fwrite(d, paste0(stem, "_data.csv"))
   cat(sprintf("%s shared horizontal half-width: %.6f\n", spec$label, built$half_width))
