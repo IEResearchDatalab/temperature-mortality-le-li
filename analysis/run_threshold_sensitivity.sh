@@ -14,6 +14,7 @@ ncores=${4:-28}
 cold_prob=${5:-0.025}
 canonical=${CANONICAL_ROOT:-results/europe/heatsplit_20261013}
 root=${THRESHOLD_ROOT:-results/europe/threshold_sensitivities_20261104}/${label}
+pipeline_01=${PIPELINE_01_SCRIPT:-pipeline/01_attribution.R}
 
 [[ "$label" =~ ^[a-z0-9_]+$ ]] || { echo "invalid label"; exit 2; }
 [[ "$ncores" =~ ^[1-9][0-9]*$ ]] || { echo "invalid core count"; exit 2; }
@@ -58,7 +59,7 @@ run_threshold_job() {
       EXTREME_COLD_PROB="$EXTREME_COLD_PROB" \
       EXTREME_HEAT_PROB="$EXTREME_HEAT_PROB" \
       EXTREME_WINDOW_YEARS="$EXTREME_WINDOW_YEARS" \
-      Rscript pipeline/01_attribution.R > "$out/run.log" 2>&1; then
+      Rscript "$pipeline_01" > "$out/run.log" 2>&1; then
     printf 'label=%s\ncold_prob=%s\nheat_prob=%s\nwindow_years=%s\nfinished=%s\n' \
       "$label" "$EXTREME_COLD_PROB" "$EXTREME_HEAT_PROB" "$EXTREME_WINDOW_YEARS" "$(date -Iseconds)" \
       > "$done_file"
@@ -68,7 +69,7 @@ run_threshold_job() {
   fi
 }
 export -f run_threshold_job
-export label root canonical PREP_DATA_FILE EXTREME_COLD_PROB EXTREME_HEAT_PROB EXTREME_WINDOW_YEARS
+export label root canonical pipeline_01 PREP_DATA_FILE EXTREME_COLD_PROB EXTREME_HEAT_PROB EXTREME_WINDOW_YEARS
 
 echo "$(date '+%F %T') running $(wc -l < "$jobs") Part 01 jobs with $ncores workers"
 set +e
@@ -78,8 +79,9 @@ set -e
 
 done_count=$(find "$root" -name .done_attribution -type f | wc -l)
 job_count=$(wc -l < "$jobs")
-printf 'label=%s\ncold_prob=%s\nheat_prob=%s\nwindow_years=%s\njobs=%s\ncompleted=%s\ngit_commit=%s\n' \
-  "$label" "$cold_prob" "$heat_prob" "$window_years" "$job_count" "$done_count" "$(git rev-parse HEAD)" \
+pipeline_commit=$(git -C "$(dirname "$pipeline_01")/.." rev-parse HEAD 2>/dev/null || git rev-parse HEAD)
+printf 'label=%s\ncold_prob=%s\nheat_prob=%s\nwindow_years=%s\njobs=%s\ncompleted=%s\npipeline_commit=%s\n' \
+  "$label" "$cold_prob" "$heat_prob" "$window_years" "$job_count" "$done_count" "$pipeline_commit" \
   > "$root/run_manifest.txt"
 if [ "$status" -ne 0 ] || [ "$done_count" -ne "$job_count" ]; then
   echo "threshold run incomplete: $done_count/$job_count" >&2

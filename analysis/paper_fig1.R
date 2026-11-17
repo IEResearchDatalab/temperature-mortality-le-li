@@ -4,6 +4,7 @@
 suppressPackageStartupMessages({
   library(data.table)
   library(ggplot2)
+  library(patchwork)
 })
 
 batch_root <- Sys.getenv("BATCH_ROOT", "results/europe/heatsplit_20261013")
@@ -252,17 +253,20 @@ make_plot <- function(d) {
   setorder(d, scenario, period, branch, age_band, direction, range_stack)
   d[, `:=`(stack_end = cumsum(risk), stack_start = cumsum(risk) - risk),
     by = .(scenario, period, branch, age_band, direction)]
-  d[direction == "heat", `:=`(xmin = stack_start, xmax = stack_end)]
-  d[direction == "cold", `:=`(xmin = -stack_end, xmax = -stack_start)]
-  half_width <- max(abs(c(d$xmin, d$xmax))) * 1.10
-  left_period <- levels(d$period)[1]
-  bar_labels <- unique(d[period == left_period & age_band == "95+",
-                         .(scenario, period, branch, y)])
-  bar_labels[, `:=`(x = -0.98 * half_width,
-                    text = fifelse(branch == "with_cc", "with climate change", "without climate change"))]
-  sides <- unique(d[, .(scenario, period)])
-  sides <- rbind(sides[, .(scenario, period, x = -0.55 * half_width, y = 7.65, text = "Cold")],
-                 sides[, .(scenario, period, x = 0.55 * half_width, y = 7.65, text = "Heat")])
+
+  # Give cold and heat equal visual width while allowing different numeric
+  # scales. Simon's requested Europe scales are 0–2,000 for cold and 0–500,
+  # 0–1,000 and 0–1,500 for heat. Regional supplements expand only when
+  # required to avoid clipping.
+  requested_heat_limits <- c(`2020` = 500, `2055` = 1000, `2095` = 1500)
+  round_up_500 <- function(x) 500 * ceiling(x / 500)
+  cold_limit <- max(2000, round_up_500(d[direction == "cold", max(stack_end)]))
+  required_heat <- d[direction == "heat", .(required = max(stack_end)), by = year_start]
+  heat_limits <- requested_heat_limits
+  heat_limits[as.character(required_heat$year_start)] <- pmax(
+    heat_limits[as.character(required_heat$year_start)],
+    vapply(required_heat$required, round_up_500, numeric(1)))
+
   legend_values <- c(
     setNames(range_colours[ranges], paste("with_cc", ranges, sep = ":")),
     setNames(grDevices::adjustcolor(range_colours[ranges], alpha.f = 0.32),
@@ -270,42 +274,94 @@ make_plot <- function(d) {
   legend_labels <- c(
     paste0(range_labels[ranges], " (with CC)"),
     paste0(range_labels[ranges], " (without CC)"))
-  p <- ggplot(d) +
-    geom_rect(aes(xmin = xmin, xmax = xmax, ymin = y - 0.135, ymax = y + 0.135,
-                  fill = legend_key), colour = NA) +
-    geom_vline(xintercept = 0, linewidth = 0.35, colour = "#333333") +
-    geom_text(data = bar_labels, aes(x, y, label = text), inherit.aes = FALSE,
-              hjust = 0, size = 2.15, colour = "#333333") +
-    geom_text(data = sides, aes(x, y, label = text), inherit.aes = FALSE,
-              fontface = "bold", size = 2.8, colour = "#333333") +
-    facet_grid(scenario ~ period, scales = "fixed", switch = "y") +
-    scale_x_continuous(limits = c(-half_width, half_width),
-      breaks = function(lim) {
-        step <- if (max(abs(lim)) > 1500) 500 else 250
-        m <- floor(max(abs(lim)) / step) * step
-        seq(-m, m, by = step)
-      },
-      labels = function(z) format(abs(z), big.mark = ",", trim = TRUE), expand = expansion(mult = 0)) +
-    scale_y_continuous(breaks = seq_along(age_levels), labels = age_levels,
-                       limits = c(0.6, 7.9), expand = expansion(mult = 0)) +
-    scale_fill_manual(values = legend_values, labels = legend_labels,
-                      breaks = names(legend_values), drop = FALSE, name = NULL) +
-    guides(fill = guide_legend(nrow = 2, byrow = TRUE)) +
-    labs(title = paste0(label, ": absolute risk of temperature-attributable death by age and temperature range"),
+
+  make_period_panel <- function(period_start, panel_index) {
+    pd <- copy(d[year_start == period_start])
+    heat_limit <- unname(heat_limits[as.character(period_start)])
+    heat_factor <- cold_limit / heat_limit
+    pd[direction == "heat", `:=`(
+      xmin = stack_start * heat_factor,
+      xmax = stack_end * heat_factor)]
+    pd[direction == "cold", `:=`(
+      xmin = -stack_end,
+      xmax = -stack_start)]
+
+    bar_labels <- if (panel_index == 1L) {
+      unique(pd[age_band == "95+", .(scenario, branch, y)])[
+        , `:=`(x = -0.98 * cold_limit,
+               text = fifelse(branch == "with_cc", "with climate change", "without climate change"))]
+    } else {
+      data.table(scenario = factor(), branch = character(), y = numeric(), x = numeric(), text = character())
+    }
+    sides <- unique(pd[, .(scenario)])
+    sides <- rbind(
+      sides[, .(scenario, x = -0.55 * cold_limit, y = 7.65, text = "Cold")],
+      sides[, .(scenario, x = 0.55 * cold_limit, y = 7.65, text = "Heat")])
+
+    heat_step <- if (heat_limit <= 500) 250 else 500
+    cold_ticks <- seq(-cold_limit, 0, by = 500)
+    heat_ticks <- seq(heat_step, heat_limit, by = heat_step)
+    axis_breaks <- c(cold_ticks, heat_ticks * heat_factor)
+    axis_labels <- format(c(abs(cold_ticks), heat_ticks), big.mark = ",", trim = TRUE)
+
+    p <- ggplot(pd) +
+      geom_rect(aes(xmin = xmin, xmax = xmax, ymin = y - 0.135, ymax = y + 0.135,
+                    fill = legend_key), colour = NA) +
+      geom_vline(xintercept = 0, linewidth = 0.35, colour = "#333333") +
+      geom_text(data = bar_labels, aes(x, y, label = text), inherit.aes = FALSE,
+                hjust = 0, size = 2.15, colour = "#333333") +
+      geom_text(data = sides, aes(x, y, label = text), inherit.aes = FALSE,
+                fontface = "bold", size = 2.8, colour = "#333333") +
+      facet_grid(scenario ~ ., switch = "y") +
+      scale_x_continuous(
+        limits = c(-cold_limit, cold_limit), breaks = axis_breaks, labels = axis_labels,
+        expand = expansion(mult = 0)) +
+      scale_y_continuous(
+        breaks = seq_along(age_levels), labels = age_levels,
+        limits = c(0.6, 7.9), expand = expansion(mult = 0)) +
+      scale_fill_manual(
+        values = legend_values, labels = legend_labels,
+        breaks = names(legend_values), drop = FALSE, name = NULL) +
+      guides(fill = guide_legend(nrow = 2, byrow = TRUE)) +
+      labs(
+        title = period_labels[as.character(period_start)],
+        x = if (panel_index == 2L)
+          "Annual risk of temperature-attributable death per 100,000 people (cold to the left; heat to the right)"
+          else NULL,
+        y = if (panel_index == 1L) "Age group" else NULL) +
+      theme_minimal(base_size = 10.5) +
+      theme(
+        panel.grid.major.y = element_blank(), panel.grid.minor = element_blank(),
+        strip.placement = "outside", strip.background = element_blank(),
+        strip.text = element_text(face = "bold", colour = "black"),
+        strip.text.y.left = if (panel_index == 1L)
+          element_text(angle = 0, hjust = 1) else element_blank(),
+        axis.text.y = if (panel_index == 1L) element_text() else element_blank(),
+        axis.ticks.y = if (panel_index == 1L) element_line() else element_blank(),
+        plot.title = element_text(face = "bold", hjust = 0.5, size = 11),
+        legend.position = "bottom", legend.box = "vertical",
+        panel.spacing.y = unit(0.75, "lines"))
+    p
+  }
+
+  panels <- lapply(seq_along(starts), function(i) make_period_panel(starts[i], i))
+  p <- wrap_plots(panels, nrow = 1, guides = "collect") +
+    plot_annotation(
+      title = paste0(label, ": absolute risk of temperature-attributable death by age and temperature range"),
       subtitle = "Each age group: upper bar with climate change, lower (pale) bar without; 5-year period means.",
-      x = "Annual risk of temperature-attributable death per 100,000 people (cold to the left; heat to the right)",
-      y = "Age group", caption = footnote) +
-    theme_minimal(base_size = 10.5) +
-    theme(panel.grid.major.y = element_blank(), panel.grid.minor = element_blank(),
-      strip.placement = "outside", strip.background = element_blank(),
-      strip.text = element_text(face = "bold", colour = "black"),
-      strip.text.y.left = element_text(angle = 0, hjust = 1),
-      plot.title = element_text(face = "bold", size = 15),
-      plot.subtitle = element_text(colour = "#555555"),
-      plot.caption = element_text(size = 7.8, hjust = 0),
-      legend.position = "bottom", legend.box = "vertical",
-      panel.spacing.x = unit(2, "lines"), panel.spacing.y = unit(0.75, "lines"))
-  list(plot = p, half_width = half_width)
+      caption = footnote,
+      theme = theme(
+        plot.title = element_text(face = "bold", size = 15),
+        plot.subtitle = element_text(colour = "#555555"),
+        plot.caption = element_text(size = 7.8, hjust = 0))) &
+    theme(legend.position = "bottom")
+
+  list(
+    plot = p,
+    scales = data.table(
+      period_start = starts,
+      cold_limit = cold_limit,
+      heat_limit = unname(heat_limits[as.character(starts)])))
 }
 
 message("[Figure 1] Rendering figures...")
@@ -321,7 +377,8 @@ for (i in seq_len(nrow(specs))) {
   ggsave(paste0(stem, ".pdf"), built$plot, width = figure_width, height = 14, units = "in", device = cairo_pdf)
   d[, `:=`(scenario = ssp_labels[as.character(ssp)], period = period_labels[as.character(year_start)])]
   fwrite(d, paste0(stem, "_data.csv"))
-  cat(sprintf("%s shared horizontal half-width: %.6f\n", spec$label, built$half_width))
+  cat(spec$label, " scales:\n", sep = "")
+  print(built$scales)
 }
 
 readme <- c(

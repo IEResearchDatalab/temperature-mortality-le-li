@@ -87,6 +87,7 @@ cannot overwrite or mix with the canonical outputs.
 Other behaviour:
 
 - Output goes to `results/europe/ssp<k>/<city>/{demography,<GCM>,ENSEMBLE}/`.
+- Part 01 writes `01_extreme_heat_days.csv`: annual days at or above the same age-independent moving threshold used to delimit extreme heat, plus the threshold and mean temperature. `analysis/summarize_extreme_heat_days.R` averages the requested five-year periods across cities and 19 GCMs for countries, regions and Europe.
 - Finished jobs leave a `.done` marker, so a run can be restarted and resumes. Failures are listed in `failed.txt`.
 - Result scripts under `analysis/` generate figures and manuscript summaries only after the pipeline is complete.
 - Horiuchi steps (`N_HORIUCHI`): `run_config.csv` and direct `Rscript` runs default to N = 400 and 5-year-period decompositions (`DECOMP_ANNUAL=0`). Set `DECOMP_ANNUAL=1` explicitly for annual decompositions. The runner's command-line N default remains 50 for diagnostics. On Madrid, N = 50 matches N = 400 to 6 decimals, but at N = 50 29 SSP1/SSP2 city ensembles missed the 1e-6 closure tolerance. Validated outputs therefore use N = 400. Valletta and pooled Malta in the earlier SSP1 sensitivity were rerun at N = 800. Canonical SSP1/SSP2 ran at N = 50.
