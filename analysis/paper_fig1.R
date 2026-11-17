@@ -11,6 +11,19 @@ batch_root <- Sys.getenv("BATCH_ROOT", "results/europe/heatsplit_20261013")
 figure_root <- Sys.getenv("FIGURE_ROOT", "results/figures_simon_20oct")
 geo_level <- tolower(Sys.getenv("GEO_LEVEL", "all"))
 geo_id_filter <- Sys.getenv("GEO_ID", "")
+extreme_cold_prob <- as.numeric(Sys.getenv("EXTREME_COLD_PROB", "0.025"))
+extreme_heat_prob <- as.numeric(Sys.getenv("EXTREME_HEAT_PROB", "0.975"))
+extreme_window_years <- as.integer(Sys.getenv("EXTREME_WINDOW_YEARS", "15"))
+figure_title_suffix <- trimws(Sys.getenv("FIGURE_TITLE_SUFFIX", ""))
+if (anyNA(c(extreme_cold_prob, extreme_heat_prob, extreme_window_years)) ||
+    extreme_cold_prob <= 0 || extreme_cold_prob >= 1 ||
+    extreme_heat_prob <= 0 || extreme_heat_prob >= 1 || extreme_window_years < 1L) {
+  stop("Invalid extreme-temperature threshold configuration.", call. = FALSE)
+}
+format_percentile <- function(prob) format(100 * prob, trim = TRUE, scientific = FALSE)
+cold_percentile <- format_percentile(extreme_cold_prob)
+heat_percentile <- format_percentile(extreme_heat_prob)
+title_suffix <- if (nzchar(figure_title_suffix)) paste0(" (", figure_title_suffix, ")") else ""
 ssp_set <- as.integer(strsplit(Sys.getenv("SSP_SET", "1,2,3"), ",", fixed = TRUE)[[1]])
 if (!length(ssp_set) || anyNA(ssp_set) || any(!ssp_set %in% 1:3))
   stop("SSP_SET must be a comma-separated subset of 1,2,3.", call. = FALSE)
@@ -230,9 +243,9 @@ fwrite(pooling_example, file.path(figure_root, "data", "figure1_pooling_example.
 
 footnote <- paste(
   "Absolute risk is the annual probability of a temperature-attributable death among people alive at the start of the year, by 5-year age group; deaths at all non-optimal temperatures are included, not only those attributable to climate change.",
-  "Heat ranges: moderate = MMT to historical (2000–2014) P97.5; normal extreme = historical to projected P97.5; extreme = above projected P97.5.",
-  "Cold ranges: extreme = below historical P2.5; moderate = historical P2.5 to MMT. Pale bars use the same colours as the upper bars.",
-  "Projected P97.5 is the historical P97.5 plus the change in the calibrated GCM P97.5 over the 15 preceding years. Without climate change, the normal extreme band is empty or nearly so.",
+  sprintf("Heat ranges: moderate = MMT to historical (2000–2014) P%s; normal extreme = historical to projected P%s; extreme = above projected P%s.", heat_percentile, heat_percentile, heat_percentile),
+  sprintf("Cold ranges: extreme = below historical P%s; moderate = historical P%s to MMT. Pale bars use the same colours as the upper bars.", cold_percentile, cold_percentile),
+  sprintf("Projected P%s is the historical P%s plus the change in the calibrated GCM P%s over the %d preceding years. Without climate change, the normal extreme band is empty or nearly so.", heat_percentile, heat_percentile, heat_percentile, extreme_window_years),
   "95+ includes 100+. For SSP1, Wittgenstein survival ratios stored as exactly 1 were set to 0.9995. Central estimates, mean of 19 GCMs; no uncertainty intervals.",
   sep = "\n")
 
@@ -352,7 +365,7 @@ make_plot <- function(d) {
   panels <- lapply(seq_along(starts), function(i) make_period_panel(starts[i], i))
   p <- wrap_plots(panels, nrow = 1, guides = "collect") +
     plot_annotation(
-      title = paste0(label, ": absolute risk of temperature-attributable death by age and temperature range"),
+      title = paste0(label, ": absolute risk of temperature-attributable death by age and temperature range", title_suffix),
       subtitle = "Each age group: upper bar with climate change, lower (pale) bar without; 5-year period means.",
       caption = footnote,
       theme = theme(
@@ -397,7 +410,8 @@ readme <- c(
   "", paste("SSP1–2.6 sets survival ratios stored as exactly 1 to 0.9995 as a sensitivity.",
             "SSP2–4.5 includes 12 Swiss cities with within-age-band mortality-shape warnings; the maximum decline is 11.09%."),
   "", "## Extreme-temperature thresholds", "",
-  paste("The early Europe Version A maximum is set by Benidorm (ES044C), Spain.",
+  paste(sprintf("This build uses historical P%s for extreme cold and historical/projected P%s for extreme heat, with a %d-year trailing window.", cold_percentile, heat_percentile, extreme_window_years),
+        "The early Europe Version A maximum is set by Benidorm (ES044C), Spain.",
         "Clamp counts and annual shares are reported in the threshold data CSV files and the run console output.",
         "The figure does not include a clamp strip."))
 writeLines(readme, file.path(figure_root, "README.md"), useBytes = TRUE)
