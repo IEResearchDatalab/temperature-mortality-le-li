@@ -8,6 +8,7 @@ suppressPackageStartupMessages({
 })
 
 batch_root <- Sys.getenv("BATCH_ROOT", "results/europe/heatsplit_20261013")
+attribution_root <- Sys.getenv("ATTRIBUTION_ROOT", batch_root)
 figure_root <- Sys.getenv("FIGURE_ROOT", "results/figures_simon_20oct")
 geo_level <- tolower(Sys.getenv("GEO_LEVEL", "all"))
 geo_id_filter <- Sys.getenv("GEO_ID", "")
@@ -113,7 +114,7 @@ if (max(abs(weight_sums - 1)) > 1e-12) stop("Band death weights do not sum to on
 
 message("[Figure 1] Reading 19-GCM ensemble attribution outputs...")
 read_city <- function(ssp, city) {
-  path <- file.path(batch_root, paste0("ssp", ssp), city, "ENSEMBLE", "01_attribution_grouped.csv")
+  path <- file.path(attribution_root, paste0("ssp", ssp), city, "ENSEMBLE", "01_attribution_grouped.csv")
   if (!file.exists(path)) stop("Missing attribution file: ", path)
   x <- fread(path)[
     year %in% figure_years & branch %chin% c("with_cc", "without_cc") & range %chin% ranges,
@@ -124,7 +125,7 @@ read_city <- function(ssp, city) {
   x
 }
 attribution <- rbindlist(lapply(ssp_set, function(s) {
-  root <- file.path(batch_root, paste0("ssp", s))
+  root <- file.path(attribution_root, paste0("ssp", s))
   cities <- sort(list.dirs(root, recursive = FALSE, full.names = FALSE))
   cities <- cities[file.exists(file.path(root, cities, "ENSEMBLE", "01_attribution_grouped.csv"))]
   if (length(cities) != 854L) stop("Expected 854 ensemble city files for SSP", s, ".")
