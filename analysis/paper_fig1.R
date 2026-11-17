@@ -340,7 +340,12 @@ make_plot <- function(d) {
         axis.ticks.y = if (panel_index == 1L) element_line() else element_blank(),
         plot.title = element_text(face = "bold", hjust = 0.5, size = 11),
         legend.position = "bottom", legend.box = "vertical",
-        panel.spacing.y = unit(0.75, "lines"))
+        panel.spacing.y = unit(0.75, "lines"),
+        plot.margin = margin(
+          5.5,
+          if (panel_index < length(starts)) 20 else 5.5,
+          5.5,
+          if (panel_index > 1L) 20 else 5.5))
     p
   }
 
