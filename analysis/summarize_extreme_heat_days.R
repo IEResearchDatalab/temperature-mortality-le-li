@@ -107,14 +107,14 @@ geography_gcm <- rbindlist(list(
     extreme_heat_threshold = mean(extreme_heat_threshold),
     mean_temperature = mean(mean_temperature),
     city_count = uniqueN(city)
-  ), by = .(ssp, branch, period, gcm, level = "country",
+  ), by = .(ssp, branch, period, gcm, level = rep("country", nrow(by_city_gcm_period)),
             geography_id = country, geography = country_name)],
   by_city_gcm_period[, .(
     extreme_heat_days = mean(extreme_heat_days),
     extreme_heat_threshold = mean(extreme_heat_threshold),
     mean_temperature = mean(mean_temperature),
     city_count = uniqueN(city)
-  ), by = .(ssp, branch, period, gcm, level = "region",
+  ), by = .(ssp, branch, period, gcm, level = rep("region", nrow(by_city_gcm_period)),
             geography_id = region, geography = paste(region, "Europe"))],
   by_city_gcm_period[, .(
     extreme_heat_days = mean(extreme_heat_days),
@@ -149,14 +149,14 @@ annual_geography_gcm <- rbindlist(list(
     extreme_heat_threshold = mean(extreme_heat_threshold),
     mean_temperature = mean(mean_temperature),
     city_count = uniqueN(city)
-  ), by = .(ssp, branch, year, gcm, level = "country",
+  ), by = .(ssp, branch, year, gcm, level = rep("country", nrow(by_city_gcm_period)),
             geography_id = country, geography = country_name)],
   by_city_gcm[, .(
     extreme_heat_days = mean(extreme_heat_days),
     extreme_heat_threshold = mean(extreme_heat_threshold),
     mean_temperature = mean(mean_temperature),
     city_count = uniqueN(city)
-  ), by = .(ssp, branch, year, gcm, level = "region",
+  ), by = .(ssp, branch, year, gcm, level = rep("region", nrow(by_city_gcm_period)),
             geography_id = region, geography = paste(region, "Europe"))],
   by_city_gcm[, .(
     extreme_heat_days = mean(extreme_heat_days),
