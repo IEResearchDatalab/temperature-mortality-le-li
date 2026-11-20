@@ -1,6 +1,8 @@
 #!/usr/bin/env Rscript
 
 # Figure 1: annual absolute risk by age and temperature range.
+source("analysis/output_names.R")
+
 suppressPackageStartupMessages({
   library(data.table)
   library(ggplot2)
@@ -292,13 +294,12 @@ for (i in seq_len(nrow(specs))) {
   spec <- specs[i]
   d <- plot_data[geo_id == spec$id]
   built <- make_plot(d)
-  out <- file.path(figure_root, spec$level, spec$id)
-  dir.create(out, recursive = TRUE, showWarnings = FALSE)
-  stem <- file.path(out, "figure1_absolute_risk")
-  ggsave(paste0(stem, ".png"), built$plot, width = 14, height = 14, units = "in", dpi = 300)
-  ggsave(paste0(stem, ".pdf"), built$plot, width = 14, height = 14, units = "in", device = cairo_pdf)
+  stem <- "figure01_absolute_risk"
+  fpath <- function(filename) figure_file(figure_root, filename, spec$id)
+  ggsave(fpath(paste0(stem, ".png")), built$plot, width = 14, height = 14, units = "in", dpi = 300)
+  ggsave(fpath(paste0(stem, ".pdf")), built$plot, width = 14, height = 14, units = "in", device = cairo_pdf)
   d[, `:=`(scenario = ssp_labels[as.character(ssp)], period = period_labels[as.character(year_start)])]
-  fwrite(d, paste0(stem, "_data.csv"))
+  fwrite(d, fpath(paste0(stem, "_data.csv")))
   cat(sprintf("%s shared horizontal half-width: %.6f\n", spec$label, built$half_width))
 }
 

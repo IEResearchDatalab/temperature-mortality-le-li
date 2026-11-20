@@ -6,15 +6,15 @@ suppressPackageStartupMessages({
   library(patchwork)
 })
 
+source("analysis/output_names.R")
 source("analysis/decade_decomposition.R")
 
 batch_root <- Sys.getenv("BATCH_ROOT", "results/europe/heatsplit_20261013")
 figure_root <- Sys.getenv("FIGURE_ROOT", "results/figures_simon_20oct")
 geo_level <- Sys.getenv("GEO_LEVEL", "europe")
 geo_id <- Sys.getenv("GEO_ID", "EUROPE")
-out_dir <- file.path(figure_root, geo_level, geo_id)
+fpath <- function(filename) figure_file(figure_root, filename, geo_id)
 data_dir <- file.path(figure_root, "data")
-dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 range_levels <- c("ExtrCold", "ModCold", "ModHeat", "NormExtrHeat", "ExtrHeat")
 range_labels <- c(
@@ -226,15 +226,15 @@ p <- (p_when | p_first | p_second) +
     )
   )
 
-stem <- file.path(out_dir, "figure2_le65_contributions")
-ggsave(paste0(stem, ".png"), p, width = 18, height = 11, units = "in", dpi = 300)
-ggsave(paste0(stem, ".pdf"), p, width = 18, height = 11, units = "in", device = cairo_pdf)
-fwrite(when, paste0(stem, "_panel_a_data.csv"))
-fwrite(first$data, paste0(stem, "_panel_b_data.csv"))
-fwrite(second$data, paste0(stem, "_panel_c_data.csv"))
-fwrite(net_check, paste0(stem, "_diamond_checks.csv"))
+stem <- "figure02_le65_contributions"
+ggsave(fpath(paste0(stem, ".png")), p, width = 18, height = 11, units = "in", dpi = 300)
+ggsave(fpath(paste0(stem, ".pdf")), p, width = 18, height = 11, units = "in", device = cairo_pdf)
+fwrite(when, fpath(paste0(stem, "_panel_a_data.csv")))
+fwrite(first$data, fpath(paste0(stem, "_panel_b_data.csv")))
+fwrite(second$data, fpath(paste0(stem, "_panel_c_data.csv")))
+fwrite(net_check, fpath(paste0(stem, "_diamond_checks.csv")))
 writeLines(
   "SSP2 includes 12 Swiss cities with within-age-band mortality-shape warnings. The maximum decline is 11.09%.",
-  paste0(stem, "_caveats.txt")
+  fpath(paste0(stem, "_caveats.txt"))
 )
-message("Saved Figure 2 to ", out_dir)
+message("Saved Figure 2 for ", geo_id, " under ", figure_root)
