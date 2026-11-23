@@ -1,5 +1,7 @@
 #!/usr/bin/env Rscript
 
+source("analysis/output_names.R")
+
 suppressPackageStartupMessages({
   library(data.table)
   library(ggplot2)
@@ -12,9 +14,8 @@ batch_root <- Sys.getenv("BATCH_ROOT", "results/europe/heatsplit_20261013")
 figure_root <- Sys.getenv("FIGURE_ROOT", "results/figures_simon_20oct")
 geo_level <- Sys.getenv("GEO_LEVEL", "europe")
 geo_id <- Sys.getenv("GEO_ID", "EUROPE")
-out_dir <- file.path(figure_root, geo_level, geo_id)
+fpath <- function(filename) figure_file(figure_root, filename, geo_id)
 data_dir <- file.path(figure_root, "data")
-dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(data_dir, recursive = TRUE, showWarnings = FALSE)
 
 range_levels <- c("ExtrCold", "ModCold", "ModHeat", "NormExtrHeat", "ExtrHeat")
@@ -449,12 +450,12 @@ p <- (wrap_elements(full = p_bars, clip = TRUE) |
     )
   )
 
-stem <- file.path(out_dir, "figure3_li65_contributions")
+stem <- "figure03_li65_contributions"
 # Keep the verified regional layouts stable across graphics devices. The
 # patchwork grobs have geography-specific intrinsic widths, so use the widths
 # established by the visual QA sweep rather than relying on device defaults.
-main_png <- paste0(stem, ".png")
-main_pdf <- paste0(stem, ".pdf")
+main_png <- fpath(paste0(stem, ".png"))
+main_pdf <- fpath(paste0(stem, ".pdf"))
 default_main_width <- if (geo_level == "region") {
   switch(geo_id, Eastern = 18, Northern = 18, Western = 19, 20)
 } else {
@@ -484,14 +485,14 @@ grid.raster(main_raster, width = unit(1, "npc"), height = unit(1, "npc"),
             interpolate = TRUE)
 dev.off()
 rm(main_raster)
-fwrite(bars, paste0(stem, "_bars_data.csv"))
-fwrite(net_labels, paste0(stem, "_net_crossover_data.csv"))
-fwrite(main_axis_checks, paste0(stem, "_axis_checks.csv"))
-fwrite(plane_main, paste0(stem, "_plane_data.csv"))
-fwrite(endpoint_check, paste0(stem, "_plane_endpoint_checks.csv"))
+fwrite(bars, fpath(paste0(stem, "_bars_data.csv")))
+fwrite(net_labels, fpath(paste0(stem, "_net_crossover_data.csv")))
+fwrite(main_axis_checks, fpath(paste0(stem, "_axis_checks.csv")))
+fwrite(plane_main, fpath(paste0(stem, "_plane_data.csv")))
+fwrite(endpoint_check, fpath(paste0(stem, "_plane_endpoint_checks.csv")))
 writeLines(
   "SSP2 includes 12 Swiss cities with within-age-band mortality-shape warnings. The maximum decline is 11.09%.",
-  paste0(stem, "_caveats.txt")
+  fpath(paste0(stem, "_caveats.txt"))
 )
 
 plane_steps <- copy(plane_source)
@@ -578,10 +579,10 @@ step_plot <- ggplot(plane_steps, aes(x, y, colour = cause_group,
   coord_cartesian(xlim = step_x_range, ylim = step_y_range, clip = "off") +
   plot_annotation(caption = step_plane_figure_caption) &
   theme(plot.caption = element_text(size = 7, hjust = 0))
-step_stem <- file.path(out_dir, "figure3_supplement_plane_steps")
-ggsave(paste0(step_stem, ".png"), step_plot, width = 10, height = 8, units = "in", dpi = 300)
-ggsave(paste0(step_stem, ".pdf"), step_plot, width = 10, height = 8, units = "in", device = cairo_pdf)
-fwrite(plane_steps, paste0(step_stem, "_data.csv"))
+step_stem <- "figure03_supplement_plane_steps"
+ggsave(fpath(paste0(step_stem, ".png")), step_plot, width = 10, height = 8, units = "in", dpi = 300)
+ggsave(fpath(paste0(step_stem, ".pdf")), step_plot, width = 10, height = 8, units = "in", device = cairo_pdf)
+fwrite(plane_steps, fpath(paste0(step_stem, "_data.csv")))
 
 five_range <- make_bars(range_levels, collapse = FALSE)
 five_net <- five_range[, .(value = sum(value)), by = .(ssp, ssp_label, age_band, age_index, interval)]
@@ -670,18 +671,18 @@ message(
   paste(format(five_limits, digits = 6), collapse = " to ")
 )
 print(five_axis_checks)
-five_stem <- file.path(out_dir, "figure3_supplement_five_ranges")
-ggsave(paste0(five_stem, ".png"), five_plot, width = 15, height = 9, units = "in", dpi = 300)
-ggsave(paste0(five_stem, ".pdf"), five_plot, width = 15, height = 9, units = "in", device = cairo_pdf)
-fwrite(five_range, paste0(five_stem, "_bars_data.csv"))
-fwrite(five_net, paste0(five_stem, "_net_data.csv"))
-fwrite(five_axis_checks, paste0(five_stem, "_axis_checks.csv"))
+five_stem <- "figure03_supplement_five_ranges"
+ggsave(fpath(paste0(five_stem, ".png")), five_plot, width = 15, height = 9, units = "in", dpi = 300)
+ggsave(fpath(paste0(five_stem, ".pdf")), five_plot, width = 15, height = 9, units = "in", device = cairo_pdf)
+fwrite(five_range, fpath(paste0(five_stem, "_bars_data.csv")))
+fwrite(five_net, fpath(paste0(five_stem, "_net_data.csv")))
+fwrite(five_axis_checks, fpath(paste0(five_stem, "_axis_checks.csv")))
 writeLines(
   "SSP2 includes 12 Swiss cities with within-age-band mortality-shape warnings. The maximum decline is 11.09%.",
-  paste0(five_stem, "_caveats.txt")
+  fpath(paste0(five_stem, "_caveats.txt"))
 )
 writeLines(
   "SSP2 includes 12 Swiss cities with within-age-band mortality-shape warnings. The maximum decline is 11.09%.",
-  paste0(step_stem, "_caveats.txt")
+  fpath(paste0(step_stem, "_caveats.txt"))
 )
-message("Saved Figure 3 and supplements to ", out_dir)
+message("Saved Figure 3 and supplements for ", geo_id, " under ", figure_root)

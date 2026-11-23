@@ -27,15 +27,15 @@ for f in object1_dataset.parquet object2_contributions.parquet object3_levels.pa
 done
 
 run_geo() {
-  local level=$1 id=$2 log out
+  local level=$1 id=$2 log geo
   log="$FIGURE_ROOT/logs/${level}_${id}.log"
-  out="$FIGURE_ROOT/$level/$id"
+  geo=$(printf '%s' "$id" | tr '[:upper:]' '[:lower:]')
   if [ "$RESUME_FIGURES" = "1" ] &&
-     [ -s "$out/figure2_le65_contributions.pdf" ] &&
-     [ -s "$out/figure2_le65_contributions_panel_c_data.csv" ] &&
-     [ -s "$out/figure3_li65_contributions.pdf" ] &&
-     [ -s "$out/figure3_supplement_five_ranges.pdf" ] &&
-     [ -s "$out/figure3_supplement_plane_steps.pdf" ]; then
+     [ -s "$FIGURE_ROOT/figures_pdf/figure02_le65_contributions_$geo.pdf" ] &&
+     [ -s "$FIGURE_ROOT/data/figure02_le65_contributions_panel_c_data_$geo.csv" ] &&
+     [ -s "$FIGURE_ROOT/figures_pdf/figure03_li65_contributions_$geo.pdf" ] &&
+     [ -s "$FIGURE_ROOT/figures_pdf/figure03_supplement_five_ranges_$geo.pdf" ] &&
+     [ -s "$FIGURE_ROOT/figures_pdf/figure03_supplement_plane_steps_$geo.pdf" ]; then
     echo "$(date '+%F %T') figures already complete: $level/$id"
     return
   fi
