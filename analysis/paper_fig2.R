@@ -1,5 +1,21 @@
 #!/usr/bin/env Rscript
 
+################################################################################
+# Figure 2: contributions to the gain in LE65 by age and temperature range.
+# Requires: first run pipeline Parts 00-04 for all SSPs and pool the requested
+# geography with Parts 03-04. For every SSP, read
+# <batch>/geographies/ssp<SSP>/<level>/<id>/03_master_table.csv and
+# 04_within_branch_period_decomposition.csv. The script sources
+# analysis/decade_decomposition.R, analysis/paper_helpers.R and
+# analysis/output_names.R automatically.
+# Produces: FIGURE_ROOT/{figures,figures_pdf,data}/figure02_* and decade checks.
+# How to run: BATCH_ROOT=results/europe/heatsplit_20261013 \
+#   FIGURE_ROOT=results/paper_output_new GEO_LEVEL=europe GEO_ID=EUROPE \
+#   SSP_SET=1,2,3 Rscript analysis/paper_fig2.R
+# Notes: SSP1 replacement and SSP1/SSP2 shape-check bypasses are exploratory;
+#   see the caveats in README.md.
+################################################################################
+
 suppressPackageStartupMessages({
   library(data.table)
   library(ggplot2)
@@ -8,6 +24,7 @@ suppressPackageStartupMessages({
 
 source("analysis/output_names.R")
 source("analysis/decade_decomposition.R")
+source("analysis/paper_helpers.R")
 
 batch_root <- Sys.getenv("BATCH_ROOT", "results/europe/heatsplit_20261013")
 figure_root <- Sys.getenv("FIGURE_ROOT", "results/figures_simon_20261123")
@@ -33,11 +50,6 @@ ssp_set <- as.integer(strsplit(Sys.getenv("SSP_SET", "1,2,3"), ",", fixed = TRUE
 if (!length(ssp_set) || anyNA(ssp_set) || any(!ssp_set %in% 1:3)) {
   stop("SSP_SET must be a comma-separated subset of 1,2,3.", call. = FALSE)
 }
-
-age_band <- function(age) {
-  fifelse(age >= 100L, "100+", sprintf("%d-%d", (age %/% 5L) * 5L, (age %/% 5L) * 5L + 4L))
-}
-period_start <- function(x) as.integer(substr(x, 1L, 4L))
 
 check_stack_order <- function() {
   test <- data.table(

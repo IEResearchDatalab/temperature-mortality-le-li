@@ -1,5 +1,18 @@
 #!/usr/bin/env Rscript
 
+################################################################################
+# Plot the historical and moving extreme-temperature thresholds.
+# Requires: data/city_results.csv and Part 01 checks at
+# <batch>/ssp<SSP>/<city>/<GCM>/checks/01_moving_heat_thresholds.csv
+# for all 854 cities, 19 GCMs and three SSPs.
+# Produces: threshold data CSVs, PNGs, PDFs and checks in EXTREME_OUTPUT_DIR.
+# How to run: BATCH_ROOT=results/europe/heatsplit_20261013 \
+#   EXTREME_OUTPUT_DIR=results/paper_output_new/extreme_temperature \
+#   Rscript analysis/extreme_temperature_thresholds.R
+# Notes: SSP1 replacement and SSP1/SSP2 shape-check bypasses are exploratory;
+#   see the caveats in README.md.
+################################################################################
+
 suppressPackageStartupMessages({
   library(data.table)
   library(ggplot2)

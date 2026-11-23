@@ -1,5 +1,18 @@
 #!/usr/bin/env Rscript
 
+################################################################################
+# Central supplementary results for the LE/LI paper.
+# Requires: pooled Part 03 and 04 CSVs under BATCH_ROOT/geographies/ssp*/ and
+# TABLE1_FILE (the table1_full.csv built by analysis/paper_table1.R).
+# Produces: CSVs, checks and README under CENTRAL_EXTRAS_ROOT.
+# How to run: BATCH_ROOT=results/europe/heatsplit_20261013 \
+#   TABLE1_FILE=results/paper_output_new/table1/table1_full.csv \
+#   CENTRAL_EXTRAS_ROOT=results/paper_output_new/central_extras \
+#   Rscript analysis/central_missing_results.R
+# Notes: SSP1 replacement and SSP1/SSP2 shape-check bypasses are exploratory;
+#   see the caveats in README.md.
+################################################################################
+
 # Missing central results requested for the LE/LI paper. This script is
 # presentation-only: it reads the completed pooled geography outputs and writes
 # a new, dated result pack. It never changes the canonical batch.

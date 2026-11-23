@@ -2,6 +2,19 @@
 
 ################################################################################
 # Paper Table 1 and supplement tables S1-S4.
+# Requires: Parts 00-04 for all SSPs and pooled geographies; data/city_results.csv;
+# <batch>/ssp<SSP>/<city>/demography/00_demography_single_age.csv;
+# <batch>/ssp<SSP>/<city>/<GCM>/01_attribution_grouped.csv; and
+# <batch>/geographies/ssp<SSP>/<level>/<id>/03_master_table.csv and Part 04
+# decomposition files. Sources analysis/decade_decomposition.R.
+# Produces: TABLE1_DIR Table 1 and S1-S4 CSV, HTML, PDF and checks;
+# TABLE1_SCRATCH caches and per-GCM calculations.
+# How to run: BATCH_ROOT=results/europe/heatsplit_20261013 \
+#   TABLE1_DIR=results/paper_output_new/table1 \
+#   TABLE1_SCRATCH=results/paper_output_new/table1_scratch \
+#   TABLE1_STAGE=all TABLE1_CORES=16 Rscript analysis/paper_table1.R
+# Notes: SSP1 replacement and SSP1/SSP2 shape-check bypasses are exploratory;
+#   see the caveats in README.md. PDF rendering also requires LibreOffice.
 # Presentation only: reads completed Part 00-04 outputs. It never writes into
 # the batch root. Stages (TABLE1_STAGE): gcm_time, gcm, build, test, all.
 #   gcm_time  time one per-GCM case (all 35 pooled geographies, SSP3)

@@ -1,5 +1,20 @@
 #!/usr/bin/env Rscript
 
+################################################################################
+# Compare the canonical and alternative extreme-temperature thresholds.
+# Requires: data/city_results.csv; canonical Part 01 attribution CSVs under
+# CANONICAL_ROOT/ssp<SSP>/<city>/<GCM>/; and matching CSVs under
+# THRESHOLD_ROOT/{trailing30_p975,trailing15_p95_p05}/ssp<SSP>/<city>/<GCM>/,
+# produced by analysis/run_threshold_sensitivity.sh for all cities and GCMs.
+# Produces: threshold_sensitivity_*.csv and supplement notes in CENTRAL_EXTRAS_ROOT.
+# How to run: CANONICAL_ROOT=results/europe/heatsplit_20261013 \
+#   THRESHOLD_ROOT=results/europe/threshold_sensitivities_20261104 \
+#   CENTRAL_EXTRAS_ROOT=results/paper_output_new/central_extras \
+#   Rscript analysis/summarize_threshold_sensitivity.R
+# Notes: SSP1 replacement and SSP1/SSP2 shape-check bypasses are exploratory;
+#   see the caveats in README.md.
+################################################################################
+
 suppressPackageStartupMessages({library(data.table); library(parallel)})
 
 canonical <- Sys.getenv("CANONICAL_ROOT", "results/europe/heatsplit_20261013")

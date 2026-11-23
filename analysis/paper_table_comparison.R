@@ -2,6 +2,15 @@
 
 ################################################################################
 # Cross-scenario paper table: end-century burden and LE65 erosion ratios.
+# Requires: <batch>/geographies/ssp<SSP>/<level>/<id>/03_master_table.csv,
+# 04_le_li_levels.csv and 04_within_branch_period_decomposition.csv, for all
+# 35 pooled geographies and each requested SSP, from Parts 00-04.
+# Produces: comparison CSVs and figures in FIGURE_ROOT/table1/.
+# How to run: BATCH_ROOT=results/europe/heatsplit_20261013 \
+#   FIGURE_ROOT=results/paper_output_new SSP_SET=1,2,3 \
+#   Rscript analysis/paper_table_comparison.R
+# Notes: SSP1 replacement and SSP1/SSP2 shape-check bypasses are exploratory;
+#   see the caveats in README.md.
 # Presentation only: reads completed pooled Part 03/04 outputs.
 ################################################################################
 

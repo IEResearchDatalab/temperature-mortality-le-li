@@ -3,6 +3,17 @@
 #
 # Runner for the five-step scientific pipeline
 #
+# Requires: data/{city_results,coefs,wittgenstein_pop,wittgenstein_assr}.csv,
+# data/{era5series,tmeanproj}.gz.parquet and the packages in
+# pipeline/00_pkg_params.R. A new root needs BUILD_PREP_CACHE=1.
+# Produces: BATCH_ROOT_OVERRIDE/{shared,ssp<SSP>,collected,geographies}/,
+# run manifests and checks; see README.md for the individual contracts.
+# How to run: BUILD_PREP_CACHE=1 N_HORIUCHI=400 \
+#   BATCH_ROOT_OVERRIDE=results/europe/sensitivities/paper_run \
+#   ./run_pipeline.sh 3 all 32
+# Notes: SSP1 replacement and SSP1/SSP2 shape-check bypasses are exploratory;
+#   see the caveats and separate scenario commands in README.md.
+#
 #   Usage from the repository root:
 #     ./run_pipeline.sh <SSP> <cities.txt | all> [NCORES]
 #     ./run_pipeline.sh --config run_config.csv

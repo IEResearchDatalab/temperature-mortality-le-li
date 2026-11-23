@@ -6,6 +6,16 @@
 # lifespan inequality at older ages in European cities
 #
 # Pipeline Part 01: Attributable numbers by age group and temperature range
+#   Requires: Part 00's <batch>/shared/prep_data.RData and city
+#   00_demography_grouped.csv; data/tmeanproj.gz.parquet, data/coefs.csv and
+#   data/city_results.csv. ENSEMBLE also requires all 19 GCM Part 01 outputs.
+#   Produces: <batch>/ssp<SSP>/<city>/<GCM>/01_attribution_grouped.csv,
+#   01_extreme_heat_days.csv and checks; ENSEMBLE also writes 01_gcm_spread.csv.
+#   How to run: BUILD_PREP_CACHE=1 N_HORIUCHI=400 \
+#   BATCH_ROOT_OVERRIDE=results/europe/sensitivities/paper_run \
+#   ./run_pipeline.sh 3 all 32
+#   Notes: SSP1 replacement and SSP1/SSP2 shape-check bypasses are exploratory.
+#
 #   Follows Masselot & Gasparrini (2025) 03_attribution.R for one city, one
 #   SSP and the central ERF coefficients. For an individual GCM it follows
 #   Masselot's attribution calculation; with GCM=ENSEMBLE it averages the

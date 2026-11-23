@@ -1,8 +1,22 @@
 #!/usr/bin/env Rscript
 
+################################################################################
+# Validate ERF draw coverage and compare draw medians with the Madrid central run.
+# Requires: references/2025-masselot-data/coef_simu.gz.parquet, data/coefs.csv,
+# TIMING500_ROOT/pooled_counts.parquet from the Madrid 500-draw pilot, and
+# BATCH_ROOT/ssp3/ES001C/GFDL_ESM4/01_attribution_grouped.csv.
+# Produces: draw validation CSVs in UNCERTAINTY_ROOT/checks/.
+# How to run: BATCH_ROOT=results/europe/heatsplit_20261013 \
+#   TIMING500_ROOT=results/europe/uncertainty_20261104/timing500/part01/ssp3/GFDL_ESM4 \
+#   UNCERTAINTY_ROOT=results/paper_uncertainty_validation_new \
+#   Rscript analysis/validate_erf_draws.R
+# Notes: Madrid pilot results are diagnostic, not Europe-wide uncertainty.
+################################################################################
+
 suppressPackageStartupMessages({library(data.table); library(arrow); library(dplyr)})
 
 out_root <- Sys.getenv("UNCERTAINTY_ROOT", "results/europe/uncertainty_20261104")
+batch_root <- Sys.getenv("BATCH_ROOT", "results/europe/heatsplit_20261013")
 timing_root <- Sys.getenv(
   "TIMING500_ROOT",
   file.path(out_root, "timing500", "part01", "ssp3", "GFDL_ESM4")
@@ -45,9 +59,9 @@ pooled <- as.data.table(read_parquet(file.path(timing_root, "pooled_counts.parqu
 pooled[, `:=`(draw = as.integer(draw), year = as.integer(year))]
 median_counts <- pooled[geography == "Europe", .(draw_median_an = median(an)),
                         by = .(branch, year, agegroup, range)]
-canonical <- fread(
-  "results/europe/heatsplit_20261013/ssp3/ES001C/GFDL_ESM4/01_attribution_grouped.csv"
-)[, .(branch, year, agegroup, range, central_an = an)]
+canonical <- fread(file.path(
+  batch_root, "ssp3", "ES001C", "GFDL_ESM4", "01_attribution_grouped.csv"
+))[, .(branch, year, agegroup, range, central_an = an)]
 count_compare <- merge(canonical, median_counts, by = c("branch", "year", "agegroup", "range"))
 count_compare[, `:=`(
   difference = draw_median_an - central_an,

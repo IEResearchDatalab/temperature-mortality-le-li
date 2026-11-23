@@ -2,6 +2,17 @@
 ################################################################################
 # Render Simon's paper figures from completed pipeline outputs.
 # Presentation orchestration only; scientific calculations stay in pipeline/.
+# Requires: Parts 00-04 and collected objects for the selected SSPs in
+# BATCH_ROOT; pooled 03/04 CSVs, city Part 01/00 files and moving-threshold
+# checks. Figure 2 sources analysis/decade_decomposition.R.
+# Produces: FIGURE_ROOT figure PNGs/PDFs and data, Table 1, threshold outputs
+# and logs; TABLE1_SCRATCH holds per-GCM and decade caches.
+# How to run: BATCH_ROOT=results/europe/heatsplit_20261013 \
+#   FIGURE_ROOT=results/paper_output_new \
+#   TABLE1_SCRATCH=results/paper_output_new/table1_scratch GEO_SCOPE=main \
+#   analysis/run_paper_figures.sh
+# Notes: SSP1 replacement and SSP1/SSP2 shape-check bypasses are exploratory;
+#   see README.md. This runner does not itself run Table 2 or uncertainty.
 ################################################################################
 set -euo pipefail
 

@@ -6,6 +6,16 @@
 # lifespan inequality at older ages in European cities
 #
 # Pipeline Part 04: Life tables, LE65 / LI65+ levels and decompositions
+#   Requires: Part 03 03_master_table.csv for each city/GCM or pooled geography.
+#   Collect mode requires completed ensemble decompositions and GCM level files.
+#   Produces: 04_le_li_levels.csv, between-branch and within-branch period
+#   decompositions and checks in each output directory; collect mode writes
+#   <batch>/collected/object{2,3}_*.parquet.
+#   How to run: BUILD_PREP_CACHE=1 N_HORIUCHI=400 \
+#   BATCH_ROOT_OVERRIDE=results/europe/sensitivities/paper_run \
+#   ./run_pipeline.sh 3 all 32
+#   Notes: SSP1 replacement and SSP1/SSP2 shape-check bypasses are exploratory.
+#
 #   Life-table, LE and SD functions are those of Lloyd et al. (2024) Code_1.R /
 #   Code_2.R (modified from Aburto et al. 2022). Outputs (the three data objects
 #   agreed at the 10 Sep 2026 meeting, Objects 2 and 3 written here):

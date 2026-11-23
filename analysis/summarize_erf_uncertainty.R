@@ -1,10 +1,29 @@
 #!/usr/bin/env Rscript
 
+################################################################################
+# Summarise ERF-draw and GCM uncertainty for one SSP.
+# Requires: UNCERTAINTY_ROOT/checks/gcms.txt and
+# UNCERTAINTY_ROOT/part01/ssp<SSP>/<GCM>/{experiment_metrics,annual_risk}.parquet
+# from analysis/run_erf_uncertainty.sh; Table 1 table1_full.csv and pooled
+# <batch>/geographies/ssp<SSP>/<level>/<id>/04_le_li_levels.csv.
+# Produces: UNCERTAINTY_OUTPUT_ROOT/tables/ssp<SSP>/ summaries and checks.
+# How to run: UNCERTAINTY_ROOT=results/europe/uncertainty_20261110 \
+#   UNCERTAINTY_OUTPUT_ROOT=results/paper_output_new/uncertainty \
+#   BATCH_ROOT=results/europe/heatsplit_20261013 \
+#   TABLE1_FULL=results/paper_output_new/table1/table1_full.csv SSP=3 \
+#   Rscript analysis/summarize_erf_uncertainty.R
+# Notes: SSP1 replacement and SSP1/SSP2 shape-check bypasses are exploratory;
+#   see the caveats in README.md.
+################################################################################
+
 suppressPackageStartupMessages({library(data.table); library(arrow)})
 
 root <- Sys.getenv("UNCERTAINTY_ROOT", "results/europe/uncertainty_20261104")
+output_root <- Sys.getenv("UNCERTAINTY_OUTPUT_ROOT", root)
+batch_root <- Sys.getenv("BATCH_ROOT", "results/europe/heatsplit_20261013")
+table1_file <- Sys.getenv("TABLE1_FULL", "results/figures_simon_20oct/table1/table1_full.csv")
 ssp <- as.integer(Sys.getenv("SSP", "3"))
-table_dir <- file.path(root, "tables", paste0("ssp", ssp))
+table_dir <- file.path(output_root, "tables", paste0("ssp", ssp))
 check_dir <- file.path(root, "checks")
 dir.create(table_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(check_dir, recursive = TRUE, showWarnings = FALSE)
@@ -63,7 +82,7 @@ summary <- Reduce(function(x, y) merge(x, y, by = c("ssp", "geography", "estiman
                   list(combined, erf, gcm))
 
 # Published central values for Table 1 metrics.
-table1 <- fread("results/figures_simon_20oct/table1/table1_full.csv")[
+table1 <- fread(table1_file)[
   ssp == as.integer(Sys.getenv("SSP", "3")) & level %chin% c("europe", "region")
 ]
 central <- rbindlist(list(
@@ -83,7 +102,7 @@ geo_map <- data.table(
   id = c("EUROPE", "Eastern", "Northern", "Southern", "Western")
 )
 levels <- rbindlist(lapply(seq_len(nrow(geo_map)), function(i) {
-  f <- file.path("results/europe/heatsplit_20261013/geographies", paste0("ssp", ssp),
+  f <- file.path(batch_root, "geographies", paste0("ssp", ssp),
                  geo_map$level[i], geo_map$id[i], "04_le_li_levels.csv")
   x <- fread(f)[year %between% c(2095L, 2099L),
                 .(LE65 = mean(LE65), LI65 = mean(LI65)), by = branch]

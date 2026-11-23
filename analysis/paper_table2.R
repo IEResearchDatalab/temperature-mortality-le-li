@@ -1,5 +1,23 @@
 #!/usr/bin/env Rscript
 
+################################################################################
+# Table 2 and Table Sx: gains in LE65 and temperature contributions.
+# Requires: Parts 00-04 for all three SSPs, pooled Europe and four regions;
+# each <batch>/geographies/ssp<SSP>/<level>/<id>/{03_master_table,
+# 04_le_li_levels,04_within_branch_period_decomposition}.csv; run manifests
+# <batch>/ssp<SSP>/run_manifest.txt; Figure 2 panel and decade CSVs in
+# FIGURE_ROOT/data/; TABLE1_SSP3 and UNCERTAINTY_SUMMARY comparison CSVs;
+# analysis/decade_decomposition.R and analysis/output_names.R.
+# Produces: FIGURE_ROOT/data/table02_* and tableSx_le65_gain_months.csv.
+# How to run: BATCH_ROOT=results/europe/heatsplit_20261013 \
+#   FIGURE_ROOT=results/paper_output_new \
+#   TABLE1_SSP3=results/paper_output_new/table1/table1_ssp3_geographies.csv \
+#   UNCERTAINTY_SUMMARY=results/paper_output_new/uncertainty/tables/ssp3/summary.csv \
+#   Rscript analysis/paper_table2.R
+# Notes: SSP1 replacement and SSP1/SSP2 shape-check bypasses are exploratory;
+#   see the caveats in README.md.
+################################################################################
+
 suppressPackageStartupMessages(library(data.table))
 source("analysis/decade_decomposition.R")
 source("analysis/output_names.R")
@@ -689,11 +707,18 @@ fwrite(wide, file.path(data_dir, "table02_le65_gain_wide.csv"))
 fwrite(sx, file.path(data_dir, "tableSx_le65_gain_months.csv"))
 fwrite(checks, file.path(data_dir, "table02_checks.csv"))
 
-commit <- tryCatch(
-  system2("git", c("rev-parse", "HEAD"), stdout = TRUE, stderr = FALSE),
-  error = function(e) character()
+commit <- system2("git", c("rev-parse", "HEAD"), stdout = TRUE, stderr = FALSE)
+if (!is.null(attr(commit, "status")) || length(commit) != 1L || !nzchar(commit)) {
+  stop("Could not determine the analysis Git commit.", call. = FALSE)
+}
+git_status <- system2(
+  "git", c("status", "--porcelain", "--untracked-files=normal"),
+  stdout = TRUE, stderr = FALSE
 )
-commit <- if (length(commit) && !is.na(commit[1L])) commit[1L] else "unavailable"
+if (!is.null(attr(git_status, "status"))) {
+  stop("Could not determine the analysis Git worktree status.", call. = FALSE)
+}
+worktree <- if (length(git_status)) "modified" else "clean"
 uncertainty_note <- if (exists("uncertainty_comparison")) {
   all <- uncertainty_comparison[metric == "all_erosion_ratio_pct"]
   heat <- uncertainty_comparison[metric == "heat_erosion_ratio_pct"]
@@ -713,6 +738,7 @@ readme <- c(
   "# Table 2 and Table Sx",
   "",
   paste("Analysis commit:", commit),
+  paste("Analysis worktree:", worktree),
   paste("Input batch:", batch_root),
   "",
   paste(

@@ -1,6 +1,21 @@
 #!/usr/bin/env Rscript
 
+################################################################################
+# Figure 3: lifespan inequality contributions by age and temperature range.
+# Requires: Parts 00-04 for the selected SSPs and pooled geography; each
+# <batch>/geographies/ssp<SSP>/<level>/<id>/
+# 04_within_branch_period_decomposition.csv, analysis/output_names.R and
+# analysis/paper_helpers.R.
+# Produces: FIGURE_ROOT/{figures,figures_pdf,data}/figure03_* for the geography.
+# How to run: BATCH_ROOT=results/europe/heatsplit_20261013 \
+#   FIGURE_ROOT=results/paper_output_new GEO_LEVEL=europe GEO_ID=EUROPE \
+#   SSP_SET=1,2,3 Rscript analysis/paper_fig3.R
+# Notes: SSP1 replacement and SSP1/SSP2 shape-check bypasses are exploratory;
+#   see the caveats in README.md.
+################################################################################
+
 source("analysis/output_names.R")
+source("analysis/paper_helpers.R")
 
 suppressPackageStartupMessages({
   library(data.table)
@@ -39,10 +54,6 @@ if (!length(ssp_set) || anyNA(ssp_set) || any(!ssp_set %in% 1:3)) {
   stop("SSP_SET must be a comma-separated subset of 1,2,3.", call. = FALSE)
 }
 
-age_band <- function(age) {
-  fifelse(age >= 100L, "100+", sprintf("%d-%d", (age %/% 5L) * 5L, (age %/% 5L) * 5L + 4L))
-}
-period_start <- function(x) as.integer(substr(x, 1L, 4L))
 cause_group <- function(x) fifelse(x %chin% cold_causes, "cold",
                                    fifelse(x %chin% heat_causes, "heat", "rest"))
 

@@ -1,7 +1,20 @@
 #!/usr/bin/env Rscript
 
+################################################################################
 # Pooled ERF-draw uncertainty for one SSP x GCM. The same draw IDs are used in
 # every city, and city counts are pooled before life tables are constructed.
+# Requires: Parts 00-04; BATCH_ROOT/shared/prep_data.RData and
+# BATCH_ROOT/ssp<SSP>/<city>/demography/{00_demography_grouped,
+# 00_demography_single_age}.csv; data/tmeanproj.gz.parquet, data/city_results.csv
+# and references/2025-masselot-data/coef_simu.gz.parquet.
+# Produces: UNCERTAINTY_ROOT/part01/ssp<SSP>/<GCM>/ parquet metrics, checks,
+# manifests and completion markers.
+# How to run: BATCH_ROOT=results/europe/heatsplit_20261013 \
+#   UNCERTAINTY_ROOT=results/paper_uncertainty_new \
+#   analysis/run_erf_uncertainty.sh 3 19
+# Notes: SSP1 replacement and SSP1/SSP2 shape-check bypasses are exploratory;
+#   see the caveats in README.md.
+################################################################################
 
 suppressPackageStartupMessages({
   library(data.table)

@@ -1,6 +1,20 @@
 #!/usr/bin/env Rscript
 
+################################################################################
 # Figure 1: annual absolute risk by age and temperature range.
+# Requires: Parts 00-04 for all three SSPs, 854 cities and 19 GCMs; pooled
+# <batch>/geographies/ssp<SSP>/<level>/<id>/03_master_table.csv;
+# <batch>/ssp<SSP>/<city>/ENSEMBLE/01_attribution_grouped.csv;
+# <batch>/ssp3/<city>/demography/00_demography_single_age.csv;
+# data/city_results.csv, data/wittgenstein_pop.csv, data/wittgenstein_assr.csv
+# and analysis/output_names.R. ATTRIBUTION_ROOT can select another Part 01 root.
+# Produces: FIGURE_ROOT/{figures,figures_pdf,data}/figure01_* and Figure 1 checks.
+# How to run: BATCH_ROOT=results/europe/heatsplit_20261013 \
+#   FIGURE_ROOT=results/paper_output_new GEO_LEVEL=all SSP_SET=1,2,3 \
+#   Rscript analysis/paper_fig1.R
+# Notes: SSP1 uses the exploratory 0.9995 replacement; its batch and SSP2
+#   bypass the shape check. These are not production runs; see README.md.
+################################################################################
 source("analysis/output_names.R")
 
 suppressPackageStartupMessages({

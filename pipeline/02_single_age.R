@@ -6,6 +6,15 @@
 # lifespan inequality at older ages in European cities
 #
 # Pipeline Part 02: Single-age attributable numbers
+#   Requires: Part 00 00_demography_grouped.csv and 00_demography_single_age.csv
+#   in <batch>/ssp<SSP>/<city>/demography/, and Part 01
+#   <batch>/ssp<SSP>/<city>/<GCM>/01_attribution_grouped.csv.
+#   Produces: 02_single_age_an.csv and checks in that city/GCM output directory.
+#   How to run: BUILD_PREP_CACHE=1 N_HORIUCHI=400 \
+#   BATCH_ROOT_OVERRIDE=results/europe/sensitivities/paper_run \
+#   ./run_pipeline.sh 3 all 32
+#   Notes: SSP1 replacement and SSP1/SSP2 shape-check bypasses are exploratory.
+#
 #   Each age group's attributable fraction (Part 01) is applied to the
 #   single-age all-cause deaths from Part 00, so that ANs follow the age
 #   profile of mortality within the group and never exceed deaths (option b,

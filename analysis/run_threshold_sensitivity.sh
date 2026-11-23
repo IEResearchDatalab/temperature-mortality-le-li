@@ -1,4 +1,15 @@
 #!/usr/bin/env bash
+# Rerun Part 01 using an alternative threshold or warning-day-only mode.
+# Requires: data/city_results.csv, data/era5series.gz.parquet,
+# data/tmeanproj.gz.parquet, data/coefs.csv, and Parts 00-04 under
+# CANONICAL_ROOT, including ssp<SSP>/<city>/demography/00_demography_grouped.csv.
+# Produces: THRESHOLD_ROOT/<label>/shared/, ssp<SSP>/<city>/<GCM>/, checks and logs.
+# How to run: CANONICAL_ROOT=results/europe/heatsplit_20261013 \
+#   THRESHOLD_ROOT=results/paper_threshold_new \
+#   analysis/run_threshold_sensitivity.sh trailing15_p95_p05 0.95 15 28 0.05
+# Notes: SSP1 replacement and SSP1/SSP2 shape-check bypasses are exploratory;
+#   the runner reuses their demography. Set EXTREME_HEAT_DAYS_ONLY=1 for the
+#   warning-day input run (see README.md).
 set -euo pipefail
 
 # Rerun only Part 01 for a moving-window / threshold-percentile sensitivity. The

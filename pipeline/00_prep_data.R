@@ -6,6 +6,17 @@
 # lifespan inequality at older ages in European cities
 #
 # Pipeline Part 00: Prepare temperature and demographic inputs
+#   Requires: pipeline/00_pkg_params.R, data/era5series.gz.parquet,
+#   data/city_results.csv, data/coefs.csv, data/wittgenstein_pop.csv and
+#   data/wittgenstein_assr.csv.
+#   Produces: <batch>/shared/prep_data.RData, fingerprint and checks; and
+#   <batch>/ssp<SSP>/<city>/demography/00_demography_{grouped,single_age}.csv.
+#   How to run: from the root, create a new batch with
+#   BATCH_ROOT_OVERRIDE=results/europe/sensitivities/paper_run \
+#   BUILD_PREP_CACHE=1 N_HORIUCHI=400 ./run_pipeline.sh 3 all 32
+#   Notes: SSP1 replacement and SSP1/SSP2 shape-check bypasses are exploratory;
+#   see README.md for the scenario-specific switches and caveats.
+#
 #   Follows the role of Masselot & Gasparrini (2025) 02_prep_data.R. The
 #   temperature mode prepares the common ERA5 series, MMTs and static
 #   extreme-range thresholds. Static P2.5/P97.5 use ERA5-Land 2000-2014,

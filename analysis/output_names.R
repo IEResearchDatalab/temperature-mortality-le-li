@@ -1,4 +1,8 @@
 # Output file naming shared by the paper-figure scripts.
+# Requires: no earlier outputs; source this file from the repository root.
+# Produces: figure_file(), which creates FIGURE_ROOT/{figures,figures_pdf,data}.
+# How to run: Rscript -e 'source("analysis/output_names.R")'
+# Notes: figure content and the SSP caveats are supplied by the calling script.
 #
 # Convention: figureNN_<name>_<geography>.<ext>
 #   figure02_le65_contributions_europe.png
