@@ -10,7 +10,7 @@ source("analysis/output_names.R")
 source("analysis/decade_decomposition.R")
 
 batch_root <- Sys.getenv("BATCH_ROOT", "results/europe/heatsplit_20261013")
-figure_root <- Sys.getenv("FIGURE_ROOT", "results/figures_simon_20oct")
+figure_root <- Sys.getenv("FIGURE_ROOT", "results/figures_simon_20261123")
 geo_level <- Sys.getenv("GEO_LEVEL", "europe")
 geo_id <- Sys.getenv("GEO_ID", "EUROPE")
 fpath <- function(filename) figure_file(figure_root, filename, geo_id)
@@ -112,10 +112,15 @@ when <- decade_data[, .(value = sum(le_contribution_months)),
 when_net <- when[, .(value = sum(value)), by = .(ssp_label, decade_label)]
 net_check <- merge(
   when_net,
-  when[, .(displayed_sum = sum(value)), by = .(ssp_label, decade_label)],
+  decade_data[, .(
+    displayed_sum = sum(le_contribution_months),
+    temperature_ranges = uniqueN(cause)
+  ), by = .(ssp_label, decade_label)],
   by = c("ssp_label", "decade_label")
 )
-if (any(abs(net_check$value - net_check$displayed_sum) > 1e-12)) {
+net_check[, series := "Cold and heat together"]
+if (any(abs(net_check$value - net_check$displayed_sum) > 1e-12) ||
+    any(net_check$temperature_ranges != length(range_levels))) {
   stop("Figure 2 diamonds do not equal the five displayed temperature ranges.", call. = FALSE)
 }
 
@@ -127,14 +132,14 @@ plot_stacked <- function(data, xvar, net, x_label, y_label, show_strips, limits 
              width = 0.82, position = position_stack(reverse = FALSE)) +
     geom_col(data = negative, aes(x = .data[[xvar]], y = value, fill = cause),
              width = 0.82, position = position_stack(reverse = TRUE)) +
-    geom_point(data = net, aes(x = .data[[xvar]], y = value, shape = "Net (all temperature ranges)"),
+    geom_point(data = net, aes(x = .data[[xvar]], y = value, shape = "Cold and heat together"),
                inherit.aes = FALSE, size = 2.2, colour = "black") +
     geom_hline(yintercept = 0, linewidth = 0.35) +
     facet_grid(ssp_label ~ ., scales = "fixed", switch = "y") +
     scale_fill_manual(values = range_colours, labels = range_labels, drop = FALSE) +
     scale_shape_manual(
-      name = NULL, values = c("Net (all temperature ranges)" = 18),
-      breaks = "Net (all temperature ranges)"
+      name = NULL, values = c("Cold and heat together" = 18),
+      breaks = "Cold and heat together"
     ) +
     scale_y_continuous(
       breaks = function(limits) {
@@ -160,12 +165,12 @@ plot_stacked <- function(data, xvar, net, x_label, y_label, show_strips, limits 
 }
 
 p_when <- plot_stacked(
-  when, "decade_label", when_net, NULL, "Months of LE65 per decade", TRUE
+  when, "decade_label", when_net, "10-year period", "Months of LE65 per decade", TRUE
 ) +
-  labs(title = "a. Over time (each 10-year step)") +
+  labs(title = "a. By 10-year step") +
   theme(axis.text.x = element_text(angle = 0, hjust = 0.5, size = 8))
 
-make_age_panel <- function(start_period, end_period, title, subtitle) {
+make_age_panel <- function(start_period, end_period, title) {
   years <- end_period - start_period
   z <- period_data[
     from_start >= start_period & to_start <= end_period,
@@ -177,11 +182,11 @@ make_age_panel <- function(start_period, end_period, title, subtitle) {
     cause = factor(cause, levels = range_levels)
   )]
   net <- z[, .(value = sum(value)), by = .(ssp_label, age_band)]
-  list(data = z, net = net, title = title, subtitle = subtitle)
+  list(data = z, net = net, title = title)
 }
 
-first <- make_age_panel(2020L, 2055L, "b. By age, 2020–24 → 2055–59", NULL)
-second <- make_age_panel(2055L, 2095L, "c. By age, 2055–59 → 2095–99", NULL)
+first <- make_age_panel(2020L, 2055L, "b. By age group, 2020-24 to 2055-59")
+second <- make_age_panel(2055L, 2095L, "c. By age group, 2055-59 to 2095-99")
 age_limits <- range(c(0, first$data$value, first$net$value, second$data$value, second$net$value))
 age_limits <- age_limits + c(-1, 1) * diff(age_limits) * 0.06
 
@@ -200,31 +205,9 @@ p_second <- plot_stacked(
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 7),
         legend.position = "none")
 
-figure_title <- paste0(
-  geo_label, ": contributions of temperature-related mortality to change in LE65, with climate change"
-)
-if (geo_level == "europe") {
-  figure_title <- "Europe: contributions of temperature-related mortality to change in LE65, with climate change"
-}
 p <- (p_when | p_first | p_second) +
   plot_layout(widths = c(1.8, 1, 1), guides = "collect") +
-  plot_annotation(
-    title = figure_title,
-    subtitle = "Positive contributions add to LE65 gains; negative contributions drag on them; black diamonds show the net over all temperature ranges.",
-    caption = paste(
-      "In panel a, each bar compares the mortality schedule of the labelled 10-year period with that of the preceding one; in panels b and c, contributions over each half-century are shown per decade.",
-      "Without climate change, each temperature range contributes to LE65 change only in proportion to its share of falling mortality from all causes (its attributable fraction is fixed); heat contributions turning negative with climate change therefore signal warming outpacing that decline.",
-      "Black diamonds sum the five temperature ranges and exclude all other causes. Historical P2.5 and P97.5: ERA5-Land, 2000–2014. Projected P97.5: the historical P97.5 plus the change in the calibrated GCM P97.5 over the 15 preceding years.",
-      "For SSP1, Wittgenstein Centre survival ratios stored as exactly 1 were set to 0.9995. Central estimates, mean of 19 GCMs; no uncertainty intervals.",
-      sep = "\n"
-    ),
-    theme = theme(
-      plot.title = element_text(face = "bold", size = 15),
-      plot.subtitle = element_text(size = 10, colour = "#555555"),
-      plot.caption = element_text(size = 8, hjust = 0),
-      legend.position = "bottom"
-    )
-  )
+  plot_annotation(theme = theme(legend.position = "bottom"))
 
 stem <- "figure02_le65_contributions"
 ggsave(fpath(paste0(stem, ".png")), p, width = 18, height = 11, units = "in", dpi = 300)
