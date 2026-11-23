@@ -1,0 +1,354 @@
+#!/usr/bin/env Rscript
+
+suppressPackageStartupMessages({
+  library(data.table)
+  library(ggplot2)
+  library(parallel)
+})
+
+root <- Sys.getenv(
+  "EXTREME_HEAT_DAYS_ROOT",
+  "results/europe/extreme_heat_days_20261117/canonical_p975_p025"
+)
+out_root <- Sys.getenv(
+  "EXTREME_HEAT_DAYS_SUMMARY_ROOT",
+  "results/europe/extreme_heat_days_summary_20261117"
+)
+ncores <- as.integer(Sys.getenv("EXTREME_HEAT_DAYS_SUMMARY_CORES", "16"))
+dir.create(out_root, recursive = TRUE, showWarnings = FALSE)
+
+meta <- unique(fread("data/city_results.csv")[agegroup == "75-84", .(
+  city = URAU_CODE,
+  country = CNTR_CODE,
+  country_name = cntr_name,
+  region
+)])
+if (nrow(meta) != 854L || anyDuplicated(meta$city)) {
+  stop("Expected metadata for 854 unique cities.", call. = FALSE)
+}
+cities <- sort(meta$city)
+gcms_file <- file.path(root, "shared", "gcms.txt")
+if (!file.exists(gcms_file)) stop("Missing GCM manifest: ", gcms_file, call. = FALSE)
+gcms <- scan(gcms_file, what = character(), quiet = TRUE)
+if (length(gcms) != 19L || anyDuplicated(gcms)) stop("Expected 19 unique GCMs.", call. = FALSE)
+
+period_years <- list(
+  `2020-24` = 2020:2024,
+  `2055-59` = 2055:2059,
+  `2095-99` = 2095:2099
+)
+figure_years <- unlist(period_years, use.names = FALSE)
+all_years <- 2020:2099
+period_for_year <- function(year) {
+  ans <- rep(NA_character_, length(year))
+  for (period in names(period_years)) ans[year %in% period_years[[period]]] <- period
+  ans
+}
+
+read_city <- function(ssp, city) {
+  files <- file.path(root, paste0("ssp", ssp), city, gcms, "01_extreme_heat_days.csv")
+  if (any(!file.exists(files))) {
+    stop("Missing extreme-heat-day files for SSP", ssp, " ", city, call. = FALSE)
+  }
+  x <- rbindlist(lapply(seq_along(files), function(i) {
+    z <- fread(files[i], select = c(
+      "branch", "year", "extreme_heat_days", "extreme_heat_threshold", "mean_temperature"
+    ))
+    z <- z[year %in% all_years]
+    z[, gcm := gcms[i]]
+    z
+  }))
+  x[, period := period_for_year(year)]
+  ans <- x[, .(
+    extreme_heat_days = mean(extreme_heat_days),
+    extreme_heat_threshold = mean(extreme_heat_threshold),
+    mean_temperature = mean(mean_temperature)
+  ), by = .(gcm, branch, year, period)]
+  ans[, `:=`(ssp = as.integer(ssp), city = city)]
+  ans
+}
+
+cases <- CJ(ssp = 1:3, city = cities)
+parts <- mclapply(seq_len(nrow(cases)), function(i) {
+  read_city(cases$ssp[i], cases$city[i])
+}, mc.cores = ncores, mc.preschedule = FALSE)
+if (any(vapply(parts, inherits, logical(1), what = "try-error"))) {
+  stop("One or more city summaries failed.", call. = FALSE)
+}
+by_city_gcm <- rbindlist(parts)
+by_city_gcm <- merge(by_city_gcm, meta, by = "city")
+
+expected <- 3L * 854L * 19L * 2L * length(all_years)
+if (nrow(by_city_gcm) != expected ||
+    any(!is.finite(unlist(by_city_gcm[, .(
+      extreme_heat_days, extreme_heat_threshold, mean_temperature)]))) ||
+    any(!by_city_gcm$extreme_heat_days %between% c(0, 365))) {
+  stop("Extreme-heat-day city/GCM grid is incomplete or invalid.", call. = FALSE)
+}
+
+by_city_gcm_period <- by_city_gcm[!is.na(period), .(
+  extreme_heat_days = mean(extreme_heat_days),
+  extreme_heat_threshold = mean(extreme_heat_threshold),
+  mean_temperature = mean(mean_temperature)
+), by = .(ssp, branch, period, gcm, city, country, country_name, region)]
+
+city_summary <- by_city_gcm_period[, .(
+  extreme_heat_days = mean(extreme_heat_days),
+  extreme_heat_days_gcm_sd = sd(extreme_heat_days),
+  extreme_heat_days_gcm_min = min(extreme_heat_days),
+  extreme_heat_days_gcm_max = max(extreme_heat_days),
+  extreme_heat_threshold = mean(extreme_heat_threshold),
+  mean_temperature = mean(mean_temperature)
+), by = .(ssp, branch, period, city, country, country_name, region)]
+
+geography_gcm <- rbindlist(list(
+  by_city_gcm_period[, .(
+    extreme_heat_days = mean(extreme_heat_days),
+    extreme_heat_threshold = mean(extreme_heat_threshold),
+    mean_temperature = mean(mean_temperature),
+    city_count = uniqueN(city)
+  ), by = .(ssp, branch, period, gcm, level = rep("country", nrow(by_city_gcm_period)),
+            geography_id = country, geography = country_name)],
+  by_city_gcm_period[, .(
+    extreme_heat_days = mean(extreme_heat_days),
+    extreme_heat_threshold = mean(extreme_heat_threshold),
+    mean_temperature = mean(mean_temperature),
+    city_count = uniqueN(city)
+  ), by = .(ssp, branch, period, gcm, level = rep("region", nrow(by_city_gcm_period)),
+            geography_id = region, geography = paste(region, "Europe"))],
+  by_city_gcm_period[, .(
+    extreme_heat_days = mean(extreme_heat_days),
+    extreme_heat_threshold = mean(extreme_heat_threshold),
+    mean_temperature = mean(mean_temperature),
+    city_count = uniqueN(city)
+  ), by = .(ssp, branch, period, gcm)][
+    , `:=`(level = "europe", geography_id = "EUROPE", geography = "Europe")]
+), use.names = TRUE)
+if (geography_gcm[, uniqueN(city_count),
+                  by = .(ssp, branch, period, level, geography_id)][, any(V1 != 1L)]) {
+  stop("City counts differ across GCMs within a geography.", call. = FALSE)
+}
+
+geography_summary <- geography_gcm[, .(
+  extreme_heat_days = mean(extreme_heat_days),
+  extreme_heat_days_gcm_sd = sd(extreme_heat_days),
+  extreme_heat_days_gcm_min = min(extreme_heat_days),
+  extreme_heat_days_gcm_max = max(extreme_heat_days),
+  extreme_heat_threshold = mean(extreme_heat_threshold),
+  mean_temperature = mean(mean_temperature),
+  city_count = first(city_count),
+  gcm_count = .N
+), by = .(ssp, branch, period, level, geography_id, geography)]
+if (any(geography_summary$gcm_count != 19L)) {
+  stop("Geography aggregation counts are inconsistent.", call. = FALSE)
+}
+
+annual_geography_gcm <- rbindlist(list(
+  by_city_gcm[, .(
+    extreme_heat_days = mean(extreme_heat_days),
+    extreme_heat_threshold = mean(extreme_heat_threshold),
+    mean_temperature = mean(mean_temperature),
+    city_count = uniqueN(city)
+  ), by = .(ssp, branch, year, gcm, level = rep("country", nrow(by_city_gcm)),
+            geography_id = country, geography = country_name)],
+  by_city_gcm[, .(
+    extreme_heat_days = mean(extreme_heat_days),
+    extreme_heat_threshold = mean(extreme_heat_threshold),
+    mean_temperature = mean(mean_temperature),
+    city_count = uniqueN(city)
+  ), by = .(ssp, branch, year, gcm, level = rep("region", nrow(by_city_gcm)),
+            geography_id = region, geography = paste(region, "Europe"))],
+  by_city_gcm[, .(
+    extreme_heat_days = mean(extreme_heat_days),
+    extreme_heat_threshold = mean(extreme_heat_threshold),
+    mean_temperature = mean(mean_temperature),
+    city_count = uniqueN(city)
+  ), by = .(ssp, branch, year, gcm)][
+    , `:=`(level = "europe", geography_id = "EUROPE", geography = "Europe")]
+), use.names = TRUE)
+
+annual_geography_summary <- annual_geography_gcm[, .(
+  extreme_heat_days = mean(extreme_heat_days),
+  extreme_heat_days_gcm_sd = sd(extreme_heat_days),
+  extreme_heat_days_gcm_p10 = quantile(extreme_heat_days, 0.10, names = FALSE),
+  extreme_heat_days_gcm_p90 = quantile(extreme_heat_days, 0.90, names = FALSE),
+  extreme_heat_days_gcm_min = min(extreme_heat_days),
+  extreme_heat_days_gcm_max = max(extreme_heat_days),
+  extreme_heat_threshold = mean(extreme_heat_threshold),
+  mean_temperature = mean(mean_temperature),
+  city_count = first(city_count),
+  gcm_count = .N
+), by = .(ssp, branch, year, level, geography_id, geography)]
+if (any(annual_geography_summary$gcm_count != 19L)) {
+  stop("Annual geography aggregation counts are inconsistent.", call. = FALSE)
+}
+
+setorder(city_summary, ssp, branch, period, country, city)
+setorder(geography_summary, level, geography_id, ssp, branch, period)
+setorder(annual_geography_summary, level, geography_id, ssp, branch, year)
+fwrite(city_summary, file.path(out_root, "extreme_heat_days_city.csv"))
+fwrite(geography_summary, file.path(out_root, "extreme_heat_days_geographies.csv"))
+fwrite(geography_summary[level == "country"], file.path(out_root, "extreme_heat_days_country.csv"))
+fwrite(geography_summary[level == "region"], file.path(out_root, "extreme_heat_days_region.csv"))
+fwrite(geography_summary[level == "europe"], file.path(out_root, "extreme_heat_days_europe.csv"))
+fwrite(annual_geography_summary, file.path(out_root, "extreme_heat_days_annual_geographies.csv"))
+fwrite(annual_geography_summary[level == "country"],
+       file.path(out_root, "extreme_heat_days_annual_country.csv"))
+fwrite(annual_geography_summary[level == "region"],
+       file.path(out_root, "extreme_heat_days_annual_region.csv"))
+fwrite(annual_geography_summary[level == "europe"],
+       file.path(out_root, "extreme_heat_days_annual_europe.csv"))
+
+ssp_labels <- c(`1` = "SSP1-2.6", `2` = "SSP2-4.5", `3` = "SSP3-7.0")
+plot_data <- geography_summary[
+  level %chin% c("europe", "region") & branch == "with_cc"]
+plot_data[, `:=`(
+  geography = factor(
+    geography,
+    levels = c("Europe", "Northern Europe", "Western Europe", "Eastern Europe", "Southern Europe")),
+  scenario = factor(ssp_labels[as.character(ssp)], levels = ssp_labels),
+  period = factor(period, levels = names(period_years))
+)]
+p <- ggplot(plot_data, aes(geography, extreme_heat_days, fill = period)) +
+  geom_col(position = position_dodge(width = 0.82), width = 0.75) +
+  facet_grid(scenario ~ .) +
+  scale_fill_manual(values = c("#8CBBD9", "#F4A261", "#B2182B"), name = NULL) +
+  labs(
+    title = "Extreme-heat warning days in Europe",
+    subtitle = paste(
+      "Mean annual days at or above the moving P97.5 threshold;",
+      "unweighted city mean, then 19-GCM mean"
+    ),
+    x = NULL,
+    y = "Extreme-heat days per year",
+    caption = paste(
+      "With climate change. Baseline, mid-century and end-century are five-year means.",
+      "Country-level estimates are in extreme_heat_days_country.csv."
+    )) +
+  theme_minimal(base_size = 11) +
+  theme(
+    panel.grid.major.x = element_blank(), panel.grid.minor = element_blank(),
+    strip.text = element_text(face = "bold"),
+    axis.text.x = element_text(angle = 25, hjust = 1),
+    plot.title = element_text(face = "bold", size = 15),
+    plot.caption = element_text(hjust = 0),
+    legend.position = "bottom")
+ggsave(file.path(out_root, "extreme_heat_days_europe_regions.png"), p,
+       width = 11, height = 10, dpi = 300)
+ggsave(file.path(out_root, "extreme_heat_days_europe_regions.pdf"), p,
+       width = 11, height = 10, device = cairo_pdf)
+
+scenario_colours <- c(
+  `SSP1-2.6` = "#2166AC",
+  `SSP2-4.5` = "#E08214",
+  `SSP3-7.0` = "#B2182B"
+)
+period_bands <- data.table(
+  xmin = c(2020, 2055, 2095),
+  xmax = c(2024, 2059, 2099)
+)
+trajectory_data <- annual_geography_summary[
+  level %chin% c("europe", "region") & branch == "with_cc"]
+trajectory_data[, `:=`(
+  geography = factor(
+    geography,
+    levels = c("Europe", "Northern Europe", "Western Europe", "Eastern Europe", "Southern Europe")),
+  scenario = factor(ssp_labels[as.character(ssp)], levels = ssp_labels)
+)]
+
+trajectory_theme <- theme_minimal(base_size = 11) +
+  theme(
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(face = "bold"),
+    plot.title = element_text(face = "bold", size = 15),
+    plot.caption = element_text(hjust = 0),
+    legend.position = "none"
+  )
+
+europe_trajectory <- ggplot(trajectory_data[geography == "Europe"]) +
+  geom_rect(
+    data = period_bands,
+    aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf),
+    inherit.aes = FALSE, fill = "#808080", alpha = 0.10
+  ) +
+  geom_ribbon(
+    aes(year, ymin = extreme_heat_days_gcm_p10, ymax = extreme_heat_days_gcm_p90,
+        fill = scenario), alpha = 0.20, colour = NA
+  ) +
+  geom_line(aes(year, extreme_heat_days, colour = scenario), linewidth = 0.8) +
+  facet_grid(scenario ~ .) +
+  scale_colour_manual(values = scenario_colours) +
+  scale_fill_manual(values = scenario_colours) +
+  scale_x_continuous(breaks = seq(2020, 2100, 10)) +
+  labs(
+    title = "Europe: extreme-heat warning days through time",
+    subtitle = "Annual days at or above the moving P97.5 threshold",
+    x = NULL,
+    y = "Extreme-heat days per year",
+    caption = paste(
+      "Line: unweighted city mean, averaged across 19 GCMs; ribbon: 10th-90th percentile across GCMs.",
+      "Shading marks 2020-24, 2055-59 and 2095-99."
+    )
+  ) +
+  trajectory_theme
+ggsave(file.path(out_root, "extreme_heat_days_europe_trajectory.png"), europe_trajectory,
+       width = 11, height = 8, dpi = 300)
+ggsave(file.path(out_root, "extreme_heat_days_europe_trajectory.pdf"), europe_trajectory,
+       width = 11, height = 8, device = cairo_pdf)
+
+region_trajectory <- ggplot(trajectory_data[geography != "Europe"]) +
+  geom_rect(
+    data = period_bands,
+    aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf),
+    inherit.aes = FALSE, fill = "#808080", alpha = 0.10
+  ) +
+  geom_ribbon(
+    aes(year, ymin = extreme_heat_days_gcm_p10, ymax = extreme_heat_days_gcm_p90,
+        fill = scenario), alpha = 0.20, colour = NA
+  ) +
+  geom_line(aes(year, extreme_heat_days, colour = scenario), linewidth = 0.65) +
+  facet_grid(geography ~ scenario) +
+  scale_colour_manual(values = scenario_colours) +
+  scale_fill_manual(values = scenario_colours) +
+  scale_x_continuous(breaks = seq(2020, 2100, 20)) +
+  labs(
+    title = "Regional extreme-heat warning days through time",
+    subtitle = "Annual days at or above the moving P97.5 threshold",
+    x = NULL,
+    y = "Extreme-heat days per year",
+    caption = paste(
+      "Line: unweighted city mean, averaged across 19 GCMs; ribbon: 10th-90th percentile across GCMs.",
+      "Shading marks 2020-24, 2055-59 and 2095-99."
+    )
+  ) +
+  trajectory_theme
+ggsave(file.path(out_root, "extreme_heat_days_regions_trajectory.png"), region_trajectory,
+       width = 13, height = 11, dpi = 300)
+ggsave(file.path(out_root, "extreme_heat_days_regions_trajectory.pdf"), region_trajectory,
+       width = 13, height = 11, device = cairo_pdf)
+
+notes <- c(
+  "# Extreme-heat warning days",
+  "",
+  paste(
+    "Extreme-heat days are calendar days at or above the same age-independent",
+    "annual threshold used to delimit the canonical extreme-heat range."
+  ),
+  paste(
+    "For the with-climate-change branch, the threshold is the historical",
+    "2000–2014 P97.5 plus the calibrated GCM change in P97.5 over the 15 preceding years,",
+    "clamped at the historical threshold."
+  ),
+  paste(
+    "Five-year means are calculated within each GCM and city. Geographic estimates",
+    "are unweighted means across cities and then means across 19 GCMs."
+  ),
+  paste(
+    "Annual trajectory figures show the 19-GCM mean and 10th-90th percentile range;",
+    "the shaded windows identify the requested baseline, mid-century and end-century periods."
+  ),
+  "",
+  "These counts are a warning-day proxy; they are not observed administrative warning records."
+)
+writeLines(notes, file.path(out_root, "README.md"), useBytes = TRUE)
+message("Wrote extreme-heat-day summaries to ", out_root)

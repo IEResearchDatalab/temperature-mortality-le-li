@@ -64,16 +64,44 @@ if (gcm_name == "ENSEMBLE") {
 
   fwrite(ensemble, file.path(out_dir, "01_attribution_grouped.csv"))
   fwrite(spread, file.path(out_dir, "01_gcm_spread.csv"))
+
+  day_files <- file.path(dirname(out_dir), gcmlist, "01_extreme_heat_days.csv")
+  missing_day_files <- gcmlist[!file.exists(day_files)]
+  if (!length(missing_day_files)) {
+    day_all <- rbindlist(lapply(day_files, fread))
+    day_keys <- c("branch", "year")
+    day_domain <- day_all[, .N, by = day_keys]
+    if (any(day_domain$N != length(gcmlist)) || uniqueN(day_all$gcm) != length(gcmlist)) {
+      stop("Per-GCM extreme-heat-day domains differ; cannot calculate the ensemble mean.", call. = FALSE)
+    }
+    ensemble_days <- day_all[, .(
+      extreme_heat_days = mean(extreme_heat_days),
+      extreme_heat_threshold = mean(extreme_heat_threshold),
+      mean_temperature = mean(mean_temperature)
+    ), by = c(day_keys, "geo_id", "label", "ssp")]
+    ensemble_days[, gcm := "ENSEMBLE"]
+    setorder(ensemble_days, branch, year)
+    fwrite(ensemble_days, file.path(out_dir, "01_extreme_heat_days.csv"))
+  } else {
+    warning("Extreme-heat-day files are unavailable for one or more GCMs; ensemble ANs were still written.")
+  }
   message("Saved ensemble-mean ANs over ", length(gcmlist), " GCMs.")
   quit(save = "no")
 }
 
 path_tmean <- "data/tmeanproj.gz.parquet"
 if (!gcm_name %in% gcmlist) stop(sprintf("Part 01 runs one GCM of gcmlist; got %s.", gcm_name), call. = FALSE)
+extreme_heat_days_only <- tolower(Sys.getenv("EXTREME_HEAT_DAYS_ONLY", "0")) %chin%
+  c("1", "true", "yes")
 
-message(sprintf("\n[01] Building %s %s grouped attributable numbers...", city_name, ssplabs[ssp_name]))
+message(sprintf(
+  "\n[01] Building %s %s %s...",
+  city_name, ssplabs[ssp_name],
+  if (extreme_heat_days_only) "extreme-heat-day counts" else "grouped attributable numbers"
+))
 
 grouped_file <- file.path(out_dir, "01_attribution_grouped.csv")
+extreme_heat_days_file <- file.path(out_dir, "01_extreme_heat_days.csv")
 checks_file <- file.path(check_dir, "01_attribution_checks.csv")
 failures_file <- file.path(check_dir, "01_attribution_failures.csv")
 
@@ -86,19 +114,23 @@ load(prep_data_file)
 setDT(thresholds)
 setDT(obs_data)
 
-city_meta <- fread("data/city_results.csv")
-city_meta <- unique(city_meta[URAU_CODE == city_id & LABEL == city_name & agegroup %in% agelabs])
-if (nrow(city_meta) != 3L) {
-  stop(sprintf("City identifier verification failed for %s.", city_id), call. = FALSE)
+if (!extreme_heat_days_only) {
+  city_meta <- fread("data/city_results.csv")
+  city_meta <- unique(city_meta[URAU_CODE == city_id & LABEL == city_name & agegroup %in% agelabs])
+  if (nrow(city_meta) != 3L) {
+    stop(sprintf("City identifier verification failed for %s.", city_id), call. = FALSE)
+  }
+  city_meta <- city_meta[match(agelabs, agegroup)]
 }
-city_meta <- city_meta[match(agelabs, agegroup)]
 
 #----- Load the demographic domain built in Part 00
 
-demography <- fread(file.path(dem_dir, "00_demography_grouped.csv"))
-demography <- demography[geo_id == city_id & ssp == as.integer(ssp_name)]
-if (!nrow(demography)) {
-  stop("Demographic domain for the city is empty; run 00_prep_data.R first.", call. = FALSE)
+if (!extreme_heat_days_only) {
+  demography <- fread(file.path(dem_dir, "00_demography_grouped.csv"))
+  demography <- demography[geo_id == city_id & ssp == as.integer(ssp_name)]
+  if (!nrow(demography)) {
+    stop("Demographic domain for the city is empty; run 00_prep_data.R first.", call. = FALSE)
+  }
 }
 
 city_thresholds <- thresholds[URAU_CODE == city_id & agegroup %in% agelabs]
@@ -186,42 +218,53 @@ if (any(!is.finite(obs_repeat$tmean_hist))) {
   stop("Historical observed temperatures contain non-finite values.", call. = FALSE)
 }
 
-# ERF basis: knots and boundaries must be those used to estimate the ERFs, i.e.
-# percentiles of the city's FULL observed ERA5-Land series (1990-2019), as in
-# Masselot & Gasparrini (2025) 03_attribution.R (`tper`). Using any other window
-# changes the shape of the published exposure-response function.
-tper <- quantile(obs_city$tmean_obs, predper / 100, na.rm = TRUE)
-knots <- tper[paste0(varper, ".0%")]
-bound <- range(tper)
+if (!extreme_heat_days_only) {
+  # ERF basis: knots and boundaries must be those used to estimate the ERFs, i.e.
+  # percentiles of the city's FULL observed ERA5-Land series (1990-2019), as in
+  # Masselot & Gasparrini (2025) 03_attribution.R (`tper`). Using any other window
+  # changes the shape of the published exposure-response function.
+  tper <- quantile(obs_city$tmean_obs, predper / 100, na.rm = TRUE)
+  knots <- tper[paste0(varper, ".0%")]
+  bound <- range(tper)
 
-#----- Validation fixture: reproduce Masselot et al. (2023) published historical
-# excess deaths (city_results.csv) for this city's 65+ age groups from ERA5,
-# the published coefficients and MMT. Checks the ERF reconstruction end to end.
-fixture_rows <- list()
-coef_fix <- fread("data/coefs.csv")[URAU_CODE == city_id]
-for (agegrp in agelabs) {
-  cm <- city_meta[agegroup == agegrp]
-  bfix <- as.matrix(coef_fix[agegroup == agegrp, .(b1, b2, b3, b4, b5)])
-  bx <- suppressWarnings(onebasis(obs_city$tmean_obs, fun = varfun, degree = vardegree, knots = knots, Bound = bound))
-  bc <- scale(bx, center = onebasis(cm$mmt, fun = varfun, degree = vardegree, knots = knots, Bound = bound), scale = FALSE)
-  rr_fix <- exp(as.numeric(bc %*% t(bfix)))
-  an_fix <- (1 - 1 / rr_fix) * cm$death / 365.25
-  n_years <- uniqueN(obs_city$year)
-  fixture_rows[[agegrp]] <- data.table(
-    agegroup = agegrp,
-    heat = sum(an_fix[obs_city$tmean_obs > cm$mmt]) / n_years,
-    cold = sum(an_fix[obs_city$tmean_obs <= cm$mmt]) / n_years,
-    pub_heat = cm$excess_heat_est,
-    pub_cold = cm$excess_cold_est
-  )
+  #----- Validation fixture: reproduce Masselot et al. (2023) published historical
+  # excess deaths (city_results.csv) for this city's 65+ age groups from ERA5,
+  # the published coefficients and MMT. Checks the ERF reconstruction end to end.
+  fixture_rows <- list()
+  coef_fix <- fread("data/coefs.csv")[URAU_CODE == city_id]
+  for (agegrp in agelabs) {
+    cm <- city_meta[agegroup == agegrp]
+    bfix <- as.matrix(coef_fix[agegroup == agegrp, .(b1, b2, b3, b4, b5)])
+    bx <- suppressWarnings(onebasis(obs_city$tmean_obs, fun = varfun, degree = vardegree, knots = knots, Bound = bound))
+    bc <- scale(bx, center = onebasis(cm$mmt, fun = varfun, degree = vardegree, knots = knots, Bound = bound), scale = FALSE)
+    rr_fix <- exp(as.numeric(bc %*% t(bfix)))
+    an_fix <- (1 - 1 / rr_fix) * cm$death / 365.25
+    n_years <- uniqueN(obs_city$year)
+    fixture_rows[[agegrp]] <- data.table(
+      agegroup = agegrp,
+      heat = sum(an_fix[obs_city$tmean_obs > cm$mmt]) / n_years,
+      cold = sum(an_fix[obs_city$tmean_obs <= cm$mmt]) / n_years,
+      pub_heat = cm$excess_heat_est,
+      pub_cold = cm$excess_cold_est
+    )
+  }
+  fixture <- rbindlist(fixture_rows)
+  fixture[, max_rel_error := pmax(abs(heat / pub_heat - 1), abs(cold / pub_cold - 1))]
+  fixture_tolerance <- 1e-3
+
+  coef_dt <- fread("data/coefs.csv")[URAU_CODE == city_id & agegroup %in% agelabs]
 }
-fixture <- rbindlist(fixture_rows)
-fixture[, max_rel_error := pmax(abs(heat / pub_heat - 1), abs(cold / pub_cold - 1))]
-fixture_tolerance <- 1e-3
-
-coef_dt <- fread("data/coefs.csv")[URAU_CODE == city_id & agegroup %in% agelabs]
 
 city_results <- list()
+extreme_heat_day_results <- list()
+assemble_extreme_heat_days <- function(results) {
+  ans <- rbindlist(results, use.names = TRUE)
+  setcolorder(ans, c(
+    "branch", "year", "extreme_heat_days", "extreme_heat_threshold",
+    "mean_temperature", "geo_id", "label", "ssp", "gcm"))
+  setorder(ans, branch, year)
+  ans
+}
 
 #----- Build the two temperature variants, then loop age groups within each
 
@@ -345,6 +388,23 @@ for (variant in branch_levels) {
     stop(sprintf("Temperature variant %s contains NA values after construction.", variant), call. = FALSE)
   }
 
+  # Age-independent warning-day proxy: days at or above the same annual
+  # extreme-heat threshold used to delimit the study's extreme-heat range.
+  day_result <- t_work[, .(
+    extreme_heat_days = sum(tmean_variant >= moving_p97_5),
+    extreme_heat_threshold = unique(moving_p97_5),
+    mean_temperature = mean(tmean_variant)
+  ), by = year]
+  day_result[, `:=`(
+    branch = variant,
+    geo_id = city_id,
+    label = city_name,
+    ssp = as.integer(ssp_name),
+    gcm = gcm_name)]
+  extreme_heat_day_results[[variant]] <- day_result
+
+  if (extreme_heat_days_only) next
+
   #----- Per age group: classify temperature range, compute AF/AN, annualise
   for (agegrp in agelabs) {
     age_row <- city_thresholds[agegroup == agegrp]
@@ -413,6 +473,36 @@ for (variant in branch_levels) {
   }
 }
 
+extreme_heat_days <- assemble_extreme_heat_days(extreme_heat_day_results)
+expected_day_rows <- length(branch_levels) * length(future_years)
+if (extreme_heat_days_only) {
+  domain_ok <- nrow(extreme_heat_days) == expected_day_rows &&
+    uniqueN(extreme_heat_days[, .(branch, year)]) == expected_day_rows
+  range_ok <- !any(!is.finite(unlist(extreme_heat_days[, .(
+    extreme_heat_days, extreme_heat_threshold, mean_temperature)]))) &&
+    all(extreme_heat_days$extreme_heat_days %between% c(0, 365))
+  day_checks <- data.table(
+    check_name = c("extreme_heat_days_domain", "extreme_heat_days_range"),
+    status = c(if (domain_ok) "PASS" else "FAIL", if (range_ok) "PASS" else "FAIL"),
+    value = c(
+      sprintf("%d rows", nrow(extreme_heat_days)),
+      sprintf("%.0f to %.0f days/year", min(extreme_heat_days$extreme_heat_days),
+              max(extreme_heat_days$extreme_heat_days))
+    ),
+    threshold = c(
+      sprintf("%d branch-year rows", expected_day_rows),
+      "finite values and 0 to 365 extreme-heat days per year"
+    )
+  )
+  fwrite(day_checks, file.path(check_dir, "01_extreme_heat_days_checks.csv"))
+  if (!domain_ok || !range_ok) {
+    stop("Extreme-heat-day-only validation failed.", call. = FALSE)
+  }
+  fwrite(extreme_heat_days, extreme_heat_days_file)
+  message("Saved extreme-heat days to ", extreme_heat_days_file)
+  quit(save = "no")
+}
+
 #----- Assemble the full (branch x year x agegroup x range) domain, zero-filled
 
 grouped <- rbindlist(city_results, use.names = TRUE)
@@ -447,6 +537,8 @@ checks <- data.table(
     "moving_windows_complete",
     "moving_2015_equals_static",
     "without_cc_normextr_empty",
+    "extreme_heat_days_domain",
+    "extreme_heat_days_range",
     "moving_threshold_clamp_count"
   ),
   status = c(
@@ -463,6 +555,11 @@ checks <- data.table(
     if (ext_window != 15L ||
         (length(moving_2015_diff) == 1L && moving_2015_diff <= moving_match_tol)) "PASS" else "FAIL",
     if (sum(grouped[branch == "without_cc" & range == "NormExtrHeat", an]) == 0) "PASS" else "FAIL",
+    if (nrow(extreme_heat_days) == expected_day_rows &&
+        uniqueN(extreme_heat_days[, .(branch, year)]) == expected_day_rows) "PASS" else "FAIL",
+    if (!any(!is.finite(unlist(extreme_heat_days[, .(
+          extreme_heat_days, extreme_heat_threshold, mean_temperature)]))) &&
+        all(extreme_heat_days$extreme_heat_days %between% c(0, 365))) "PASS" else "FAIL",
     "PASS"
   ),
   value = c(
@@ -478,6 +575,9 @@ checks <- data.table(
     sprintf("%d windows; %d years and %d days each", nrow(moving_thresholds), ext_window, ext_window * 365L),
     sprintf("abs diff = %.12g C", moving_2015_diff),
     sprintf("sum AN = %.12g", sum(grouped[branch == "without_cc" & range == "NormExtrHeat", an])),
+    sprintf("%d rows", nrow(extreme_heat_days)),
+    sprintf("%.0f to %.0f days/year", min(extreme_heat_days$extreme_heat_days),
+            max(extreme_heat_days$extreme_heat_days)),
     sprintf("%d of %d years", clamp_count, nrow(moving_thresholds))
   ),
   threshold = c(
@@ -494,6 +594,8 @@ checks <- data.table(
     if (ext_window == 15L) sprintf("absolute difference <= %g C", moving_match_tol) else
       "informational for non-canonical trailing-window sensitivity",
     "exactly zero attributable deaths",
+    sprintf("%d branch-year rows", expected_day_rows),
+    "finite values and 0 to 365 extreme-heat days per year",
     "informational count; moving P97.5 is clamped to static P97.5"
   )
 )
@@ -522,6 +624,8 @@ if (nrow(failures)) {
 }
 
 fwrite(grouped, grouped_file)
+fwrite(extreme_heat_days, extreme_heat_days_file)
 
 message("Saved grouped AN to ", grouped_file)
+message("Saved extreme-heat days to ", extreme_heat_days_file)
 message("Saved checks to ", checks_file)

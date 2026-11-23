@@ -6,12 +6,27 @@ source("analysis/output_names.R")
 suppressPackageStartupMessages({
   library(data.table)
   library(ggplot2)
+  library(patchwork)
 })
 
 batch_root <- Sys.getenv("BATCH_ROOT", "results/europe/heatsplit_20261013")
+attribution_root <- Sys.getenv("ATTRIBUTION_ROOT", batch_root)
 figure_root <- Sys.getenv("FIGURE_ROOT", "results/figures_simon_20oct")
 geo_level <- tolower(Sys.getenv("GEO_LEVEL", "all"))
 geo_id_filter <- Sys.getenv("GEO_ID", "")
+extreme_cold_prob <- as.numeric(Sys.getenv("EXTREME_COLD_PROB", "0.025"))
+extreme_heat_prob <- as.numeric(Sys.getenv("EXTREME_HEAT_PROB", "0.975"))
+extreme_window_years <- as.integer(Sys.getenv("EXTREME_WINDOW_YEARS", "15"))
+figure_title_suffix <- trimws(Sys.getenv("FIGURE_TITLE_SUFFIX", ""))
+if (anyNA(c(extreme_cold_prob, extreme_heat_prob, extreme_window_years)) ||
+    extreme_cold_prob <= 0 || extreme_cold_prob >= 1 ||
+    extreme_heat_prob <= 0 || extreme_heat_prob >= 1 || extreme_window_years < 1L) {
+  stop("Invalid extreme-temperature threshold configuration.", call. = FALSE)
+}
+format_percentile <- function(prob) format(100 * prob, trim = TRUE, scientific = FALSE)
+cold_percentile <- format_percentile(extreme_cold_prob)
+heat_percentile <- format_percentile(extreme_heat_prob)
+title_suffix <- if (nzchar(figure_title_suffix)) paste0(" (", figure_title_suffix, ")") else ""
 ssp_set <- as.integer(strsplit(Sys.getenv("SSP_SET", "1,2,3"), ",", fixed = TRUE)[[1]])
 if (!length(ssp_set) || anyNA(ssp_set) || any(!ssp_set %in% 1:3))
   stop("SSP_SET must be a comma-separated subset of 1,2,3.", call. = FALSE)
@@ -27,7 +42,7 @@ range_colours <- c(ExtrCold = "#24558A", ModCold = "#86BCE2",
                    ModHeat = "#F3C623", NormExtrHeat = "#F06B18", ExtrHeat = "#AD1A2B")
 stack_order <- c("ModCold", "ExtrCold", "ModHeat", "NormExtrHeat", "ExtrHeat")
 ssp_labels <- c(`1` = "SSP1–2.6", `2` = "SSP2–4.5", `3` = "SSP3–7.0")
-period_labels <- c(`2055` = "2055–59", `2095` = "2095–99")
+period_labels <- c(`2020` = "2020–24", `2055` = "2055–59", `2095` = "2095–99")
 source_bands <- c("65--69", "70--74", "75--79", "80--84",
                   "85--89", "90--94", "95--99", "100+")
 age_levels <- c("65–69", "70–74", "75–79", "80–84", "85–89", "90–94", "95+")
@@ -36,7 +51,13 @@ age_map <- data.table(
   age_band = c(age_levels[1:6], "95+", "95+"),
   agegroup = c(rep("65-74", 2), rep("75-84", 2), rep("85+", 4))
 )
-starts <- c(2055L, 2095L)
+starts <- c(2020L, 2055L, 2095L)
+figure_years <- unlist(lapply(starts, function(start) start:(start + 4L)), use.names = FALSE)
+period_start <- function(year) {
+  ans <- rep(NA_integer_, length(year))
+  for (start in starts) ans[year %in% start:(start + 4L)] <- start
+  ans
+}
 
 needed <- c("data/city_results.csv", "data/wittgenstein_pop.csv", "data/wittgenstein_assr.csv")
 if (any(!file.exists(needed))) stop("Missing input: ", paste(needed[!file.exists(needed)], collapse = ", "))
@@ -95,24 +116,24 @@ if (max(abs(weight_sums - 1)) > 1e-12) stop("Band death weights do not sum to on
 
 message("[Figure 1] Reading 19-GCM ensemble attribution outputs...")
 read_city <- function(ssp, city) {
-  path <- file.path(batch_root, paste0("ssp", ssp), city, "ENSEMBLE", "01_attribution_grouped.csv")
+  path <- file.path(attribution_root, paste0("ssp", ssp), city, "ENSEMBLE", "01_attribution_grouped.csv")
   if (!file.exists(path)) stop("Missing attribution file: ", path)
   x <- fread(path)[
-    year %in% c(2055:2059, 2095:2099) & branch %chin% c("with_cc", "without_cc") & range %chin% ranges,
+    year %in% figure_years & branch %chin% c("with_cc", "without_cc") & range %chin% ranges,
     .(an = sum(an)),
     by = .(city = geo_id, branch, agegroup, range,
-           year_start = fifelse(year <= 2059L, 2055L, 2095L))]
+           year_start = period_start(year))]
   x[, ssp := as.integer(ssp)]
   x
 }
 attribution <- rbindlist(lapply(ssp_set, function(s) {
-  root <- file.path(batch_root, paste0("ssp", s))
+  root <- file.path(attribution_root, paste0("ssp", s))
   cities <- sort(list.dirs(root, recursive = FALSE, full.names = FALSE))
   cities <- cities[file.exists(file.path(root, cities, "ENSEMBLE", "01_attribution_grouped.csv"))]
   if (length(cities) != 854L) stop("Expected 854 ensemble city files for SSP", s, ".")
   rbindlist(lapply(cities, function(city) read_city(s, city)))
 }))
-expected <- length(ssp_set) * 854L * 2L * 3L * 5L * 2L
+expected <- length(ssp_set) * 854L * 2L * 3L * 5L * length(starts)
 if (nrow(attribution) != expected || any(!is.finite(attribution$an))) stop("Incomplete attribution domain.")
 
 allocated <- merge(attribution, weights, by = c("city", "ssp", "year_start", "agegroup"),
@@ -163,8 +184,8 @@ master_checks <- rbindlist(lapply(seq_len(nrow(specs)), function(i) {
   rbindlist(lapply(ssp_set, function(s) {
     path <- file.path(batch_root, "geographies", paste0("ssp", s), spec$level, spec$id,
                       "03_master_table.csv")
-    x <- fread(path)[year %in% c(2055:2059, 2095:2099) & range %chin% ranges,
-      .(master_an = sum(an)), by = .(ssp, branch, year_start = fifelse(year <= 2059L, 2055L, 2095L))]
+    x <- fread(path)[year %in% figure_years & range %chin% ranges,
+      .(master_an = sum(an)), by = .(ssp, branch, year_start = period_start(year))]
     y <- plot_data[geo_id == spec$id & ssp == s, .(figure_an = sum(band_an)),
                    by = .(ssp, branch, year_start)]
     merge(x, y, by = c("ssp", "branch", "year_start"))[
@@ -174,6 +195,8 @@ master_checks <- rbindlist(lapply(seq_len(nrow(specs)), function(i) {
 if (max(master_checks$absolute_difference) > 1e-8) stop("Pooled attribution totals do not match master tables.")
 
 # Exact source population versus the pipeline PCLM population, SSP3 ages 80–84.
+# The restored 2020 baseline has a slightly larger open-age PCLM approximation;
+# preserve the existing 0.1% future-period guard and allow at most 0.3% at baseline.
 population_checks <- rbindlist(lapply(meta$city, function(city_id) {
   path <- file.path(batch_root, "ssp3", city_id, "demography", "00_demography_single_age.csv")
   pclm <- fread(path)[year %in% starts & age %between% c(80L, 84L),
@@ -186,9 +209,11 @@ population_checks[, relative_difference_percent :=
                     100 * (exact_population - pclm_population) / pclm_population]
 population_summary <- population_checks[, .(
   maximum_absolute_difference_percent = max(abs(relative_difference_percent))), by = year_start]
+population_summary[, maximum_allowed_percent := fifelse(year_start == 2020L, 0.3, 0.1)]
 print(population_summary)
-if (any(population_summary$maximum_absolute_difference_percent > 0.1))
-  stop("Exact-band and PCLM population differ by more than 0.1%.")
+if (any(population_summary$maximum_absolute_difference_percent >
+        population_summary$maximum_allowed_percent))
+  stop("Exact-band and PCLM population exceed the period-specific tolerance.")
 
 # Required nonlinear pooling example.
 ex_demo <- bands[ssp == 3L & year_start == 2095L & age_band == "85–89"]
@@ -221,8 +246,10 @@ fwrite(pooling_example, file.path(figure_root, "data", "figure1_pooling_example.
 
 footnote <- paste(
   "Absolute risk is the annual probability of a temperature-attributable death among people alive at the start of the year, by 5-year age group; deaths at all non-optimal temperatures are included, not only those attributable to climate change.",
-  "Historical 2.5th and 97.5th percentiles (P2.5, P97.5): ERA5-Land, 2000–2014. Projected P97.5: the historical P97.5 plus the change in the calibrated GCM P97.5 over the 15 preceding years.",
-  "Without climate change, the normal extreme band is empty or nearly so. 95+ includes 100+. For SSP1, Wittgenstein survival ratios stored as exactly 1 were set to 0.9995. Central estimates, mean of 19 GCMs; no uncertainty intervals.",
+  sprintf("Heat ranges: moderate = MMT to historical (2000–2014) P%s; normal extreme = historical to projected P%s; extreme = above projected P%s.", heat_percentile, heat_percentile, heat_percentile),
+  sprintf("Cold ranges: extreme = below historical P%s; moderate = historical P%s to MMT. Pale bars use the same colours as the upper bars.", cold_percentile, cold_percentile),
+  sprintf("Projected P%s is the historical P%s plus the change in the calibrated GCM P%s over the %d preceding years. Without climate change, the normal extreme band is empty or nearly so.", heat_percentile, heat_percentile, heat_percentile, extreme_window_years),
+  "95+ includes 100+. For SSP1, Wittgenstein survival ratios stored as exactly 1 were set to 0.9995. Central estimates, mean of 19 GCMs; no uncertainty intervals.",
   sep = "\n")
 
 make_plot <- function(d) {
@@ -233,74 +260,145 @@ make_plot <- function(d) {
     scenario = factor(ssp_labels[as.character(ssp)], levels = ssp_labels[as.character(ssp_set)]),
     period = factor(period_labels[as.character(year_start)], levels = period_labels),
     range_stack = factor(range, levels = stack_order),
+    legend_key = factor(
+      paste(branch, range, sep = ":"),
+      levels = c(paste("with_cc", ranges, sep = ":"),
+                 paste("without_cc", ranges, sep = ":"))),
     direction = fifelse(range %chin% c("ExtrCold", "ModCold"), "cold", "heat"),
     y = as.numeric(factor(age_band, levels = age_levels)) + fifelse(branch == "with_cc", 0.16, -0.16))]
   setorder(d, scenario, period, branch, age_band, direction, range_stack)
   d[, `:=`(stack_end = cumsum(risk), stack_start = cumsum(risk) - risk),
     by = .(scenario, period, branch, age_band, direction)]
-  d[direction == "heat", `:=`(xmin = stack_start, xmax = stack_end)]
-  d[direction == "cold", `:=`(xmin = -stack_end, xmax = -stack_start)]
-  half_width <- max(abs(c(d$xmin, d$xmax))) * 1.10
-  left_period <- levels(d$period)[1]
-  bar_labels <- unique(d[period == left_period & age_band == "95+",
-                         .(scenario, period, branch, y)])
-  bar_labels[, `:=`(x = -0.98 * half_width,
-                    text = fifelse(branch == "with_cc", "with climate change", "without climate change"))]
-  sides <- unique(d[, .(scenario, period)])
-  sides <- rbind(sides[, .(scenario, period, x = -0.55 * half_width, y = 7.65, text = "Cold")],
-                 sides[, .(scenario, period, x = 0.55 * half_width, y = 7.65, text = "Heat")])
-  p <- ggplot(d) +
-    geom_rect(aes(xmin = xmin, xmax = xmax, ymin = y - 0.135, ymax = y + 0.135,
-                  fill = range_stack, alpha = branch), colour = NA) +
-    geom_vline(xintercept = 0, linewidth = 0.35, colour = "#333333") +
-    geom_text(data = bar_labels, aes(x, y, label = text), inherit.aes = FALSE,
-              hjust = 0, size = 2.15, colour = "#333333") +
-    geom_text(data = sides, aes(x, y, label = text), inherit.aes = FALSE,
-              fontface = "bold", size = 2.8, colour = "#333333") +
-    facet_grid(scenario ~ period, scales = "fixed", switch = "y") +
-    scale_x_continuous(limits = c(-half_width, half_width),
-      breaks = function(lim) {
-        step <- if (max(abs(lim)) > 1500) 500 else 250
-        m <- floor(max(abs(lim)) / step) * step
-        seq(-m, m, by = step)
-      },
-      labels = function(z) format(abs(z), big.mark = ",", trim = TRUE), expand = expansion(mult = 0)) +
-    scale_y_continuous(breaks = seq_along(age_levels), labels = age_levels,
-                       limits = c(0.6, 7.9), expand = expansion(mult = 0)) +
-    scale_fill_manual(values = range_colours, labels = range_labels,
-                      breaks = ranges, drop = FALSE, name = NULL) +
-    scale_alpha_manual(values = c(with_cc = 1, without_cc = 0.32),
-      breaks = c("with_cc", "without_cc"),
-      labels = c("With climate change", "Without climate change"), name = NULL) +
-    guides(fill = guide_legend(order = 1, nrow = 1),
-           alpha = guide_legend(order = 2, override.aes = list(fill = "#555555"))) +
-    labs(title = paste0(label, ": absolute risk of temperature-attributable death by age and temperature range"),
-      x = "Annual risk of temperature-attributable death per 100,000 people (cold to the left; heat to the right)",
-      y = "Age group", caption = footnote) +
-    theme_minimal(base_size = 10.5) +
-    theme(panel.grid.major.y = element_blank(), panel.grid.minor = element_blank(),
-      strip.placement = "outside", strip.background = element_blank(),
-      strip.text = element_text(face = "bold", colour = "black"),
-      strip.text.y.left = element_text(angle = 0, hjust = 1),
-      plot.title = element_text(face = "bold", size = 15),
-      plot.caption = element_text(size = 7.8, hjust = 0),
-      legend.position = "bottom", legend.box = "vertical",
-      panel.spacing = unit(0.75, "lines"))
-  list(plot = p, half_width = half_width)
+
+  # Give cold and heat equal visual width while allowing different numeric
+  # scales. Simon's requested Europe scales are 0–2,000 for cold and 0–500,
+  # 0–1,000 and 0–1,500 for heat. Regional supplements expand only when
+  # required to avoid clipping.
+  requested_heat_limits <- c(`2020` = 500, `2055` = 1000, `2095` = 1500)
+  round_up_500 <- function(x) 500 * ceiling(x / 500)
+  cold_limit <- max(2000, round_up_500(d[direction == "cold", max(stack_end)]))
+  required_heat <- d[direction == "heat", .(required = max(stack_end)), by = year_start]
+  heat_limits <- requested_heat_limits
+  heat_limits[as.character(required_heat$year_start)] <- pmax(
+    heat_limits[as.character(required_heat$year_start)],
+    vapply(required_heat$required, round_up_500, numeric(1)))
+
+  legend_values <- c(
+    setNames(range_colours[ranges], paste("with_cc", ranges, sep = ":")),
+    setNames(grDevices::adjustcolor(range_colours[ranges], alpha.f = 0.32),
+             paste("without_cc", ranges, sep = ":")))
+  legend_labels <- c(
+    paste0(range_labels[ranges], " (with CC)"),
+    paste0(range_labels[ranges], " (without CC)"))
+
+  make_period_panel <- function(period_start, panel_index) {
+    pd <- copy(d[year_start == period_start])
+    heat_limit <- unname(heat_limits[as.character(period_start)])
+    heat_factor <- cold_limit / heat_limit
+    pd[direction == "heat", `:=`(
+      xmin = stack_start * heat_factor,
+      xmax = stack_end * heat_factor)]
+    pd[direction == "cold", `:=`(
+      xmin = -stack_end,
+      xmax = -stack_start)]
+
+    bar_labels <- if (panel_index == 1L) {
+      unique(pd[age_band == "95+", .(scenario, branch, y)])[
+        , `:=`(x = -0.98 * cold_limit,
+               text = fifelse(branch == "with_cc", "with climate change", "without climate change"))]
+    } else {
+      data.table(scenario = factor(), branch = character(), y = numeric(), x = numeric(), text = character())
+    }
+    sides <- unique(pd[, .(scenario)])
+    sides <- rbind(
+      sides[, .(scenario, x = -0.55 * cold_limit, y = 7.65, text = "Cold")],
+      sides[, .(scenario, x = 0.55 * cold_limit, y = 7.65, text = "Heat")])
+
+    heat_step <- if (heat_limit <= 500) 250 else 500
+    cold_ticks <- seq(-cold_limit, 0, by = 500)
+    heat_ticks <- seq(heat_step, heat_limit, by = heat_step)
+    axis_breaks <- c(cold_ticks, heat_ticks * heat_factor)
+    axis_labels <- format(c(abs(cold_ticks), heat_ticks), big.mark = ",", trim = TRUE)
+
+    p <- ggplot(pd) +
+      geom_rect(aes(xmin = xmin, xmax = xmax, ymin = y - 0.135, ymax = y + 0.135,
+                    fill = legend_key), colour = NA) +
+      geom_vline(xintercept = 0, linewidth = 0.35, colour = "#333333") +
+      geom_text(data = bar_labels, aes(x, y, label = text), inherit.aes = FALSE,
+                hjust = 0, size = 2.15, colour = "#333333") +
+      geom_text(data = sides, aes(x, y, label = text), inherit.aes = FALSE,
+                fontface = "bold", size = 2.8, colour = "#333333") +
+      facet_grid(scenario ~ ., switch = "y") +
+      scale_x_continuous(
+        limits = c(-cold_limit, cold_limit), breaks = axis_breaks, labels = axis_labels,
+        expand = expansion(mult = 0)) +
+      scale_y_continuous(
+        breaks = seq_along(age_levels), labels = age_levels,
+        limits = c(0.6, 7.9), expand = expansion(mult = 0)) +
+      scale_fill_manual(
+        values = legend_values, labels = legend_labels,
+        breaks = names(legend_values), drop = FALSE, name = NULL) +
+      guides(fill = guide_legend(nrow = 2, byrow = TRUE)) +
+      labs(
+        title = period_labels[as.character(period_start)],
+        x = if (panel_index == 2L)
+          "Annual risk of temperature-attributable death per 100,000 people (cold to the left; heat to the right)"
+          else NULL,
+        y = if (panel_index == 1L) "Age group" else NULL) +
+      theme_minimal(base_size = 10.5) +
+      theme(
+        panel.grid.major.y = element_blank(), panel.grid.minor = element_blank(),
+        strip.placement = "outside", strip.background = element_blank(),
+        strip.text = element_text(face = "bold", colour = "black"),
+        strip.text.y.left = if (panel_index == 1L)
+          element_text(angle = 0, hjust = 1) else element_blank(),
+        axis.text.y = if (panel_index == 1L) element_text() else element_blank(),
+        axis.ticks.y = if (panel_index == 1L) element_line() else element_blank(),
+        plot.title = element_text(face = "bold", hjust = 0.5, size = 11),
+        legend.position = "bottom", legend.box = "vertical",
+        panel.spacing.y = unit(0.75, "lines"),
+        plot.margin = margin(
+          5.5,
+          if (panel_index < length(starts)) 20 else 5.5,
+          5.5,
+          if (panel_index > 1L) 20 else 5.5))
+    p
+  }
+
+  panels <- lapply(seq_along(starts), function(i) make_period_panel(starts[i], i))
+  p <- wrap_plots(panels, nrow = 1, guides = "collect") +
+    plot_annotation(
+      title = paste0(label, ": absolute risk of temperature-attributable death by age and temperature range", title_suffix),
+      subtitle = "Each age group: upper bar with climate change, lower (pale) bar without; 5-year period means.",
+      caption = footnote,
+      theme = theme(
+        plot.title = element_text(face = "bold", size = 15),
+        plot.subtitle = element_text(colour = "#555555"),
+        plot.caption = element_text(size = 7.8, hjust = 0))) &
+    theme(legend.position = "bottom")
+
+  list(
+    plot = p,
+    scales = data.table(
+      period_start = starts,
+      cold_limit = cold_limit,
+      heat_limit = unname(heat_limits[as.character(starts)])))
 }
 
 message("[Figure 1] Rendering figures...")
+figure_width <- 5 + 4.5 * length(starts)
 for (i in seq_len(nrow(specs))) {
   spec <- specs[i]
   d <- plot_data[geo_id == spec$id]
   built <- make_plot(d)
   stem <- "figure01_absolute_risk"
   fpath <- function(filename) figure_file(figure_root, filename, spec$id)
-  ggsave(fpath(paste0(stem, ".png")), built$plot, width = 14, height = 14, units = "in", dpi = 300)
-  ggsave(fpath(paste0(stem, ".pdf")), built$plot, width = 14, height = 14, units = "in", device = cairo_pdf)
+  ggsave(fpath(paste0(stem, ".png")), built$plot, width = figure_width, height = 14, units = "in", dpi = 300)
+  ggsave(fpath(paste0(stem, ".pdf")), built$plot, width = figure_width, height = 14, units = "in", device = cairo_pdf)
   d[, `:=`(scenario = ssp_labels[as.character(ssp)], period = period_labels[as.character(year_start)])]
   fwrite(d, fpath(paste0(stem, "_data.csv")))
-  cat(sprintf("%s shared horizontal half-width: %.6f\n", spec$label, built$half_width))
+  cat(spec$label, " scales:\n", sep = "")
+  print(built$scales)
 }
 
 readme <- c(
@@ -314,7 +412,8 @@ readme <- c(
   "", paste("SSP1–2.6 sets survival ratios stored as exactly 1 to 0.9995 as a sensitivity.",
             "SSP2–4.5 includes 12 Swiss cities with within-age-band mortality-shape warnings; the maximum decline is 11.09%."),
   "", "## Extreme-temperature thresholds", "",
-  paste("The early Europe Version A maximum is set by Benidorm (ES044C), Spain.",
+  paste(sprintf("This build uses historical P%s for extreme cold and historical/projected P%s for extreme heat, with a %d-year trailing window.", cold_percentile, heat_percentile, extreme_window_years),
+        "The early Europe Version A maximum is set by Benidorm (ES044C), Spain.",
         "Clamp counts and annual shares are reported in the threshold data CSV files and the run console output.",
         "The figure does not include a clamp strip."))
 writeLines(readme, file.path(figure_root, "README.md"), useBytes = TRUE)
