@@ -698,7 +698,12 @@ uncertainty_note <- if (exists("uncertainty_comparison")) {
   all <- uncertainty_comparison[metric == "all_erosion_ratio_pct"]
   heat <- uncertainty_comparison[metric == "heat_erosion_ratio_pct"]
   sprintf(
-    "The 2026-11-10 uncertainty summary reports experiment medians of %.4f%% (all temperatures) and %.4f%% (heat). These are 19-GCM by 500-draw medians; the pooled central estimates here are %.4f%% and %.4f%%, respectively.",
+    paste(
+      "The 2026-11-10 uncertainty summary reports experiment medians of",
+      "%.4f%% (all temperatures) and %.4f%% (heat). These are 19-GCM by",
+      "500-draw medians; the pooled central estimates here are %.4f%% and",
+      "%.4f%%, respectively."
+    ),
     all$run_median_pct, heat$run_median_pct, all$central_pct, heat$central_pct
   )
 } else {
@@ -710,17 +715,48 @@ readme <- c(
   paste("Analysis commit:", commit),
   paste("Input batch:", batch_root),
   "",
-  "G1 is the with-climate-change LE65 gain from the 2020-24 to 2095-99 period-mean mortality schedules; G0 is the same gain without climate change. The 2020-24 baseline for both is the pooled ENSEMBLE, age 65-100 cause-specific mortality-rate schedule averaged over those five years, matching `compute_period_metrics()` in `analysis/paper_table1.R`.",
+  paste(
+    "G1 is the with-climate-change LE65 gain from the 2020-24 to 2095-99",
+    "period-mean mortality schedules; G0 is the same gain without climate",
+    "change. The 2020-24 baseline for both is the pooled ENSEMBLE, age 65-100",
+    "cause-specific mortality-rate schedule averaged over those five years,",
+    "matching `compute_period_metrics()` in `analysis/paper_table1.R`."
+  ),
   "",
-  "The four endpoint LE65 levels are the means of annual ENSEMBLE values in `04_le_li_levels.csv`. Their differences are also included in the long table, separately labelled; they need not equal period-mean-rate gains. Table columns and reductions use the period-mean-rate G0/G1 so they remain consistent with Table 1 and the five-year-step decomposition.",
+  paste(
+    "The four endpoint LE65 levels are the means of annual ENSEMBLE values in",
+    "`04_le_li_levels.csv`. Their differences are also included in the long",
+    "table, separately labelled; they need not equal period-mean-rate gains.",
+    "Table columns and reductions use the period-mean-rate G0/G1 so they remain",
+    "consistent with Table 1 and the five-year-step decomposition."
+  ),
   "",
-  "Temperature contributions are sums of the with-CC, ENSEMBLE Horiuchi contributions across ages 65-100 and all 15 consecutive five-year transitions. Cold is extreme plus moderate cold; heat is moderate, normal-extreme and extreme heat; together is the sum of all five temperature ranges. The diamond check verifies that cold plus heat equals this five-range total. Other causes are `rest`.",
+  paste(
+    "Temperature contributions are sums of the with-CC, ENSEMBLE Horiuchi",
+    "contributions across ages 65-100 and all 15 consecutive five-year",
+    "transitions. Cold is extreme plus moderate cold; heat is moderate,",
+    "normal-extreme and extreme heat; together is the sum of all five",
+    "temperature ranges. The diamond check verifies that cold plus heat equals",
+    "this five-range total. Other causes are `rest`."
+  ),
   "",
-  "All-temperature reduction is `100 * (G0 - G1) / G0`, matching the erosion-ratio definition used in methods section 2.8 and `analysis/paper_table1.R`. Heat-only reduction follows the heat-deleted versus full schedule calculation in `analysis/erf_uncertainty_pilot.R`: subtract the no-heat cold-only gain difference from the all-temperature gain loss, then divide by the same G0.",
+  paste(
+    "All-temperature reduction is `100 * (G0 - G1) / G0`, matching the",
+    "erosion-ratio definition used in methods section 2.8 and",
+    "`analysis/paper_table1.R`. Heat-only reduction follows the heat-deleted",
+    "versus full schedule calculation in `analysis/erf_uncertainty_pilot.R`:",
+    "subtract the no-heat cold-only gain difference from the all-temperature",
+    "gain loss, then divide by the same G0."
+  ),
   "",
   uncertainty_note,
   "",
-  "The SSP1 0.9995 survival-ratio replacement and SSP2 inclusion of 12 Swiss cities with the mortality-shape check bypassed are exploratory sensitivities, not production runs. They are retained as caveats in this table output."
+  paste(
+    "The SSP1 0.9995 survival-ratio replacement and SSP2 inclusion of 12",
+    "Swiss cities with the mortality-shape check bypassed are exploratory",
+    "sensitivities, not production runs. They are retained as caveats in this",
+    "table output."
+  )
 )
 writeLines(readme, file.path(data_dir, "table02_README.md"), useBytes = TRUE)
 
