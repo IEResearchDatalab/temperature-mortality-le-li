@@ -137,6 +137,27 @@ lifetime_risk <- function(mx_cause, mx_rest) {
   c(all = 100 * sum(d), heat = 100 * sum(d[, heat_ranges, drop = FALSE]))
 }
 
+age85_89_risk_change <- function(draw_index, geography_index, branch_index, cause_names) {
+  age_indices <- which(ages %in% 85:89)
+  range_indices <- match(cause_names, ranges)
+  period_indices <- list(start = 1:5, end = 6:10)
+  rate <- function(year_indices) {
+    deaths <- sum(pool_single[
+      draw_index, geography_index, branch_index, year_indices,
+      age_indices, range_indices, drop = FALSE
+    ])
+    population <- sum(pool_pop[geography_index, year_indices, age_indices])
+    if (!is.finite(deaths) || !is.finite(population) || deaths <= 0 ||
+        population <= 0) {
+      stop("Invalid age-85-89 risk numerator or population.", call. = FALSE)
+    }
+    deaths / population
+  }
+  start_rate <- rate(period_indices$start)
+  end_rate <- rate(period_indices$end)
+  100 * (end_rate / start_rate - 1)
+}
+
 add_geo <- function(city_region) match(c("Europe", paste(city_region, "Europe")), geographies)
 
 for (ci in seq_along(selected_cities)) {
@@ -403,6 +424,9 @@ for (di in seq_len(D)) {
     cold_only_loss <- noheat_gain[2] - noheat_gain[1]
     heat_loss <- all_loss - cold_only_loss
     risk <- lifetime_risk(schedules$with_cc$end$temp, schedules$with_cc$end$rest)
+    li_change_with <- stats$with_cc$end[["LI65"]] - stats$with_cc$start[["LI65"]]
+    li_change_without <- stats$without_cc$end[["LI65"]] -
+      stats$without_cc$start[["LI65"]]
 
     end_idx <- match(2095:2099, years)
     with_counts <- apply(pool_group[di, gi, 1L, end_idx, , , drop = FALSE], 6, sum)
@@ -424,8 +448,30 @@ for (di in seq_len(D)) {
       heat_erosion_years = heat_loss, all_erosion_years = all_loss,
       heat_erosion_ratio_pct = 100 * heat_loss / g0,
       all_erosion_ratio_pct = 100 * all_loss / g0,
+      LI65plus_change_with_cc_years = li_change_with,
+      LI65plus_change_without_cc_years = li_change_without,
+      LI65plus_warming_effect_on_change_months =
+        12 * (li_change_with - li_change_without),
       delta_LE65_end = stats$with_cc$end[1] - stats$without_cc$end[1],
-      delta_LI65_end = stats$with_cc$end[2] - stats$without_cc$end[2]
+      delta_LI65_end = stats$with_cc$end[2] - stats$without_cc$end[2],
+      temperature_risk_change_85_89_with_cc_pct = age85_89_risk_change(
+        di, gi, 1L, ranges
+      ),
+      temperature_risk_change_85_89_without_cc_pct = age85_89_risk_change(
+        di, gi, 2L, ranges
+      ),
+      cold_risk_change_85_89_with_cc_pct = age85_89_risk_change(
+        di, gi, 1L, cold_ranges
+      ),
+      cold_risk_change_85_89_without_cc_pct = age85_89_risk_change(
+        di, gi, 2L, cold_ranges
+      ),
+      heat_risk_change_85_89_with_cc_pct = age85_89_risk_change(
+        di, gi, 1L, heat_ranges
+      ),
+      heat_risk_change_85_89_without_cc_pct = age85_89_risk_change(
+        di, gi, 2L, heat_ranges
+      )
     )
   }
 }
