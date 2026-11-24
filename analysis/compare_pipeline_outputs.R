@@ -1,9 +1,10 @@
 #!/usr/bin/env Rscript
 
 ################################################################################
-# Compare the saved Part 01 attribution and Part 04 LE65/LI65+ outputs between
-# two batch roots. Byte-identical files are reported separately; other files
-# are joined by their declared data keys and checked at a relative tolerance.
+# Compare saved Part 01, Part 03 and Part 04 outputs between two batch roots,
+# including city ENSEMBLE outputs and pooled geography decompositions.
+# Byte-identical files are reported separately; other files are joined by
+# their declared data keys and checked at a relative tolerance.
 # Requires: candidate and reference batch roots with matching SSP output paths.
 # Produces: a concise comparison report on stdout; no files are written.
 # How to run:
@@ -43,9 +44,24 @@ contracts <- list(
     ),
     values = "an"
   ),
+  "03_master_table.csv" = list(
+    keys = c("geo_id", "label", "ssp", "gcm", "branch", "year", "age", "range"),
+    values = c("pop", "death", "an", "temp_deaths", "rest", "deaths_component")
+  ),
   "04_le_li_levels.csv" = list(
     keys = c("geo_id", "label", "gcm", "branch", "year"),
     values = c("LE65", "LI65")
+  ),
+  "04_between_branch_decomposition.csv" = list(
+    keys = c("geo_id", "label", "gcm", "period", "age", "cause"),
+    values = c("le_contribution", "li_contribution")
+  ),
+  "04_within_branch_period_decomposition.csv" = list(
+    keys = c(
+      "geo_id", "label", "gcm", "branch", "period_from", "period_to",
+      "age", "cause"
+    ),
+    values = c("le_contribution", "li_contribution")
   )
 )
 
@@ -54,7 +70,7 @@ candidate_files <- list.files(
 )
 candidate_files <- candidate_files[basename(candidate_files) %in% names(contracts)]
 if (!length(candidate_files)) {
-  stop("No Part 01 attribution or Part 04 levels files found.", call. = FALSE)
+  stop("No supported Part 01, Part 03, or Part 04 files found.", call. = FALSE)
 }
 
 compare_pair <- function(candidate, reference, contract) {
