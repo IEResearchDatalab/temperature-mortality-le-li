@@ -32,7 +32,7 @@ uncertainty_summary_file <- Sys.getenv(
   "UNCERTAINTY_SUMMARY",
   "results/europe/uncertainty_20261110/tables/ssp3/summary.csv"
 )
-output_date <- Sys.getenv("TABLE_DATE", "20261123")
+output_date <- Sys.getenv("TABLE_DATE", "20261124")
 if (!grepl("^[0-9]{8}$", output_date)) {
   stop("TABLE_DATE must use YYYYMMDD.", call. = FALSE)
 }
@@ -252,6 +252,7 @@ calculate_one <- function(ssp, geo) {
   list(
     long = data.table(
       ssp = ssp, scenario = c("SSP1-2.6", "SSP2-4.5", "SSP3-7.0")[ssp],
+      exploratory = ssp < 3L,
       geography = label, metric = c(
         "LE65_2020_24_with_climate_change",
         "LE65_2095_99_with_climate_change",
@@ -300,6 +301,7 @@ calculate_one <- function(ssp, geo) {
     ),
     wide = data.table(
       ssp = ssp, scenario = c("SSP1-2.6", "SSP2-4.5", "SSP3-7.0")[ssp],
+      exploratory = ssp < 3L,
       geography = label, gain_in_years = g1,
       cold_pct = 100 * cold_months / (12 * g1),
       heat_pct = 100 * heat_months / (12 * g1),
@@ -309,6 +311,7 @@ calculate_one <- function(ssp, geo) {
     ),
     sx = data.table(
       ssp = ssp, scenario = c("SSP1-2.6", "SSP2-4.5", "SSP3-7.0")[ssp],
+      exploratory = ssp < 3L,
       geography = label, gain_in_years = g1,
       cold_months = cold_months, heat_months = heat_months,
       cold_and_heat_together_months = together_months,
