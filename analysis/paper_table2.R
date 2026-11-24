@@ -8,7 +8,8 @@
 # <batch>/ssp<SSP>/run_manifest.txt; Figure 2 panel and decade CSVs in
 # FIGURE_ROOT/data/; TABLE1_SSP3 and UNCERTAINTY_SUMMARY comparison CSVs;
 # analysis/decade_decomposition.R and analysis/output_names.R.
-# Produces: FIGURE_ROOT/data/table02_* and tableSx_le65_gain_months.csv.
+# Produces: FIGURE_ROOT/data/table02_* and tableSx_le65_gain_months.csv,
+# plus LE65/LI65+ level, change and LI65+ contribution exports.
 # How to run: BATCH_ROOT=results/europe/heatsplit_20261013 \
 #   FIGURE_ROOT=results/paper_output_new \
 #   TABLE1_SSP3=results/paper_output_new/table1/table1_ssp3_geographies.csv \
@@ -47,9 +48,16 @@ geographies <- data.table(
 )
 branch_names <- c(with_cc = "with climate change", without_cc = "without climate change")
 start_years <- 2020:2024
+middle_years <- 2055:2059
 end_years <- 2095:2099
 start_period <- "2020-2024"
+middle_period <- "2055-2059"
 end_period <- "2095-2099"
+level_periods <- data.table(
+  period = c(start_period, middle_period, end_period),
+  period_start = c(2020L, 2055L, 2095L),
+  period_end = c(2024L, 2059L, 2099L)
+)
 cold_causes <- c("ExtrCold", "ModCold")
 heat_causes <- c("ModHeat", "NormExtrHeat", "ExtrHeat")
 temperature_causes <- c(cold_causes, heat_causes)
@@ -120,19 +128,24 @@ read_level_periods <- function(ssp, level, id) {
     batch_root, "geographies", paste0("ssp", ssp), level, id, "04_le_li_levels.csv"
   )
   if (!file.exists(path)) stop("Missing pooled LE65 levels: ", path, call. = FALSE)
-  x <- fread(path, select = c("gcm", "branch", "year", "LE65"))
+  x <- fread(path, select = c("gcm", "branch", "year", "LE65", "LI65"))
   x <- x[
     gcm == "ENSEMBLE" & branch %chin% names(branch_names) &
-      year %in% c(start_years, end_years)
+      year %in% c(start_years, middle_years, end_years)
   ]
-  x[, period := fifelse(year %in% start_years, start_period, end_period)]
+  x[, period := fifelse(
+    year %in% start_years, start_period,
+    fifelse(year %in% middle_years, middle_period, end_period)
+  )]
   result <- x[, .(
     LE65 = mean(LE65),
+    LI65plus = mean(LI65),
     years = uniqueN(year)
   ), by = .(branch, period)]
-  if (nrow(result) != 4L || any(result$years != 5L) ||
-      any(!is.finite(result$LE65))) {
-    stop("Pooled ENSEMBLE LE65 levels are incomplete in ", path, call. = FALSE)
+  if (nrow(result) != 6L || any(result$years != 5L) ||
+      any(!is.finite(result$LE65)) || any(!is.finite(result$LI65plus))) {
+    stop("Pooled ENSEMBLE LE65/LI65+ levels are incomplete in ",
+         path, call. = FALSE)
   }
   result
 }
@@ -153,7 +166,8 @@ read_temperature_decomposition <- function(ssp, level, id) {
   expected <- 15L * length(decade_age_levels) * length(cause_levels)
   if (nrow(x) != expected ||
       anyDuplicated(x, by = c("period_from", "period_to", "age", "cause")) ||
-      any(!is.finite(x$le_contribution))) {
+      any(!is.finite(x$le_contribution)) ||
+      any(!is.finite(x$li_contribution))) {
     stop("Within-branch ENSEMBLE decomposition does not cover all 5-year steps in SSP",
          ssp, " ", level, "/", id, ".", call. = FALSE)
   }
@@ -197,6 +211,73 @@ calculate_one <- function(ssp, geo) {
     level_le("without_cc", start_period)
   gain_level_g1 <- level_le("with_cc", end_period) -
     level_le("with_cc", start_period)
+  level_li <- function(branch, period) {
+    branch_value <- branch
+    period_value <- period
+    level_data$LI65plus[
+      level_data$branch == branch_value & level_data$period == period_value
+    ]
+  }
+  levels_long <- melt(
+    copy(level_data),
+    id.vars = c("branch", "period", "years"),
+    measure.vars = c("LE65", "LI65plus"),
+    variable.name = "measure",
+    value.name = "level_years"
+  )
+  levels_long <- merge(levels_long, level_periods, by = "period", all.x = TRUE)
+  levels_long[, `:=`(
+    ssp = ssp,
+    scenario = c("SSP1-2.6", "SSP2-4.5", "SSP3-7.0")[ssp],
+    exploratory = ssp < 3L,
+    level = level,
+    id = id,
+    geography = label,
+    n_years = years,
+    units = "years",
+    definition = paste(
+      "Mean annual ENSEMBLE value over the five years from pooled",
+      "04_le_li_levels.csv."
+    )
+  )]
+  levels_long[, years := NULL]
+  level_changes_long <- rbindlist(lapply(c("LE65", "LI65plus"), function(measure) {
+    start_with <- level_data[
+      branch == "with_cc" & period == start_period, get(measure)
+    ]
+    end_with <- level_data[
+      branch == "with_cc" & period == end_period, get(measure)
+    ]
+    start_without <- level_data[
+      branch == "without_cc" & period == start_period, get(measure)
+    ]
+    end_without <- level_data[
+      branch == "without_cc" & period == end_period, get(measure)
+    ]
+    if (any(lengths(list(start_with, end_with, start_without, end_without)) != 1L)) {
+      stop("Incomplete start/end levels for ", label, " ", measure, ".",
+           call. = FALSE)
+    }
+    change_with <- end_with - start_with
+    change_without <- end_without - start_without
+    data.table(
+      ssp = ssp,
+      scenario = c("SSP1-2.6", "SSP2-4.5", "SSP3-7.0")[ssp],
+      exploratory = ssp < 3L,
+      level = level,
+      id = id,
+      geography = label,
+      measure = measure,
+      estimand = c(
+        "change_with_cc_2020-24_to_2095-99",
+        "change_without_cc_2020-24_to_2095-99",
+        "warming_effect_on_change_2020-24_to_2095-99"
+      ),
+      start_level_years = c(start_with, start_without, NA_real_),
+      end_level_years = c(end_with, end_without, NA_real_),
+      change_years = c(change_with, change_without, change_with - change_without)
+    )
+  }))
 
   noheat_gain <- schedule[, .(
     gain = life_expectancy_without_heat(.SD[period == end_period]) -
@@ -217,6 +298,46 @@ calculate_one <- function(ssp, geo) {
   together_months <- cause_months[cause %chin% temperature_causes, sum(months)]
   rest_months <- cause_months[cause == "rest", sum(months)]
   decomp_gain <- sum(decomposition$le_contribution)
+  li_cause_months <- decomposition[, .(
+    months = 12 * sum(li_contribution)
+  ), by = cause]
+  li_cold_months <- li_cause_months[cause %chin% cold_causes, sum(months)]
+  li_heat_months <- li_cause_months[cause %chin% heat_causes, sum(months)]
+  li_together_months <- li_cold_months + li_heat_months
+  li_temperature_months <-
+    li_cause_months[cause %chin% temperature_causes, sum(months)]
+  li_total_months <- sum(li_cause_months$months)
+  li_change_with <- level_li("with_cc", end_period) -
+    level_li("with_cc", start_period)
+  li_change_without <- level_li("without_cc", end_period) -
+    level_li("without_cc", start_period)
+  li_change_with_months <- 12 * li_change_with
+  li_change_without_months <- 12 * li_change_without
+  if (!is.finite(li_change_with_months) ||
+      abs(li_change_with_months) < 1e-9 ||
+      any(!is.finite(c(li_cold_months, li_heat_months, li_together_months)))) {
+    stop("Invalid LI65+ changes or contributions for SSP", ssp, " ",
+         label, ".", call. = FALSE)
+  }
+  check_numeric(
+    "LI65+ level change closes to within-branch decomposition",
+    label, ssp, li_total_months, li_change_with_months, 1e-3,
+    "Sum of all Part 04 li_contribution values over 2020-24 to 2095-99."
+  )
+  check_numeric(
+    "LI65+ cold + heat equals five-range contribution",
+    label, ssp, li_together_months, li_temperature_months, 1e-8,
+    "Cold is extreme + moderate; heat is moderate + normal-extreme + extreme heat."
+  )
+  direction_expected <- if (ssp == 1L && id == "Western") 1 else -1
+  direction_ok <- if (direction_expected > 0) li_together_months > 0 else
+    li_together_months < 0
+  add_check(
+    "Simon draft direction: cold and heat LI65+ contribution",
+    label, ssp, li_together_months, direction_expected, NA_real_,
+    if (direction_ok) "PASS" else "FAIL",
+    "Cold and heat together lower LI65+ except Western Europe SSP1."
+  )
 
   add_check(
     "period-mean decomposition closes to G1", label, ssp,
@@ -328,7 +449,34 @@ calculate_one <- function(ssp, geo) {
     ),
     cause_contributions = cause_months[, .(
       ssp = ssp, id = id, geography = label, cause, months
-    )]
+    )],
+    levels_long = levels_long,
+    level_changes_long = level_changes_long,
+    li_decomposition = data.table(
+      ssp = ssp,
+      scenario = c("SSP1-2.6", "SSP2-4.5", "SSP3-7.0")[ssp],
+      exploratory = ssp < 3L,
+      level = level,
+      id = id,
+      geography = label,
+      LI65plus_start_with_cc_years = level_li("with_cc", start_period),
+      LI65plus_end_with_cc_years = level_li("with_cc", end_period),
+      LI65plus_change_with_cc_years = li_change_with,
+      LI65plus_change_without_cc_years = li_change_without,
+      LI65plus_warming_effect_on_change_months =
+        12 * (li_change_with - li_change_without),
+      cold_contribution_months = li_cold_months,
+      heat_contribution_months = li_heat_months,
+      cold_and_heat_together_contribution_months = li_together_months,
+      cold_contribution_pct_of_LI_change =
+        100 * li_cold_months / li_change_with_months,
+      heat_contribution_pct_of_LI_change =
+        100 * li_heat_months / li_change_with_months,
+      cold_and_heat_together_pct_of_LI_change =
+        100 * li_together_months / li_change_with_months,
+      total_decomposition_change_months = li_total_months,
+      level_change_months = li_change_with_months
+    )
   )
 }
 
@@ -345,8 +493,35 @@ comparisons <- rbindlist(lapply(results, `[[`, "comparison"), use.names = TRUE)
 cause_contributions <- rbindlist(
   lapply(results, `[[`, "cause_contributions"), use.names = TRUE
 )
+levels_long <- rbindlist(
+  lapply(results, `[[`, "levels_long"), use.names = TRUE
+)
+level_changes_long <- rbindlist(
+  lapply(results, `[[`, "level_changes_long"), use.names = TRUE
+)
+li_decomposition <- rbindlist(
+  lapply(results, `[[`, "li_decomposition"), use.names = TRUE
+)
 
 setorder(long, ssp, geography, metric)
+setorder(levels_long, ssp, geography, period, branch, measure)
+levels_wide <- dcast(
+  levels_long,
+  ssp + scenario + exploratory + level + id + geography + period +
+    period_start + period_end + n_years ~ measure + branch,
+  value.var = "level_years"
+)
+levels_wide[, `:=`(
+  units = "years",
+  definition = "Mean annual ENSEMBLE LE65 or LI65+ over the stated five-year period."
+)]
+setorder(level_changes_long, ssp, geography, measure, estimand)
+level_changes_wide <- dcast(
+  level_changes_long,
+  ssp + scenario + exploratory + level + id + geography ~ measure + estimand,
+  value.var = "change_years"
+)
+setorder(li_decomposition, ssp, geography)
 wide[, geography_order := match(geography, geographies$geography)]
 sx[, geography_order := match(geography, geographies$geography)]
 setorder(wide, ssp, geography_order)
@@ -378,6 +553,102 @@ add_check(
   status = if (nrow(sx) == 15L &&
                uniqueN(sx, by = c("ssp", "geography")) == 15L) "PASS" else "FAIL",
   note = "One row for each scenario and geography."
+)
+add_check(
+  "LE65/LI65+ levels row count and key uniqueness", "all geographies", NA_integer_,
+  observed = nrow(levels_long), expected = 180, tolerance = 0,
+  status = if (nrow(levels_long) == 180L &&
+               uniqueN(levels_long, by = c(
+                 "ssp", "geography", "period", "branch", "measure"
+               )) == 180L) "PASS" else "FAIL",
+  note = "Two measures, two branches, three periods, three SSPs, and five geographies."
+)
+add_check(
+  "LE65/LI65+ wide levels row count and key uniqueness", "all geographies",
+  NA_integer_, observed = nrow(levels_wide), expected = 45, tolerance = 0,
+  status = if (nrow(levels_wide) == 45L &&
+               uniqueN(levels_wide, by = c("ssp", "geography", "period")) == 45L) {
+    "PASS"
+  } else {
+    "FAIL"
+  },
+  note = "One row for each scenario, geography, and period."
+)
+add_check(
+  "LE65/LI65+ change row count and key uniqueness", "all geographies", NA_integer_,
+  observed = nrow(level_changes_long), expected = 90, tolerance = 0,
+  status = if (nrow(level_changes_long) == 90L &&
+               uniqueN(level_changes_long, by = c(
+                 "ssp", "geography", "measure", "estimand"
+               )) == 90L) "PASS" else "FAIL",
+  note = "Two measures and three endpoint-change estimands for each scenario/geography."
+)
+add_check(
+  "LI65+ decomposition row count and key uniqueness", "all geographies",
+  NA_integer_, observed = nrow(li_decomposition), expected = 15, tolerance = 0,
+  status = if (nrow(li_decomposition) == 15L &&
+               uniqueN(li_decomposition, by = c("ssp", "geography")) == 15L) {
+    "PASS"
+  } else {
+    "FAIL"
+  },
+  note = "Cold, heat, combined contribution, percent of change, and warming-alone effect."
+)
+level_value_columns <- c(
+  "LE65_with_cc", "LE65_without_cc",
+  "LI65plus_with_cc", "LI65plus_without_cc"
+)
+level_values_ok <- all(level_value_columns %in% names(levels_wide)) &&
+  all(vapply(levels_wide[, ..level_value_columns], function(x) all(is.finite(x)),
+             logical(1)))
+add_check(
+  "LE65/LI65+ levels are finite for all branches and periods",
+  "all geographies", NA_integer_, observed = as.numeric(level_values_ok),
+  expected = 1, tolerance = 0,
+  status = if (level_values_ok) "PASS" else "FAIL",
+  note = "Annual means of the ENSEMBLE rows in 04_le_li_levels.csv."
+)
+for (metric_pair in list(
+  c("change_with_cc_2020-24_to_2095-99",
+    "gain_with_climate_change_from_annual_levels"),
+  c("change_without_cc_2020-24_to_2095-99",
+    "gain_without_climate_change_from_annual_levels")
+)) {
+  level_change <- level_changes_long[
+    measure == "LE65" & estimand == metric_pair[[1L]],
+    .(ssp, geography, level_change_years = change_years)
+  ]
+  table2_gain <- long[
+    metric == metric_pair[[2L]],
+    .(ssp, geography, table2_gain_years = value)
+  ]
+  compared <- merge(level_change, table2_gain, by = c("ssp", "geography"))
+  max_gap <- if (nrow(compared) == 15L) {
+    max(abs(compared$level_change_years - compared$table2_gain_years))
+  } else {
+    Inf
+  }
+  check_numeric(
+    "LE65 level changes agree with Table 2 annual-level gains",
+    "all geographies", NA_integer_, max_gap, 0, 1e-12, metric_pair[[2L]]
+  )
+}
+flags_match <- function(x) {
+  nrow(x) > 0L &&
+    all(x[ssp %in% 1:2, exploratory]) &&
+    all(!x[ssp == 3L, exploratory])
+}
+exploratory_flags_ok <- all(vapply(
+  list(
+    long, wide, sx, levels_long, levels_wide, level_changes_long,
+    level_changes_wide, li_decomposition
+  ), flags_match, logical(1)
+))
+add_check(
+  "exploratory flags mark SSP1 and SSP2 only", "all geographies", NA_integer_,
+  observed = as.numeric(exploratory_flags_ok), expected = 1, tolerance = 0,
+  status = if (exploratory_flags_ok) "PASS" else "FAIL",
+  note = "All Table 2 and Table Sx rows carry an explicit logical flag."
 )
 add_check(
   "finite long-table values", "all geographies", NA_integer_,
@@ -708,6 +979,19 @@ checks <- rbindlist(check_rows, use.names = TRUE, fill = TRUE)
 fwrite(long, file.path(data_dir, paste0("table02_le65_gain_long_", output_date, ".csv")))
 fwrite(wide, file.path(data_dir, "table02_le65_gain_wide.csv"))
 fwrite(sx, file.path(data_dir, "tableSx_le65_gain_months.csv"))
+fwrite(levels_long, file.path(
+  data_dir, paste0("table02_le_li_levels_long_", output_date, ".csv")
+))
+fwrite(levels_wide, file.path(data_dir, "table02_le_li_levels_wide.csv"))
+fwrite(level_changes_long, file.path(
+  data_dir, paste0("table02_le_li_level_changes_long_", output_date, ".csv")
+))
+fwrite(level_changes_wide, file.path(
+  data_dir, "table02_le_li_level_changes_wide.csv"
+))
+fwrite(li_decomposition, file.path(
+  data_dir, "table02_li65_change_decomposition.csv"
+))
 fwrite(checks, file.path(data_dir, "table02_checks.csv"))
 
 commit <- system2("git", c("rev-parse", "HEAD"), stdout = TRUE, stderr = FALSE)
@@ -727,12 +1011,15 @@ uncertainty_note <- if (exists("uncertainty_comparison")) {
   heat <- uncertainty_comparison[metric == "heat_erosion_ratio_pct"]
   sprintf(
     paste(
-      "The 2026-11-10 uncertainty summary reports experiment medians of",
-      "%.4f%% (all temperatures) and %.4f%% (heat). These are 19-GCM by",
-      "500-draw medians; the pooled central estimates here are %.4f%% and",
-      "%.4f%%, respectively."
+      "Table 2 uses pooled 19-GCM ENSEMBLE central schedules: all-temperature",
+      "warming reduction %.4f%% (4.3%% rounded). The heat-only central value",
+      "in Table Sx is %.4f%%. The 2026-11-10 summary's 19-GCM by 500-draw",
+      "experiment medians are %.4f%% for all temperatures (3.9%% rounded)",
+      "and %.4f%% for heat (7.0%% rounded). These are different summaries,",
+      "not conflicting estimates: the paper tables use the ENSEMBLE central",
+      "schedule, not the median over GCM-by-ERF-draw experiments."
     ),
-    all$run_median_pct, heat$run_median_pct, all$central_pct, heat$central_pct
+    all$central_pct, heat$central_pct, all$run_median_pct, heat$run_median_pct
   )
 } else {
   "No prior uncertainty summary was available for comparison."
@@ -753,11 +1040,12 @@ readme <- c(
   ),
   "",
   paste(
-    "The four endpoint LE65 levels are the means of annual ENSEMBLE values in",
-    "`04_le_li_levels.csv`. Their differences are also included in the long",
-    "table, separately labelled; they need not equal period-mean-rate gains.",
-    "Table columns and reductions use the period-mean-rate G0/G1 so they remain",
-    "consistent with Table 1 and the five-year-step decomposition."
+    "The LE65 and LI65+ level exports give the means of annual ENSEMBLE values",
+    "in 2020-24, 2055-59, and 2095-99 from `04_le_li_levels.csv`, with and",
+    "without climate change. The endpoint LE65 changes match the annual-level",
+    "gain metrics in the Table 2 long file. These annual-level changes need not",
+    "equal period-mean-rate gains; Table 2 columns and reductions use the",
+    "period-mean-rate G0/G1 to remain consistent with Table 1."
   ),
   "",
   paste(
@@ -767,6 +1055,15 @@ readme <- c(
     "normal-extreme and extreme heat; together is the sum of all five",
     "temperature ranges. The diamond check verifies that cold plus heat equals",
     "this five-range total. Other causes are `rest`."
+  ),
+  "",
+  paste(
+    "The LI65+ decomposition export gives cold, heat, and their combined",
+    "contributions in months (12 times the within-branch Part 04 contributions),",
+    "and as percentages of the with-CC LI65+ endpoint change. The warming-alone",
+    "effect is the with-CC LI65+ change minus the without-CC change, in months.",
+    "The closure check compares all Part 04 contributions with the annual-level",
+    "LI65+ change."
   ),
   "",
   paste(
@@ -784,7 +1081,14 @@ readme <- c(
     "The SSP1 0.9995 survival-ratio replacement and SSP2 inclusion of 12",
     "Swiss cities with the mortality-shape check bypassed are exploratory",
     "sensitivities, not production runs. They are retained as caveats in this",
-    "table output."
+    "table output. The Table 2, Table Sx, level, level-change, and LI65+",
+    "decomposition CSVs carry an `exploratory` flag (`TRUE` for SSP1 and SSP2;",
+    "`FALSE` for SSP3)."
+  ),
+  paste(
+    "Table Sx reports the with-CC ENSEMBLE LE65 gain, cold and heat",
+    "contributions in months, their total, and the all-temperature and",
+    "heat-only reductions due to warming; all five geographies are populated."
   )
 )
 writeLines(readme, file.path(data_dir, "table02_README.md"), useBytes = TRUE)
