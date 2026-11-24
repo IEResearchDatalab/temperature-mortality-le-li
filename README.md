@@ -117,6 +117,7 @@ cores, input storage and Horiuchi steps matter.
 | [analysis/run_threshold_sensitivity.sh](analysis/run_threshold_sensitivity.sh), [analysis/summarize_threshold_sensitivity.R](analysis/summarize_threshold_sensitivity.R) | Part 00 demography, temperatures; canonical and alternative Part 01 results | Isolated threshold runs and comparison tables | Each run is 48,678 city/GCM/SSP jobs |
 | [analysis/summarize_extreme_heat_days.R](analysis/summarize_extreme_heat_days.R) | Part 01 heat-day CSVs and GCM manifest | City/geography CSVs and warning-day plots | Reads 48,678 heat-day files |
 | [analysis/central_missing_results.R](analysis/central_missing_results.R) | Pooled Parts 03/04 and `table1_full.csv` | Central supplementary results and checks | Not separately timed |
+| [analysis/compare_pipeline_outputs.R](analysis/compare_pipeline_outputs.R) | Candidate and reference Part 01/04 outputs | Byte-identity and relative-tolerance comparison report on stdout | File-I/O bound |
 | [analysis/literature_validation.R](analysis/literature_validation.R), [analysis/validate_erf_draws.R](analysis/validate_erf_draws.R) | Completed pipeline and external reference data, or Madrid draw pilot | Validation comparisons and checks | Depends on inputs; not separately timed |
 | [analysis/run_paper_outputs.sh](analysis/run_paper_outputs.sh) | All completed paper inputs above | Paper figures, tables, summaries, checks and logs under a new `<out>` | Sum of output steps, dominated by Table 1 and file reads |
 
@@ -197,6 +198,14 @@ pipeline source fingerprints match; use a new root rather than replacing an
 old one. Header edits also change source fingerprints. The original SSP1
 heatsplit manifest records a dirty worktree, so its commit alone does not fully
 identify the source used for that historical run.
+
+After resuming or completing a batch, compare its SSP3 Part 01 and Part 04
+outputs with the reference batch without changing either root:
+
+```bash
+CANDIDATE_ROOT="$BATCH_ROOT" REFERENCE_ROOT=results/europe/heatsplit_20261013 \
+  SSP=3 RELATIVE_TOLERANCE=1e-9 Rscript analysis/compare_pipeline_outputs.R
+```
 
 ### 2. Uncertainty, sensitivity and heat-day inputs
 
@@ -279,6 +288,10 @@ Exploratory diagnostics not used by the paper driver are in
   production SSP2 geography is available. The checked batch has warnings for
   those 12 cities only (maximum within-group decline 11.09%); the bypass flag
   is recorded for all 854 cities.
+- The archived SSP2 uncertainty draws predate the added age 85–89 risk-change
+  and LI65+ period-change estimands. Their uncertainty summary marks those
+  draw-level estimands unavailable for SSP2; the other available headline
+  estimands retain separate GCM-only, ERF-only and combined intervals.
 - The 5% within-age-group mortality-shape guard is an internal safeguard, not
   an established demographic standard. The switches and warnings are recorded
   in Part 00 checks and manifests. The SSP1/SSP2 runs above are **not
