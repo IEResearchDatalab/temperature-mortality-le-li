@@ -53,6 +53,11 @@ ssp_set <- as.integer(strsplit(Sys.getenv("SSP_SET", "1,2,3"), ",", fixed = TRUE
 if (!length(ssp_set) || anyNA(ssp_set) || any(!ssp_set %in% 1:3)) {
   stop("SSP_SET must be a comma-separated subset of 1,2,3.", call. = FALSE)
 }
+exploratory_style_value <- Sys.getenv("EXPLORATORY_SCENARIO_STYLE", "0")
+if (!exploratory_style_value %in% c("0", "1")) {
+  stop("EXPLORATORY_SCENARIO_STYLE must be 0 or 1.", call. = FALSE)
+}
+exploratory_style <- exploratory_style_value == "1"
 
 cause_group <- function(x) fifelse(x %chin% cold_causes, "cold",
                                    fifelse(x %chin% heat_causes, "heat", "rest"))
@@ -153,7 +158,7 @@ net_labels[, `:=`(
 net_label_plot <- copy(net_labels)
 net_label_plot[, `:=`(
   label = paste0(
-    "Net, all ages\n(days per decade)\ncold ",
+    "All ages\n(days per decade)\ncold ",
     ifelse(cold_net < 0, "−", "+"), sprintf("%.1f", abs(cold_net)),
     ", heat ", ifelse(heat_net < 0, "−", "+"), sprintf("%.1f", abs(heat_net))
   ),
@@ -184,7 +189,14 @@ message(
 )
 print(main_axis_checks)
 
-p_bars <- ggplot(bars, aes(age_index, value, fill = display_cause)) +
+bar_data <- bars
+bar_mapping <- aes(age_index, value, fill = display_cause)
+if (exploratory_style) {
+  bar_data <- copy(bars)
+  bar_data[, style_alpha := fifelse(ssp < 3L, 0.48, 1)]
+  bar_mapping <- aes(age_index, value, fill = display_cause, alpha = style_alpha)
+}
+p_bars <- ggplot(bar_data, bar_mapping) +
   geom_rect(
     data = crossovers[is.finite(crossover)],
     aes(xmin = crossover - 0.5, xmax = 8.5, ymin = -Inf, ymax = Inf),
@@ -207,7 +219,6 @@ p_bars <- ggplot(bars, aes(age_index, value, fill = display_cause)) +
   geom_text(data = net_labels[is.finite(crossover)],
             aes(x = crossover_x, y = crossover_y, label = crossover_label),
             inherit.aes = FALSE, hjust = 0, vjust = 0, size = 2.5, colour = "#444444") +
-  facet_grid(ssp_label ~ interval, scales = "fixed", switch = "y") +
   scale_x_continuous(breaks = seq_along(age_levels), labels = age_levels) +
   scale_fill_manual(
     values = group_colours,
@@ -217,6 +228,13 @@ p_bars <- ggplot(bars, aes(age_index, value, fill = display_cause)) +
   scale_y_continuous(breaks = scales::breaks_extended(n = 6),
                      labels = scales::label_number(style_negative = "minus")) +
   coord_cartesian(ylim = bar_limits) +
+  facet_grid(
+    ssp_label ~ interval, scales = "fixed", switch = "y",
+    labeller = labeller(interval = as_labeller(c(
+      "a. By age, 2020–24 → 2055–59" = "a. By age group, 2020-24 to 2055-59",
+      "b. By age, 2055–59 → 2095–99" = "b. By age group, 2055-59 to 2095-99"
+    )))
+  ) +
   labs(x = "Age group", y = "Days of LI65+ per decade", fill = NULL) +
   theme_minimal(base_size = 9) +
   theme(
@@ -227,6 +245,7 @@ p_bars <- ggplot(bars, aes(age_index, value, fill = display_cause)) +
     strip.text.x = element_text(face = "bold", size = 9),
     legend.position = "none"
   )
+if (exploratory_style) p_bars <- p_bars + scale_alpha_identity(guide = "none")
 
 plane_source <- d[cause_group %chin% c("cold", "heat"), .(
   le = sum(le_contribution), li = sum(li_contribution)
@@ -401,10 +420,6 @@ p_plane <- ggplot(plane_main, aes(li_days, le_months,
     linetype = 0, shape = 22, fill = unname(group_colours), size = 4
   )))
 
-figure_title <- paste0(geo_label, ": contributions of cold and heat to change in LI65+, with climate change")
-if (geo_level == "europe") {
-  figure_title <- "Europe: contributions of cold and heat to change in LI65+, with climate change"
-}
 caption_paragraphs <- c(
   "In panels a and b, contributions over each half-century are shown per decade; grey shading marks ages above the crossover age, where cold's contributions change sign. In panel c, each line shows how changes in cold (or heat) mortality alone have moved LE65 and LI65+ since 2020–24; the total change, which also includes all other causes, is given in the text.",
   "Without climate change, each temperature range's contributions follow the age pattern of falling mortality from all causes (its attributable fraction is fixed); heat contributions that reverse this pattern signal warming outpacing that decline. A five-range version is in the Supplementary Material. Historical P2.5 and P97.5: ERA5-Land, 2000–2014. Projected P97.5: the historical P97.5 plus the change in the calibrated GCM P97.5 over the 15 preceding years.",
@@ -428,11 +443,6 @@ step_plane_caption[1] <- paste(
   "arrowheads mark 2095–99; the total change, which also includes all other",
   "causes, is given in the text."
 )
-figure_caption <- paste(
-  vapply(caption_paragraphs, function(x) paste(strwrap(x, width = 190), collapse = "\n"),
-         character(1)),
-  collapse = "\n"
-)
 format_caption <- function(paragraphs) {
   paste(
     vapply(paragraphs, function(x) paste(strwrap(x, width = 190), collapse = "\n"),
@@ -442,24 +452,7 @@ format_caption <- function(paragraphs) {
 }
 five_range_figure_caption <- format_caption(five_range_caption)
 step_plane_figure_caption <- format_caption(step_plane_caption)
-# Wrap each component as a complete grob. This prevents data-dependent grob
-# widths in either child plot from expanding the overall patchwork beyond the
-# graphics device; each child is clipped only to its allocated column.
-p <- (wrap_elements(full = p_bars, clip = TRUE) |
-        wrap_elements(full = p_plane, clip = TRUE)) +
-  plot_layout(widths = c(1.45, 1.4)) +
-  plot_annotation(
-    title = figure_title,
-    subtitle = "Positive contributions raise LI65+ (lifespans more unequal); negative contributions lower it. Grey shading: ages above the crossover age, where an added death lowers LI65+.",
-    caption = figure_caption,
-    theme = theme(
-      plot.title = element_text(face = "bold", size = 15),
-      plot.subtitle = element_text(size = 10, colour = "#555555"),
-      plot.caption = element_text(size = 8, hjust = 0),
-      plot.margin = margin(t = 8, r = 8, b = 8, l = 60),
-      legend.position = "bottom"
-    )
-  )
+p <- p_bars
 
 stem <- "figure03_li65_contributions"
 # Keep the verified regional layouts stable across graphics devices. The
@@ -501,10 +494,16 @@ fwrite(net_labels, fpath(paste0(stem, "_net_crossover_data.csv")))
 fwrite(main_axis_checks, fpath(paste0(stem, "_axis_checks.csv")))
 fwrite(plane_main, fpath(paste0(stem, "_plane_data.csv")))
 fwrite(endpoint_check, fpath(paste0(stem, "_plane_endpoint_checks.csv")))
-writeLines(
-  "SSP2 includes 12 Swiss cities with within-age-band mortality-shape warnings. The maximum decline is 11.09%.",
-  fpath(paste0(stem, "_caveats.txt"))
+caveat_lines <- c(
+  "SSP2 includes 12 Swiss cities with within-age-band mortality-shape warnings. The maximum decline is 11.09%."
 )
+if (exploratory_style) {
+  caveat_lines <- c(
+    caveat_lines,
+    "Exploratory style enabled: SSP1 and SSP2 bars use 48% opacity; SSP3 bars use full opacity."
+  )
+}
+writeLines(caveat_lines, fpath(paste0(stem, "_caveats.txt")))
 
 plane_steps <- copy(plane_source)
 plane_steps[, `:=`(
