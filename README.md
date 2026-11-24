@@ -38,9 +38,9 @@ flowchart TD
   F1["Figure 1"]
   F2["Figure 2"]
   F3["Figure 3"]
-  T1["Table 1 and supplements<br/>plus comparison table"]
-  T2["Table 2 and Table Sx"]
-  ERF["ERF uncertainty draws<br/>and summaries"]
+  T1["Table 1 layouts and supplements<br/>plus comparison table"]
+  T2["Table 2 and Table Sx<br/>LE65/LI65+ levels and SSP2 sensitivity"]
+  ERF["ERF/GCM uncertainty summaries<br/>including age-85 risks and spreads"]
   THR["Threshold sensitivity runs<br/>and summary"]
   DAYS["Extreme-heat-day summaries"]
   TP["Moving-threshold figures"]
@@ -68,6 +68,7 @@ flowchart TD
   GEO --> T1
   DEC --> T1
   GEO --> T2
+  P03 --> T2
   F2 --> T2
   T1 --> T2
   P00 --> ERF
@@ -120,12 +121,17 @@ cores, input storage and Horiuchi steps matter.
 | [analysis/run_paper_outputs.sh](analysis/run_paper_outputs.sh) | All completed paper inputs above | Paper figures, tables, summaries, checks and logs under a new `<out>` | Sum of output steps, dominated by Table 1 and file reads |
 
 `analysis/output_names.R` and `analysis/paper_helpers.R` are sourced helpers,
-not independent stages. The output driver calls
-[`analysis/run_paper_figures.sh`](analysis/run_paper_figures.sh) for Figures
-1–3, Table 1 and threshold figures, then produces uncertainty summaries,
-Table 2, central supplements, threshold sensitivity and heat-day summaries.
-Literature and draw validation are separate, because they require additional
-external reference inputs and a Madrid pilot.
+not independent stages. The output driver calls analysis/run_paper_figures.sh for Figures 1-3, Table 1 and threshold figures, then produces uncertainty summaries, Table 2, central supplements, threshold sensitivity and heat-day summaries.
+Literature and draw validation are separate because they require external reference inputs and a Madrid pilot.
+
+`EXPLORATORY_SCENARIO_STYLE=1` when running Figure 2 or Figure 3 to render SSP1
+and SSP2 bars at 48% opacity and add the exploratory caveat. The default is
+`0`, so ordinary figure rendering is unchanged.
+
+For SSP3 Europe, Table 2's central all-temperature warming reduction is 4.3%
+(pooled ENSEMBLE, central period-mean rate), while the combined 19-GCM ×
+500-draw experiment median is 3.9%. For heat alone the corresponding summaries
+are 7.4% and 7.0%. They are different estimands, not contradictory rounding.
 
 ## Inputs and software
 
@@ -225,22 +231,11 @@ analysis/run_paper_outputs.sh --check-inputs
 analysis/run_paper_outputs.sh
 ```
 
-The preflight checks all required files, the GCM manifests and R packages before
-creating the output directory. Set `TABLE1_CORES`, `THRESHOLD_SUMMARY_CORES`
-and `EXTREME_HEAT_DAYS_SUMMARY_CORES` to control parallelism (default 4 each).
-`ATTRIBUTION_ROOT` can point Figure 1 to an alternative Part 01 root; it
-defaults to `BATCH_ROOT`. The driver refuses an existing output root and
-refuses output inside an input root. A failed stage stops with a log path;
-choose a fresh output root for another run.
-
-Expect Figure PNGs under `<out>/figures/`, PDFs under `<out>/figures_pdf/`,
-figure data and Table 2 under `<out>/data/`, Table 1 under `<out>/table1/`,
-and supplementary results, uncertainty, scratch and logs in named
-subdirectories. Table 2 checks read the Table 1 comparison and uncertainty
-summary just produced in this root. Their recorded source paths and commit
-metadata can differ from an older pack even when scientific data are unchanged.
-
-### 4. Independent validation
+The preflight checks all required files, the GCM manifests and R packages before creating the output directory.
+The output driver accepts TABLE1_CORES, THRESHOLD_SUMMARY_CORES and EXTREME_HEAT_DAYS_SUMMARY_CORES to control parallelism; each defaults to 4.
+ATTRIBUTION_ROOT can point Figure 1 to an alternative Part 01 root; it defaults to BATCH_ROOT. The driver refuses an existing output root and refuses output inside an input root. A failed stage stops with a log path; choose a fresh output root for another run.
+Expect Figure PNGs under <out>/figures/, PDFs under <out>/figures_pdf/, figure data and Table 2 under <out>/data/, Table 1 under <out>/table1/, and supplementary results, uncertainty, scratch and logs in named subdirectories.
+Table 2 checks read the Table 1 comparison and uncertainty summary just produced in this root.
 
 The literature validation also needs Masselot's `eu_period.parquet` and
 `region_period.parquet`, Lloyd's `outdata` reference files listed in the script
@@ -275,10 +270,15 @@ Exploratory diagnostics not used by the paper driver are in
 - **SSP1-2.6:** survival ratios stored as exactly 1 are replaced by 0.9995 in
   the exploratory batch. Its manifest also records
   `SKIP_MX_PLAUSIBILITY_CHECK=1`; the replacement is not a production fix.
+  The checked batch records 26,183 replaced source cells across 771 cities;
+  the guard-bypass warning is present for all 854 cities, and 562 cities also
+  have a within-age-group plausibility warning.
 - **SSP2-4.5:** the exploratory batch includes 12 Swiss cities with the
   mortality-shape check bypassed. Inclusion does not validate their
   reconstruction. Production excludes those cities, and no complete pooled
-  production SSP2 geography is available.
+  production SSP2 geography is available. The checked batch has warnings for
+  those 12 cities only (maximum within-group decline 11.09%); the bypass flag
+  is recorded for all 854 cities.
 - The 5% within-age-group mortality-shape guard is an internal safeguard, not
   an established demographic standard. The switches and warnings are recorded
   in Part 00 checks and manifests. The SSP1/SSP2 runs above are **not

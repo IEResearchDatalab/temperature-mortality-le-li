@@ -38,7 +38,8 @@ fail() { echo "ERROR: $*" >&2; exit 1; }
 require_file() { [ -s "$1" ] || fail "missing or empty input: $1"; }
 
 case "$GEO_SCOPE" in main|all) ;; *) fail "GEO_SCOPE must be main or all";; esac
-for value in "$TABLE1_CORES" "$THRESHOLD_SUMMARY_CORES" "$EXTREME_HEAT_DAYS_SUMMARY_CORES"; do
+for value in "$TABLE1_CORES" "$THRESHOLD_SUMMARY_CORES" \
+             "$EXTREME_HEAT_DAYS_SUMMARY_CORES"; do
   [[ "$value" =~ ^[1-9][0-9]*$ ]] || fail "core counts must be positive integers"
 done
 [ ! -e "$FIGURE_ROOT" ] && [ ! -L "$FIGURE_ROOT" ] ||
@@ -95,6 +96,9 @@ for ssp in 1 2 3; do
   for city in "${cities[@]}"; do
     require_file "$BATCH_ROOT/ssp${ssp}/$city/demography/00_demography_single_age.csv"
     require_file "$ATTRIBUTION_ROOT/ssp${ssp}/$city/ENSEMBLE/01_attribution_grouped.csv"
+    if [ "$ssp" -eq 2 ]; then
+      require_file "$BATCH_ROOT/ssp2/$city/ENSEMBLE/03_master_table.csv"
+    fi
     for gcm in "${gcms[@]}"; do
       require_file "$BATCH_ROOT/ssp${ssp}/$city/$gcm/01_attribution_grouped.csv"
       require_file "$BATCH_ROOT/ssp${ssp}/$city/$gcm/checks/01_moving_heat_thresholds.csv"
@@ -140,7 +144,7 @@ analysis/run_paper_figures.sh || fail "paper figures or Table 1 failed; see $FIG
 export TABLE1_FULL="$FIGURE_ROOT/table1/table1_full.csv"
 export UNCERTAINTY_OUTPUT_ROOT="$FIGURE_ROOT/uncertainty"
 for ssp in 2 3; do
-  SSP="$ssp" GCM_IDS= Rscript analysis/summarize_erf_uncertainty.R \
+  SSP="$ssp" Rscript analysis/summarize_erf_uncertainty.R \
     > "$FIGURE_ROOT/logs/uncertainty_ssp${ssp}.log" 2>&1 || {
       echo "ERROR: uncertainty summary failed; see $FIGURE_ROOT/logs/uncertainty_ssp${ssp}.log" >&2
       exit 1
