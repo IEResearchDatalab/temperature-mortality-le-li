@@ -1,5 +1,20 @@
 #!/usr/bin/env Rscript
 
+################################################################################
+# Compare the canonical and alternative extreme-temperature thresholds.
+# Requires: data/city_results.csv; canonical Part 01 attribution CSVs under
+# CANONICAL_ROOT/ssp<SSP>/<city>/<GCM>/; and matching CSVs under
+# THRESHOLD_ROOT/{trailing30_p975,trailing15_p95_p05}/ssp<SSP>/<city>/<GCM>/,
+# produced by analysis/run_threshold_sensitivity.sh for all cities and GCMs.
+# Produces: threshold_sensitivity_*.csv and supplement notes in CENTRAL_EXTRAS_ROOT.
+# How to run: CANONICAL_ROOT=results/europe/heatsplit_20261013 \
+#   THRESHOLD_ROOT=results/europe/threshold_sensitivities_20261104 \
+#   CENTRAL_EXTRAS_ROOT=results/paper_output_new/central_extras \
+#   Rscript analysis/summarize_threshold_sensitivity.R
+# Notes: SSP1 replacement and SSP1/SSP2 shape-check bypasses are exploratory;
+#   see the caveats in README.md.
+################################################################################
+
 suppressPackageStartupMessages({library(data.table); library(parallel)})
 
 canonical <- Sys.getenv("CANONICAL_ROOT", "results/europe/heatsplit_20261013")
@@ -43,7 +58,7 @@ read_city <- function(root, label, ssp, city) {
 }
 
 variants <- data.table(
-  variant = c("canonical", "trailing30_p975", "trailing15_p95"),
+  variant = c("canonical", "trailing30_p975", "trailing15_p95_p05"),
   root = c(canonical, sensitivity_root, sensitivity_root)
 )
 cases <- CJ(v = seq_len(nrow(variants)), ssp = 1:3, city = cities)
@@ -91,14 +106,57 @@ wide[, `:=`(
   normal_extreme_30yr_minus_canonical_pp =
     normal_extreme_share_of_added_heat_pct_trailing30_p975 -
     normal_extreme_share_of_added_heat_pct_canonical,
-  normal_extreme_p95_minus_canonical_pp =
-    normal_extreme_share_of_added_heat_pct_trailing15_p95 -
+  normal_extreme_p95_p05_minus_canonical_pp =
+    normal_extreme_share_of_added_heat_pct_trailing15_p95_p05 -
     normal_extreme_share_of_added_heat_pct_canonical,
   sustained_30yr_minus_canonical_pp = sustained_tier_share_pct_trailing30_p975 -
     sustained_tier_share_pct_canonical,
-  sustained_p95_minus_canonical_pp = sustained_tier_share_pct_trailing15_p95 -
+  sustained_p95_p05_minus_canonical_pp = sustained_tier_share_pct_trailing15_p95_p05 -
     sustained_tier_share_pct_canonical
 )]
 fwrite(metrics, file.path(out_root, "threshold_sensitivity_metrics.csv"))
 fwrite(wide, file.path(out_root, "threshold_sensitivity_comparison.csv"))
+
+# Supplement-ready paired sensitivity table: every reported metric under the
+# canonical P2.5/P97.5 thresholds and the requested P5/P95 thresholds.
+metric_columns <- setdiff(names(metrics), c("variant", "ssp", "geography", "period"))
+supplement_long <- melt(
+  metrics[variant %chin% c("canonical", "trailing15_p95_p05")],
+  id.vars = c("variant", "ssp", "geography", "period"),
+  measure.vars = metric_columns,
+  variable.name = "measure", value.name = "value"
+)
+supplement <- dcast(
+  supplement_long,
+  ssp + geography + period + measure ~ variant,
+  value.var = "value"
+)
+setnames(supplement, c("canonical", "trailing15_p95_p05"),
+         c("p2_5_p97_5", "p5_p95"))
+supplement[, `:=`(
+  absolute_change = p5_p95 - p2_5_p97_5,
+  relative_change_pct = fifelse(
+    p2_5_p97_5 == 0, NA_real_, 100 * (p5_p95 - p2_5_p97_5) / abs(p2_5_p97_5)
+  )
+)]
+setorder(supplement, ssp, geography, period, measure)
+fwrite(supplement, file.path(out_root, "threshold_sensitivity_supplement.csv"))
+
+supplement_notes <- c(
+  "# Supplementary threshold sensitivity",
+  "",
+  paste(
+    "The canonical analysis defines extreme cold below the historical (2000–2014)",
+    "2.5th percentile and extreme heat above the historical or projected 97.5th percentile."
+  ),
+  paste(
+    "The paired sensitivity replaces every historical and projected heat threshold with",
+    "the 95th percentile and the historical cold threshold with the 5th percentile;",
+    "the 15-year trailing window and all other inputs are unchanged."
+  ),
+  "",
+  "Numeric results are in `threshold_sensitivity_supplement.csv`."
+)
+writeLines(supplement_notes, file.path(out_root, "threshold_sensitivity_supplement.md"),
+           useBytes = TRUE)
 message("Wrote threshold sensitivity summaries to ", out_root)

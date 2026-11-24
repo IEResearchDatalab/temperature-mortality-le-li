@@ -2,6 +2,17 @@
 ################################################################################
 # Render Simon's paper figures from completed pipeline outputs.
 # Presentation orchestration only; scientific calculations stay in pipeline/.
+# Requires: Parts 00-04 and collected objects for the selected SSPs in
+# BATCH_ROOT; pooled 03/04 CSVs, city Part 01/00 files and moving-threshold
+# checks. Figure 2 sources analysis/decade_decomposition.R.
+# Produces: FIGURE_ROOT figure PNGs/PDFs and data, Table 1, threshold outputs
+# and logs; TABLE1_SCRATCH holds per-GCM and decade caches.
+# How to run: BATCH_ROOT=results/europe/heatsplit_20261013 \
+#   FIGURE_ROOT=results/paper_output_new \
+#   TABLE1_SCRATCH=results/paper_output_new/table1_scratch GEO_SCOPE=main \
+#   analysis/run_paper_figures.sh
+# Notes: SSP1 replacement and SSP1/SSP2 shape-check bypasses are exploratory;
+#   see README.md. This runner does not itself run Table 2 or uncertainty.
 ################################################################################
 set -euo pipefail
 
@@ -27,15 +38,15 @@ for f in object1_dataset.parquet object2_contributions.parquet object3_levels.pa
 done
 
 run_geo() {
-  local level=$1 id=$2 log out
+  local level=$1 id=$2 log geo
   log="$FIGURE_ROOT/logs/${level}_${id}.log"
-  out="$FIGURE_ROOT/$level/$id"
+  geo=$(printf '%s' "$id" | tr '[:upper:]' '[:lower:]')
   if [ "$RESUME_FIGURES" = "1" ] &&
-     [ -s "$out/figure2_le65_contributions.pdf" ] &&
-     [ -s "$out/figure2_le65_contributions_panel_c_data.csv" ] &&
-     [ -s "$out/figure3_li65_contributions.pdf" ] &&
-     [ -s "$out/figure3_supplement_five_ranges.pdf" ] &&
-     [ -s "$out/figure3_supplement_plane_steps.pdf" ]; then
+     [ -s "$FIGURE_ROOT/figures_pdf/figure02_le65_contributions_$geo.pdf" ] &&
+     [ -s "$FIGURE_ROOT/data/figure02_le65_contributions_panel_c_data_$geo.csv" ] &&
+     [ -s "$FIGURE_ROOT/figures_pdf/figure03_li65_contributions_$geo.pdf" ] &&
+     [ -s "$FIGURE_ROOT/figures_pdf/figure03_supplement_five_ranges_$geo.pdf" ] &&
+     [ -s "$FIGURE_ROOT/figures_pdf/figure03_supplement_plane_steps_$geo.pdf" ]; then
     echo "$(date '+%F %T') figures already complete: $level/$id"
     return
   fi

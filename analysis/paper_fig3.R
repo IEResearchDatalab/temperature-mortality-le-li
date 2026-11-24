@@ -1,5 +1,22 @@
 #!/usr/bin/env Rscript
 
+################################################################################
+# Figure 3: lifespan inequality contributions by age and temperature range.
+# Requires: Parts 00-04 for the selected SSPs and pooled geography; each
+# <batch>/geographies/ssp<SSP>/<level>/<id>/
+# 04_within_branch_period_decomposition.csv, analysis/output_names.R and
+# analysis/paper_helpers.R.
+# Produces: FIGURE_ROOT/{figures,figures_pdf,data}/figure03_* for the geography.
+# How to run: BATCH_ROOT=results/europe/heatsplit_20261013 \
+#   FIGURE_ROOT=results/paper_output_new GEO_LEVEL=europe GEO_ID=EUROPE \
+#   SSP_SET=1,2,3 Rscript analysis/paper_fig3.R
+# Notes: SSP1 replacement and SSP1/SSP2 shape-check bypasses are exploratory;
+#   see the caveats in README.md.
+################################################################################
+
+source("analysis/output_names.R")
+source("analysis/paper_helpers.R")
+
 suppressPackageStartupMessages({
   library(data.table)
   library(ggplot2)
@@ -12,9 +29,8 @@ batch_root <- Sys.getenv("BATCH_ROOT", "results/europe/heatsplit_20261013")
 figure_root <- Sys.getenv("FIGURE_ROOT", "results/figures_simon_20oct")
 geo_level <- Sys.getenv("GEO_LEVEL", "europe")
 geo_id <- Sys.getenv("GEO_ID", "EUROPE")
-out_dir <- file.path(figure_root, geo_level, geo_id)
+fpath <- function(filename) figure_file(figure_root, filename, geo_id)
 data_dir <- file.path(figure_root, "data")
-dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(data_dir, recursive = TRUE, showWarnings = FALSE)
 
 range_levels <- c("ExtrCold", "ModCold", "ModHeat", "NormExtrHeat", "ExtrHeat")
@@ -37,11 +53,12 @@ ssp_set <- as.integer(strsplit(Sys.getenv("SSP_SET", "1,2,3"), ",", fixed = TRUE
 if (!length(ssp_set) || anyNA(ssp_set) || any(!ssp_set %in% 1:3)) {
   stop("SSP_SET must be a comma-separated subset of 1,2,3.", call. = FALSE)
 }
-
-age_band <- function(age) {
-  fifelse(age >= 100L, "100+", sprintf("%d-%d", (age %/% 5L) * 5L, (age %/% 5L) * 5L + 4L))
+exploratory_style_value <- Sys.getenv("EXPLORATORY_SCENARIO_STYLE", "0")
+if (!exploratory_style_value %in% c("0", "1")) {
+  stop("EXPLORATORY_SCENARIO_STYLE must be 0 or 1.", call. = FALSE)
 }
-period_start <- function(x) as.integer(substr(x, 1L, 4L))
+exploratory_style <- exploratory_style_value == "1"
+
 cause_group <- function(x) fifelse(x %chin% cold_causes, "cold",
                                    fifelse(x %chin% heat_causes, "heat", "rest"))
 
@@ -141,7 +158,7 @@ net_labels[, `:=`(
 net_label_plot <- copy(net_labels)
 net_label_plot[, `:=`(
   label = paste0(
-    "Net, all ages\n(days per decade)\ncold ",
+    "All ages\n(days per decade)\ncold ",
     ifelse(cold_net < 0, "−", "+"), sprintf("%.1f", abs(cold_net)),
     ", heat ", ifelse(heat_net < 0, "−", "+"), sprintf("%.1f", abs(heat_net))
   ),
@@ -172,7 +189,14 @@ message(
 )
 print(main_axis_checks)
 
-p_bars <- ggplot(bars, aes(age_index, value, fill = display_cause)) +
+bar_data <- bars
+bar_mapping <- aes(age_index, value, fill = display_cause)
+if (exploratory_style) {
+  bar_data <- copy(bars)
+  bar_data[, style_alpha := fifelse(ssp < 3L, 0.48, 1)]
+  bar_mapping <- aes(age_index, value, fill = display_cause, alpha = style_alpha)
+}
+p_bars <- ggplot(bar_data, bar_mapping) +
   geom_rect(
     data = crossovers[is.finite(crossover)],
     aes(xmin = crossover - 0.5, xmax = 8.5, ymin = -Inf, ymax = Inf),
@@ -195,7 +219,6 @@ p_bars <- ggplot(bars, aes(age_index, value, fill = display_cause)) +
   geom_text(data = net_labels[is.finite(crossover)],
             aes(x = crossover_x, y = crossover_y, label = crossover_label),
             inherit.aes = FALSE, hjust = 0, vjust = 0, size = 2.5, colour = "#444444") +
-  facet_grid(ssp_label ~ interval, scales = "fixed", switch = "y") +
   scale_x_continuous(breaks = seq_along(age_levels), labels = age_levels) +
   scale_fill_manual(
     values = group_colours,
@@ -205,6 +228,13 @@ p_bars <- ggplot(bars, aes(age_index, value, fill = display_cause)) +
   scale_y_continuous(breaks = scales::breaks_extended(n = 6),
                      labels = scales::label_number(style_negative = "minus")) +
   coord_cartesian(ylim = bar_limits) +
+  facet_grid(
+    ssp_label ~ interval, scales = "fixed", switch = "y",
+    labeller = labeller(interval = as_labeller(c(
+      "a. By age, 2020–24 → 2055–59" = "a. By age group, 2020-24 to 2055-59",
+      "b. By age, 2055–59 → 2095–99" = "b. By age group, 2055-59 to 2095-99"
+    )))
+  ) +
   labs(x = "Age group", y = "Days of LI65+ per decade", fill = NULL) +
   theme_minimal(base_size = 9) +
   theme(
@@ -215,6 +245,7 @@ p_bars <- ggplot(bars, aes(age_index, value, fill = display_cause)) +
     strip.text.x = element_text(face = "bold", size = 9),
     legend.position = "none"
   )
+if (exploratory_style) p_bars <- p_bars + scale_alpha_identity(guide = "none")
 
 plane_source <- d[cause_group %chin% c("cold", "heat"), .(
   le = sum(le_contribution), li = sum(li_contribution)
@@ -389,10 +420,6 @@ p_plane <- ggplot(plane_main, aes(li_days, le_months,
     linetype = 0, shape = 22, fill = unname(group_colours), size = 4
   )))
 
-figure_title <- paste0(geo_label, ": contributions of cold and heat to change in LI65+, with climate change")
-if (geo_level == "europe") {
-  figure_title <- "Europe: contributions of cold and heat to change in LI65+, with climate change"
-}
 caption_paragraphs <- c(
   "In panels a and b, contributions over each half-century are shown per decade; grey shading marks ages above the crossover age, where cold's contributions change sign. In panel c, each line shows how changes in cold (or heat) mortality alone have moved LE65 and LI65+ since 2020–24; the total change, which also includes all other causes, is given in the text.",
   "Without climate change, each temperature range's contributions follow the age pattern of falling mortality from all causes (its attributable fraction is fixed); heat contributions that reverse this pattern signal warming outpacing that decline. A five-range version is in the Supplementary Material. Historical P2.5 and P97.5: ERA5-Land, 2000–2014. Projected P97.5: the historical P97.5 plus the change in the calibrated GCM P97.5 over the 15 preceding years.",
@@ -416,11 +443,6 @@ step_plane_caption[1] <- paste(
   "arrowheads mark 2095–99; the total change, which also includes all other",
   "causes, is given in the text."
 )
-figure_caption <- paste(
-  vapply(caption_paragraphs, function(x) paste(strwrap(x, width = 190), collapse = "\n"),
-         character(1)),
-  collapse = "\n"
-)
 format_caption <- function(paragraphs) {
   paste(
     vapply(paragraphs, function(x) paste(strwrap(x, width = 190), collapse = "\n"),
@@ -430,31 +452,14 @@ format_caption <- function(paragraphs) {
 }
 five_range_figure_caption <- format_caption(five_range_caption)
 step_plane_figure_caption <- format_caption(step_plane_caption)
-# Wrap each component as a complete grob. This prevents data-dependent grob
-# widths in either child plot from expanding the overall patchwork beyond the
-# graphics device; each child is clipped only to its allocated column.
-p <- (wrap_elements(full = p_bars, clip = TRUE) |
-        wrap_elements(full = p_plane, clip = TRUE)) +
-  plot_layout(widths = c(1.45, 1.4)) +
-  plot_annotation(
-    title = figure_title,
-    subtitle = "Positive contributions raise LI65+ (lifespans more unequal); negative contributions lower it. Grey shading: ages above the crossover age, where an added death lowers LI65+.",
-    caption = figure_caption,
-    theme = theme(
-      plot.title = element_text(face = "bold", size = 15),
-      plot.subtitle = element_text(size = 10, colour = "#555555"),
-      plot.caption = element_text(size = 8, hjust = 0),
-      plot.margin = margin(t = 8, r = 8, b = 8, l = 60),
-      legend.position = "bottom"
-    )
-  )
+p <- p_bars
 
-stem <- file.path(out_dir, "figure3_li65_contributions")
+stem <- "figure03_li65_contributions"
 # Keep the verified regional layouts stable across graphics devices. The
 # patchwork grobs have geography-specific intrinsic widths, so use the widths
 # established by the visual QA sweep rather than relying on device defaults.
-main_png <- paste0(stem, ".png")
-main_pdf <- paste0(stem, ".pdf")
+main_png <- fpath(paste0(stem, ".png"))
+main_pdf <- fpath(paste0(stem, ".pdf"))
 default_main_width <- if (geo_level == "region") {
   switch(geo_id, Eastern = 18, Northern = 18, Western = 19, 20)
 } else {
@@ -484,15 +489,21 @@ grid.raster(main_raster, width = unit(1, "npc"), height = unit(1, "npc"),
             interpolate = TRUE)
 dev.off()
 rm(main_raster)
-fwrite(bars, paste0(stem, "_bars_data.csv"))
-fwrite(net_labels, paste0(stem, "_net_crossover_data.csv"))
-fwrite(main_axis_checks, paste0(stem, "_axis_checks.csv"))
-fwrite(plane_main, paste0(stem, "_plane_data.csv"))
-fwrite(endpoint_check, paste0(stem, "_plane_endpoint_checks.csv"))
-writeLines(
-  "SSP2 includes 12 Swiss cities with within-age-band mortality-shape warnings. The maximum decline is 11.09%.",
-  paste0(stem, "_caveats.txt")
+fwrite(bars, fpath(paste0(stem, "_bars_data.csv")))
+fwrite(net_labels, fpath(paste0(stem, "_net_crossover_data.csv")))
+fwrite(main_axis_checks, fpath(paste0(stem, "_axis_checks.csv")))
+fwrite(plane_main, fpath(paste0(stem, "_plane_data.csv")))
+fwrite(endpoint_check, fpath(paste0(stem, "_plane_endpoint_checks.csv")))
+caveat_lines <- c(
+  "SSP2 includes 12 Swiss cities with within-age-band mortality-shape warnings. The maximum decline is 11.09%."
 )
+if (exploratory_style) {
+  caveat_lines <- c(
+    caveat_lines,
+    "Exploratory style enabled: SSP1 and SSP2 bars use 48% opacity; SSP3 bars use full opacity."
+  )
+}
+writeLines(caveat_lines, fpath(paste0(stem, "_caveats.txt")))
 
 plane_steps <- copy(plane_source)
 plane_steps[, `:=`(
@@ -578,10 +589,10 @@ step_plot <- ggplot(plane_steps, aes(x, y, colour = cause_group,
   coord_cartesian(xlim = step_x_range, ylim = step_y_range, clip = "off") +
   plot_annotation(caption = step_plane_figure_caption) &
   theme(plot.caption = element_text(size = 7, hjust = 0))
-step_stem <- file.path(out_dir, "figure3_supplement_plane_steps")
-ggsave(paste0(step_stem, ".png"), step_plot, width = 10, height = 8, units = "in", dpi = 300)
-ggsave(paste0(step_stem, ".pdf"), step_plot, width = 10, height = 8, units = "in", device = cairo_pdf)
-fwrite(plane_steps, paste0(step_stem, "_data.csv"))
+step_stem <- "figure03_supplement_plane_steps"
+ggsave(fpath(paste0(step_stem, ".png")), step_plot, width = 10, height = 8, units = "in", dpi = 300)
+ggsave(fpath(paste0(step_stem, ".pdf")), step_plot, width = 10, height = 8, units = "in", device = cairo_pdf)
+fwrite(plane_steps, fpath(paste0(step_stem, "_data.csv")))
 
 five_range <- make_bars(range_levels, collapse = FALSE)
 five_net <- five_range[, .(value = sum(value)), by = .(ssp, ssp_label, age_band, age_index, interval)]
@@ -670,18 +681,18 @@ message(
   paste(format(five_limits, digits = 6), collapse = " to ")
 )
 print(five_axis_checks)
-five_stem <- file.path(out_dir, "figure3_supplement_five_ranges")
-ggsave(paste0(five_stem, ".png"), five_plot, width = 15, height = 9, units = "in", dpi = 300)
-ggsave(paste0(five_stem, ".pdf"), five_plot, width = 15, height = 9, units = "in", device = cairo_pdf)
-fwrite(five_range, paste0(five_stem, "_bars_data.csv"))
-fwrite(five_net, paste0(five_stem, "_net_data.csv"))
-fwrite(five_axis_checks, paste0(five_stem, "_axis_checks.csv"))
+five_stem <- "figure03_supplement_five_ranges"
+ggsave(fpath(paste0(five_stem, ".png")), five_plot, width = 15, height = 9, units = "in", dpi = 300)
+ggsave(fpath(paste0(five_stem, ".pdf")), five_plot, width = 15, height = 9, units = "in", device = cairo_pdf)
+fwrite(five_range, fpath(paste0(five_stem, "_bars_data.csv")))
+fwrite(five_net, fpath(paste0(five_stem, "_net_data.csv")))
+fwrite(five_axis_checks, fpath(paste0(five_stem, "_axis_checks.csv")))
 writeLines(
   "SSP2 includes 12 Swiss cities with within-age-band mortality-shape warnings. The maximum decline is 11.09%.",
-  paste0(five_stem, "_caveats.txt")
+  fpath(paste0(five_stem, "_caveats.txt"))
 )
 writeLines(
   "SSP2 includes 12 Swiss cities with within-age-band mortality-shape warnings. The maximum decline is 11.09%.",
-  paste0(step_stem, "_caveats.txt")
+  fpath(paste0(step_stem, "_caveats.txt"))
 )
-message("Saved Figure 3 and supplements to ", out_dir)
+message("Saved Figure 3 and supplements for ", geo_id, " under ", figure_root)

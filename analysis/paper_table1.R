@@ -2,11 +2,24 @@
 
 ################################################################################
 # Paper Table 1 and supplement tables S1-S4.
+# Requires: Parts 00-04 for all SSPs and pooled geographies; data/city_results.csv;
+# <batch>/ssp<SSP>/<city>/demography/00_demography_single_age.csv;
+# <batch>/ssp<SSP>/<city>/<GCM>/01_attribution_grouped.csv; and
+# <batch>/geographies/ssp<SSP>/<level>/<id>/03_master_table.csv and Part 04
+# decomposition files. Sources analysis/decade_decomposition.R.
+# Produces: TABLE1_DIR Table 1, Simon layout, S1-S4 CSV, HTML, PDF and checks;
+# TABLE1_SCRATCH caches and per-GCM calculations.
+# How to run: BATCH_ROOT=results/europe/heatsplit_20261013 \
+#   TABLE1_DIR=results/paper_output_new/table1 \
+#   TABLE1_SCRATCH=results/paper_output_new/table1_scratch \
+#   TABLE1_STAGE=all TABLE1_CORES=16 Rscript analysis/paper_table1.R
+# Notes: SSP1 replacement and SSP1/SSP2 shape-check bypasses are exploratory;
+#   see the caveats in README.md. PDF rendering also requires LibreOffice.
 # Presentation only: reads completed Part 00-04 outputs. It never writes into
 # the batch root. Stages (TABLE1_STAGE): gcm_time, gcm, build, test, all.
 #   gcm_time  time one per-GCM case (all 35 pooled geographies, SSP3)
 #   gcm       pooled per-GCM decompositions for the 35 geographies, SSP1-3
-#   build     Table 1, S1-S4 (CSV, HTML, PDF) in TABLE1_DIR
+#   build     Table 1, Simon layout CSV and S1-S4 in TABLE1_DIR
 #   test      checks on the built table
 # Run from the repository root: Rscript analysis/paper_table1.R
 ################################################################################
@@ -35,6 +48,20 @@ gcm_names <- c(
   "EC_Earth3", "EC_Earth3_Veg_LR", "GFDL_ESM4", "IITM_ESM", "INM_CM4_8",
   "INM_CM5_0", "IPSL_CM6A_LR", "KACE_1_0_G", "MIROC6", "MPI_ESM1_2_HR",
   "MPI_ESM1_2_LR", "MRI_ESM2_0", "NorESM2_LM", "NorESM2_MM"
+)
+simon_layout_metric_columns <- c(
+  "temperature_risk_change_85_89_with_cc_pct",
+  "temperature_risk_change_85_89_without_cc_pct",
+  "cold_risk_change_85_89_with_cc_pct",
+  "cold_risk_change_85_89_without_cc_pct",
+  "heat_risk_change_85_89_with_cc_pct",
+  "heat_risk_change_85_89_without_cc_pct",
+  "heat_share_temp_risk_85plus_with_cc_2020_24_pct",
+  "heat_share_temp_risk_85plus_with_cc_2095_99_pct",
+  "episodic_share_heat_risk_85plus_with_cc_2020_24_pct",
+  "episodic_share_heat_risk_85plus_with_cc_2095_99_pct",
+  "sustained_share_heat_risk_85plus_with_cc_2020_24_pct",
+  "sustained_share_heat_risk_85plus_with_cc_2095_99_pct"
 )
 scenario_labels <- c(`1` = "SSP1\u20132.6", `2` = "SSP2\u20134.5", `3` = "SSP3\u20137.0")
 minus <- function(x) gsub("-", "\u2212", x, fixed = TRUE)
@@ -481,6 +508,60 @@ ensemble_row <- function(ssp_value, level, id, decade_with, decade_without) {
   life_schedule <- end[branch == "with_cc", .(year, age, cause = range, mx = deaths_component / pop)][
     , .(mx = mean(mx)), by = .(age, cause)]
   risk <- lifetime_risk(life_schedule)
+  age_risk_source <- master[
+    year %in% c(start_years, end_years) & age %between% c(85L, 89L)
+  ]
+  age_risk_source[, period := fifelse(year %in% start_years, "start", "end")]
+  age_risk_population <- unique(
+    age_risk_source[, .(branch, period, year, age, pop)]
+  )[, .(population = sum(pop)), by = .(branch, period)]
+  age_risk_groups <- list(
+    temperature = temp_causes,
+    cold = cold_causes,
+    heat = heat_causes
+  )
+  age_risk_an <- rbindlist(lapply(names(age_risk_groups), function(group) {
+    age_risk_source[range %chin% age_risk_groups[[group]],
+                    .(an = sum(an)), by = .(branch, period)][
+                      , risk_group := group]
+  }))
+  age_risk <- merge(age_risk_an, age_risk_population,
+                    by = c("branch", "period"))
+  age_risk[, rate := an / population]
+  age_risk_wide <- dcast(
+    age_risk, risk_group ~ branch + period, value.var = "rate"
+  )
+  if (nrow(age_risk_wide) != length(age_risk_groups) ||
+      any(!is.finite(unlist(age_risk_wide[, -1L])))) {
+    stop("Incomplete age-85-89 risk rates for ", level, "/", id, ".",
+         call. = FALSE)
+  }
+  age_risk_change <- function(group, branch) {
+    row <- age_risk_wide[risk_group == group]
+    100 * (row[[paste(branch, "end", sep = "_")]] /
+             row[[paste(branch, "start", sep = "_")]] - 1)
+  }
+  older <- master[
+    branch == "with_cc" & age >= 85L &
+      year %in% c(start_years, end_years)
+  ]
+  older[, period := fifelse(year %in% start_years, "start", "end")]
+  older_shares <- older[, .(
+    temperature_risk = sum(an[range %chin% temp_causes]),
+    heat_risk = sum(an[range %chin% heat_causes]),
+    episodic_heat_risk = sum(an[range == "ExtrHeat"]),
+    sustained_heat_risk = sum(an[range %chin% c("NormExtrHeat", "ExtrHeat")])
+  ), by = period]
+  if (nrow(older_shares) != 2L || any(older_shares$temperature_risk <= 0) ||
+      any(older_shares$heat_risk <= 0)) {
+    stop("Incomplete age-85+ risk shares for ", level, "/", id, ".",
+         call. = FALSE)
+  }
+  older_shares[, `:=`(
+    heat_share_temp_risk_pct = 100 * heat_risk / temperature_risk,
+    episodic_share_heat_risk_pct = 100 * episodic_heat_risk / heat_risk,
+    sustained_share_heat_risk_pct = 100 * sustained_heat_risk / heat_risk
+  )]
   metric_input <- master[year %in% c(start_years, end_years), .(
     branch, year, age, cause = range, deaths = deaths_component, pop
   )]
@@ -501,6 +582,26 @@ ensemble_row <- function(ssp_value, level, id, decade_with, decade_without) {
   data.table(
     ssp = ssp_value, level = level, id = id, geography = master$label[1],
     lifetime_risk_pct = risk[["all"]], lifetime_risk_heat_pct = risk[["heat"]],
+    temperature_risk_change_85_89_with_cc_pct =
+      age_risk_change("temperature", "with_cc"),
+    temperature_risk_change_85_89_without_cc_pct =
+      age_risk_change("temperature", "without_cc"),
+    cold_risk_change_85_89_with_cc_pct = age_risk_change("cold", "with_cc"),
+    cold_risk_change_85_89_without_cc_pct = age_risk_change("cold", "without_cc"),
+    heat_risk_change_85_89_with_cc_pct = age_risk_change("heat", "with_cc"),
+    heat_risk_change_85_89_without_cc_pct = age_risk_change("heat", "without_cc"),
+    heat_share_temp_risk_85plus_with_cc_2020_24_pct =
+      older_shares[period == "start", heat_share_temp_risk_pct],
+    heat_share_temp_risk_85plus_with_cc_2095_99_pct =
+      older_shares[period == "end", heat_share_temp_risk_pct],
+    episodic_share_heat_risk_85plus_with_cc_2020_24_pct =
+      older_shares[period == "start", episodic_share_heat_risk_pct],
+    episodic_share_heat_risk_85plus_with_cc_2095_99_pct =
+      older_shares[period == "end", episodic_share_heat_risk_pct],
+    sustained_share_heat_risk_85plus_with_cc_2020_24_pct =
+      older_shares[period == "start", sustained_share_heat_risk_pct],
+    sustained_share_heat_risk_85plus_with_cc_2095_99_pct =
+      older_shares[period == "end", sustained_share_heat_risk_pct],
     persistent_share_pct = 100 * without_total / with_total,
     general_pct = share(c("ModCold", "ModHeat")),
     sustained_pct = share("NormExtrHeat"),
@@ -661,6 +762,21 @@ f1 <- function(x) {
   ifelse(is.na(x), "n/a", minus(out))
 }
 
+signed_percent <- function(x) {
+  rounded <- round(x)
+  sign <- ifelse(rounded > 0, "+", "")
+  paste0(sign, minus(sprintf("%.0f", rounded)), "%")
+}
+
+percent_trend <- function(start, end) {
+  paste0(minus(sprintf("%.0f", round(start))), "% \u2192 ",
+         minus(sprintf("%.0f", round(end))), "%")
+}
+
+percent_pair <- function(with_cc, without_cc) {
+  paste0(signed_percent(with_cc), " (", signed_percent(without_cc), ")")
+}
+
 heat_cell <- function(tab) {
   ifelse(tab$hidden, "n/a", sprintf("%s (%s to %s)", f1(tab$heat_ratio_median_pct),
                                     f1(tab$heat_ratio_min_pct), f1(tab$heat_ratio_max_pct)))
@@ -762,7 +878,64 @@ write_table <- function(ft, stem) {
 build_stage <- function() {
   dir.create(table_dir, recursive = TRUE, showWarnings = FALSE)
   tab <- collect_table()
-  fwrite(tab, file.path(table_dir, "table1_full.csv"))
+  fwrite(
+    tab[, setdiff(names(tab), simon_layout_metric_columns), with = FALSE],
+    file.path(table_dir, "table1_full.csv")
+  )
+  main <- copy(tab[level %in% c("europe", "region")])
+  main[, exploratory := ssp %in% 1:2]
+  main[, scenario := scenario_labels[as.character(ssp)]]
+  main[, `Temperature-related risk change, age 85-89 (%)` := percent_pair(
+    temperature_risk_change_85_89_with_cc_pct,
+    temperature_risk_change_85_89_without_cc_pct
+  )]
+  main[, `Cold risk change, age 85-89 (%)` := percent_pair(
+    cold_risk_change_85_89_with_cc_pct,
+    cold_risk_change_85_89_without_cc_pct
+  )]
+  main[, `Heat risk change, age 85-89 (%)` := percent_pair(
+    heat_risk_change_85_89_with_cc_pct,
+    heat_risk_change_85_89_without_cc_pct
+  )]
+  main[, `Heat share of temperature-related risk, age 85+ (%)` :=
+         percent_trend(
+           heat_share_temp_risk_85plus_with_cc_2020_24_pct,
+           heat_share_temp_risk_85plus_with_cc_2095_99_pct
+         )]
+  main[, `Episodic share of heat risk, age 85+ (%)` := percent_trend(
+    episodic_share_heat_risk_85plus_with_cc_2020_24_pct,
+    episodic_share_heat_risk_85plus_with_cc_2095_99_pct
+  )]
+  main[, `Sustained share of heat risk, age 85+ (%)` := percent_trend(
+    sustained_share_heat_risk_85plus_with_cc_2020_24_pct,
+    sustained_share_heat_risk_85plus_with_cc_2095_99_pct
+  )]
+  main[, geography_order := match(
+    geography, c("Europe", "Eastern Europe", "Northern Europe",
+                 "Southern Europe", "Western Europe")
+  )]
+  setorder(main, ssp, geography_order)
+  simon_layout <- main[, .(
+    ssp, scenario, level, id, geography, exploratory,
+    `Lifetime risk from 65y in 2095-99 (%)` = lifetime_risk_pct,
+    `Temperature-related risk change, age 85-89 (%)`,
+    `Cold risk change, age 85-89 (%)`,
+    `Heat risk change, age 85-89 (%)`,
+    `Heat share of temperature-related risk, age 85+ (%)`,
+    `Episodic share of heat risk, age 85+ (%)`,
+    `Sustained share of heat risk, age 85+ (%)`
+  )]
+  fwrite(simon_layout, file.path(table_dir, "table1_simon_layout.csv"))
+  writeLines(c(
+    "Table 1 Simon layout definitions",
+    paste("Source batch:", batch_root),
+    "Lifetime risk is taken unchanged from table1_full.csv.",
+    "Age 85-89 risk changes are 100 * (2095-99 pooled ENSEMBLE AN/person-years / 2020-24 AN/person-years - 1), by climate branch.",
+    "Heat share is 85+ heat AN / 85+ all-temperature AN, with climate change.",
+    "Episodic share is 85+ ExtrHeat AN / 85+ all-heat AN.",
+    "Sustained share is 85+ (NormExtrHeat + ExtrHeat) AN / 85+ all-heat AN.",
+    "The layout contains Europe and four regions for all three SSPs."
+  ), file.path(table_dir, "table1_simon_layout_definitions.txt"), useBytes = TRUE)
   header <- c("Scenario", "Region", "Lifetime risk from 65 (%)", "Persistent share (%)", "General tier (%)",
               "Sustained tier (%)", "Heat erosion ratio (%)", "All-temperature erosion ratio (%)", "Net drag from")
   sup <- c("", "", "a", "b", "c", "d", "e", "f", "g")
@@ -811,6 +984,37 @@ build_stage <- function() {
 
 test_stage <- function() {
   tab <- fread(file.path(table_dir, "table1_full.csv"))
+  simon_layout <- fread(file.path(table_dir, "table1_simon_layout.csv"))
+  simon_keys <- c("ssp", "level", "id")
+  lifetime_check <- merge(
+    simon_layout[, c(simon_keys, "Lifetime risk from 65y in 2095-99 (%)"),
+                  with = FALSE],
+    tab[level %in% c("europe", "region"),
+        c(simon_keys, "lifetime_risk_pct"), with = FALSE],
+    by = simon_keys, all = TRUE
+  )
+  simon_layout_checks <- data.table(
+    check = c("15 scenario-geography rows", "lifetime risk matches table1_full.csv"),
+    observed = c(
+      as.character(nrow(simon_layout)),
+      as.character(nrow(lifetime_check) == 15L &&
+                     all(lifetime_check[["Lifetime risk from 65y in 2095-99 (%)"]] ==
+                           lifetime_check$lifetime_risk_pct))
+    ),
+    expected = c("15", "TRUE"),
+    status = c(
+      if (nrow(simon_layout) == 15L &&
+          uniqueN(simon_layout, by = simon_keys) == 15L) "PASS" else "FAIL",
+      if (nrow(lifetime_check) == 15L &&
+          all(lifetime_check[["Lifetime risk from 65y in 2095-99 (%)"]] ==
+                lifetime_check$lifetime_risk_pct)) "PASS" else "FAIL"
+    )
+  )
+  fwrite(simon_layout_checks, file.path(table_dir, "table1_simon_layout_checks.csv"))
+  if (any(simon_layout_checks$status != "PASS")) {
+    stop("Simon Table 1 layout checks failed; see table1_simon_layout_checks.csv.",
+         call. = FALSE)
+  }
   per <- fread(file.path(scratch_dir, "per_gcm_pooled_results.csv"))
   check_results <- list()
   check <- function(cond, msg) {

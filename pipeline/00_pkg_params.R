@@ -8,6 +8,12 @@
 #   follow Masselot & Gasparrini (2025) 01_pkg_params.R wherever the same
 #   quantity is used.
 #
+# Requires: R packages listed below and data/city_results.csv.
+# Produces: shared parameters and output directories in the calling session.
+# How to run: source("pipeline/00_pkg_params.R") from the repository root.
+# Notes: SSP1 replacement and SSP1/SSP2 shape-check bypasses are exploratory;
+#   see the caveats in README.md.
+#
 ################################################################################
 
 #------------------------

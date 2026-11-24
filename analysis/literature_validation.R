@@ -1,5 +1,23 @@
 #!/usr/bin/env Rscript
 
+################################################################################
+# Validate pooled results against Masselot, Lloyd and Eurostat reference data.
+# Requires: completed Parts 00-04, BATCH_ROOT/collected/object1_dataset.parquet,
+# BATCH_ROOT/shared/prep_data.RData, city/GCM fixture checks and pooled Part 04
+# levels; data/city_results.csv and data/coefs.csv;
+# MASSELOT_RESULTS_ROOT/{eu_period,region_period}.parquet;
+# LLOYD_ROOT/outdata/{deaths_input_100.rds,lt_CI_65plus.rds,
+# Cause_contrib_LE_by_age_group.csv,Cause_contrib_LI_by_age_group.csv}; and
+# VALIDATION_ROOT/eurostat_le65.csv from analysis/fetch_eurostat_le65.py.
+# Produces: reference comparisons, checks and README under VALIDATION_ROOT.
+# How to run: BATCH_ROOT=results/europe/heatsplit_20261013 \
+#   MASSELOT_RESULTS_ROOT=/home/SHARED/Climate-Change-Effect-on-Europe/data/masselot/results_parquet \
+#   LLOYD_ROOT=/home/SHARED/Reciprocal-Lloyd \
+#   VALIDATION_ROOT=results/paper_validation_new Rscript analysis/literature_validation.R
+# Notes: SSP1 replacement and SSP1/SSP2 shape-check bypasses are exploratory;
+#   see the caveats in README.md.
+################################################################################
+
 # Evidence-backed validation gate for the LE/LI paper. Outputs are written to a
 # new result root; canonical pipeline results and reference files are read only.
 

@@ -1,4 +1,15 @@
 #!/usr/bin/env bash
+# Run 500 ERF draws for all 19 GCMs for one SSP.
+# Requires: completed Parts 00-04, BATCH_ROOT/shared/prep_data.RData,
+# BATCH_ROOT/ssp<SSP>/<city>/demography/00_demography_{grouped,single_age}.csv,
+# data/tmeanproj.gz.parquet, data/city_results.csv and
+# references/2025-masselot-data/coef_simu.gz.parquet.
+# Produces: UNCERTAINTY_ROOT/part01/ssp<SSP>/<GCM>/, checks, logs and manifest.
+# How to run: BATCH_ROOT=results/europe/heatsplit_20261013 \
+#   UNCERTAINTY_ROOT=results/paper_uncertainty_new \
+#   analysis/run_erf_uncertainty.sh 3 19
+# Notes: SSP2 uses the exploratory shape-check bypass; SSP1 is not supported
+#   by this runner. See README.md.
 set -euo pipefail
 
 # Run one SSP across the 19 GCMs. Each GCM process pools all cities before

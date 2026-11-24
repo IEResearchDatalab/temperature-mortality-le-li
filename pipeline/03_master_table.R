@@ -6,6 +6,15 @@
 # lifespan inequality at older ages in European cities
 #
 # Pipeline Part 03: Dataset for analysis (Lloyd et al. 2024, Fig S1)
+#   Requires: city Part 00 demography and Part 02 02_single_age_an.csv;
+#   geography mode requires <batch>/collected/object1_dataset.parquet.
+#   Produces: city and <batch>/geographies/ssp<SSP>/<level>/<id>/
+#   03_master_table.csv; collect mode writes collected/object1_dataset.parquet.
+#   How to run: BUILD_PREP_CACHE=1 N_HORIUCHI=400 \
+#   BATCH_ROOT_OVERRIDE=results/europe/sensitivities/paper_run \
+#   ./run_pipeline.sh 3 all 32
+#   Notes: SSP1 replacement and SSP1/SSP2 shape-check bypasses are exploratory.
+#
 #   Produces the same population-and-deaths-by-cause table at every geography.
 #   City mode combines Parts 00 and 02. Collect mode builds Object 1 from all
 #   completed cities. Geography mode sums city population and deaths by cause

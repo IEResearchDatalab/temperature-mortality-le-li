@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Fetch the small Eurostat LE65 validation slice as a reproducible CSV."""
+"""Fetch the Eurostat LE65 validation slice.
+
+Requires: Python requests and the Eurostat demo_mlexpec API; no pipeline run.
+Produces: the OUTPUT.csv consumed by analysis/literature_validation.R.
+How to run: python analysis/fetch_eurostat_le65.py results/paper_validation_new/eurostat_le65.csv
+Notes: the API is queried at run time, so record the retrieval date for review.
+"""
 
 import csv
 import itertools

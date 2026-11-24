@@ -1,5 +1,17 @@
 #!/usr/bin/env Rscript
 
+################################################################################
+# Helpers for life tables and decade-level Horiuchi decompositions.
+# Requires: Part 03 pooled <batch>/geographies/ssp<SSP>/<level>/<id>/
+# 03_master_table.csv; R packages data.table and DemoDecomp.
+# Produces: decade_decomposition_<level>_<id>[_without_cc].csv and checks in
+# the output directory requested by the caller.
+# How to run: Rscript -e 'source("analysis/decade_decomposition.R")'
+#   Figure 2 and Table 1 source and call this file; it is not a batch stage.
+# Notes: SSP1 replacement and SSP1/SSP2 shape-check bypasses are exploratory;
+#   see the caveats in README.md.
+################################################################################
+
 suppressPackageStartupMessages({
   library(data.table)
   library(DemoDecomp)
