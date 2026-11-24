@@ -50,6 +50,11 @@ ssp_set <- as.integer(strsplit(Sys.getenv("SSP_SET", "1,2,3"), ",", fixed = TRUE
 if (!length(ssp_set) || anyNA(ssp_set) || any(!ssp_set %in% 1:3)) {
   stop("SSP_SET must be a comma-separated subset of 1,2,3.", call. = FALSE)
 }
+exploratory_style_value <- Sys.getenv("EXPLORATORY_SCENARIO_STYLE", "0")
+if (!exploratory_style_value %in% c("0", "1")) {
+  stop("EXPLORATORY_SCENARIO_STYLE must be 0 or 1.", call. = FALSE)
+}
+exploratory_style <- exploratory_style_value == "1"
 
 check_stack_order <- function() {
   test <- data.table(
@@ -139,10 +144,15 @@ if (any(abs(net_check$value - net_check$displayed_sum) > 1e-12) ||
 plot_stacked <- function(data, xvar, net, x_label, y_label, show_strips, limits = NULL) {
   positive <- data[value > 0]
   negative <- data[value < 0]
+  bar_mapping <- if (exploratory_style) {
+    aes(x = .data[[xvar]], y = value, fill = cause, alpha = ssp_label)
+  } else {
+    aes(x = .data[[xvar]], y = value, fill = cause)
+  }
   base <- ggplot() +
-    geom_col(data = positive, aes(x = .data[[xvar]], y = value, fill = cause),
+    geom_col(data = positive, mapping = bar_mapping,
              width = 0.82, position = position_stack(reverse = FALSE)) +
-    geom_col(data = negative, aes(x = .data[[xvar]], y = value, fill = cause),
+    geom_col(data = negative, mapping = bar_mapping,
              width = 0.82, position = position_stack(reverse = TRUE)) +
     geom_point(data = net, aes(x = .data[[xvar]], y = value, shape = "Cold and heat together"),
                inherit.aes = FALSE, size = 2.2, colour = "black") +
@@ -173,6 +183,12 @@ plot_stacked <- function(data, xvar, net, x_label, y_label, show_strips, limits 
       legend.position = "bottom"
     )
   if (!is.null(limits)) base <- base + coord_cartesian(ylim = limits)
+  if (exploratory_style) {
+    base <- base + scale_alpha_manual(
+      values = c("SSP1–2.6" = 0.48, "SSP2–4.5" = 0.48, "SSP3–7.0" = 1),
+      guide = "none"
+    )
+  }
   base
 }
 
@@ -219,7 +235,14 @@ p_second <- plot_stacked(
 
 p <- (p_when | p_first | p_second) +
   plot_layout(widths = c(1.8, 1, 1), guides = "collect") +
-  plot_annotation(theme = theme(legend.position = "bottom"))
+  plot_annotation(
+    caption = if (exploratory_style) {
+      "SSP1 and SSP2 are exploratory; lighter bars mark these scenarios."
+    } else {
+      NULL
+    },
+    theme = theme(legend.position = "bottom")
+  )
 
 stem <- "figure02_le65_contributions"
 ggsave(fpath(paste0(stem, ".png")), p, width = 18, height = 11, units = "in", dpi = 300)
@@ -228,8 +251,14 @@ fwrite(when, fpath(paste0(stem, "_panel_a_data.csv")))
 fwrite(first$data, fpath(paste0(stem, "_panel_b_data.csv")))
 fwrite(second$data, fpath(paste0(stem, "_panel_c_data.csv")))
 fwrite(net_check, fpath(paste0(stem, "_diamond_checks.csv")))
-writeLines(
-  "SSP2 includes 12 Swiss cities with within-age-band mortality-shape warnings. The maximum decline is 11.09%.",
-  fpath(paste0(stem, "_caveats.txt"))
+caveat_lines <- c(
+  "SSP2 includes 12 Swiss cities with within-age-band mortality-shape warnings. The maximum decline is 11.09%."
 )
+if (exploratory_style) {
+  caveat_lines <- c(
+    caveat_lines,
+    "Exploratory style enabled: SSP1 and SSP2 bars use 48% opacity; SSP3 bars use full opacity."
+  )
+}
+writeLines(caveat_lines, fpath(paste0(stem, "_caveats.txt")))
 message("Saved Figure 2 for ", geo_id, " under ", figure_root)

@@ -96,9 +96,6 @@ for ssp in 1 2 3; do
   for city in "${cities[@]}"; do
     require_file "$BATCH_ROOT/ssp${ssp}/$city/demography/00_demography_single_age.csv"
     require_file "$ATTRIBUTION_ROOT/ssp${ssp}/$city/ENSEMBLE/01_attribution_grouped.csv"
-    if [ "$ssp" -eq 2 ]; then
-      require_file "$BATCH_ROOT/ssp2/$city/ENSEMBLE/03_master_table.csv"
-    fi
     for gcm in "${gcms[@]}"; do
       require_file "$BATCH_ROOT/ssp${ssp}/$city/$gcm/01_attribution_grouped.csv"
       require_file "$BATCH_ROOT/ssp${ssp}/$city/$gcm/checks/01_moving_heat_thresholds.csv"
