@@ -281,7 +281,10 @@ Exploratory diagnostics not used by the paper driver are in
   `SKIP_MX_PLAUSIBILITY_CHECK=1`; the replacement is not a production fix.
   The checked batch records 26,183 replaced source cells across 771 cities;
   the guard-bypass warning is present for all 854 cities, and 562 cities also
-  have a within-age-group plausibility warning.
+  have a within-age-group plausibility warning. The archived comparison
+  between `ssp1_assr09995_full_20261006` and `heatsplit_20261013` used the same
+  replacement and bypass settings; its tiny differences are a reproducibility
+  check across commits, not an estimate of either setting's effect.
 - **SSP2-4.5:** the exploratory batch includes 12 Swiss cities with the
   mortality-shape check bypassed. Inclusion does not validate their
   reconstruction. Production excludes those cities, and no complete pooled
